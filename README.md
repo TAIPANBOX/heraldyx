@@ -99,6 +99,20 @@ last mile.
 | `HERALDYX_POLL_MS` | `2000` | how often to read the log |
 | `HERALDYX_SENT` | beside the state file | the dispatch journal; empty disables recording |
 
+### Proving the SMTP path without a mail account
+
+```bash
+python3 scripts/smtp-sink.py &          # a server that answers, on :2525
+HERALDYX_SMTP_HOST=127.0.0.1:2525 HERALDYX_SMTP_FROM=box@example.com \
+HERALDYX_TO=ops@example.com ... ./bin/heraldyx --once --from-now=false
+```
+
+The sink prints the whole session and the message exactly as it arrived, so the
+protocol, the headers and the body are observed rather than asserted. It is not
+a mail server and proves nothing about deliverability; it proves that this
+client talks to something that speaks SMTP, which is the part unit tests
+cannot reach. See `VALIDATION.md` for the run.
+
 `--test-mail` sends one message and exits. Installers run it while the operator
 is still at the keyboard, because a wrong SMTP setting that surfaces a week
 later, through an alert that never arrived, is the worst failure this component

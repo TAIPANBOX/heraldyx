@@ -81,13 +81,59 @@ gate still passes with `internal/record` doing file I/O, because the rule it
 enforces is about the decision layer and about who may speak HTTP, and neither
 changed.
 
+## 2026-08-02, the SMTP client, against a server that answers
+
+The gap that had been first on the list below since this repository existed is
+closed, and it needed no cloud and no credential: a 60-line SMTP server on
+loopback, and heraldyx pointed at it with `HERALDYX_SMTP_HOST=127.0.0.1:2525`.
+
+The session, as the server saw it:
+
+```
+S: 220 sink.example.com ESMTP ready
+C: EHLO localhost
+S: 250-sink.example.com
+S: 250 SIZE 10485760
+C: MAIL FROM:<box@example.com>
+C: RCPT TO:<ops@example.com>
+C: DATA
+S: 354 End data with <CR><LF>.<CR><LF>
+S: 250 2.0.0 Ok: queued as SINK-0001
+C: QUIT
+```
+
+and the message it received, in full, headers first:
+
+```
+From: box@example.com
+To: ops@example.com
+Subject: [aws-test] run-77 is approaching its budget
+Date: Sun, 02 Aug 2026 19:20:05 +0100
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Auto-Submitted: auto-generated
+
+Run run-77 (agent agent://acme.example/biller) is approaching its budget.
+Spent $1.70 of $2.00 (85%).
+...
+Open it in your console:
+https://box.example.com/i/budget_threshold:run-77
+```
+
+So the protocol, the envelope commands, the RFC 5322 headers, the CRLF body,
+the rendered numbers and the deep link are all now observed rather than
+asserted. The journal recorded the same send as `transport: smtp`,
+`outcome: accepted`.
+
+What this does NOT establish is the last mile, which is why the list below
+still has an entry about mail.
+
 ## What has NOT been verified
 
-- **No mail has been sent to a real SMTP server from this code.** Everything
-  proven above runs through the file sender or `deliver.Compose`. The SMTP path
-  is exercised by its configuration checks only. Until a live run happens, treat
-  "heraldyx sends mail" as untested, and note that the first thing an operator
-  meets, `--test-mail`, is exactly the command that would surface it.
+- **No mail has reached a real MAILBOX.** The SMTP path itself is no longer
+  untested (see below); what remains unproven is the last mile: a provider
+  accepting the message, deliverability, and whether it lands in an inbox or a
+  spam folder. That needs a real mail account and cannot be established here.
 - **Nothing has run on Kubernetes.** Since 2026-08-02 the manifest, the
   single-pod egress NetworkPolicy and the compose service all exist (in
   `stack-k8s`, `stack-single` and `stack-up`, since this repo ships no

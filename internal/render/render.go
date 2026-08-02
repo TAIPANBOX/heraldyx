@@ -216,6 +216,41 @@ func Event(cfg Config, e event.Event, now time.Time) Message {
 	return Message{Subject: head, Body: b.String()}
 }
 
+// Test renders the message an installer sends while the operator is still at
+// the keyboard.
+//
+// It is written here, as its own message, rather than by handing [Event] a
+// synthetic event. That was the first version, and a live install showed what
+// it produces: `--test-mail` invented an event of type `install_check`, which
+// no catalog entry describes, so the very first mail a box ever sends read
+// "raised an event this build does not have a description for", followed by a
+// deep link to an incident that does not exist. The one message whose entire
+// job is to say "this works" said something is wrong with it.
+//
+// It carries no link for the same reason. There is nothing to open: no event
+// happened. A link to the console root would be a link the operator cannot use
+// yet on a box they are still installing, and a link to a fabricated id is
+// worse than none.
+func Test(cfg Config, now time.Time) Message {
+	body := strings.Join([]string{
+		"This box can send you mail. Nothing is wrong: an installer sent this so",
+		"that a mistake in the address or the mail server is found now, rather than",
+		"through an alert that never arrives.",
+		"",
+		"What a real one looks like: what happened and its numbers, what this box",
+		"already did about it, what happens if nobody acts, and one link into your",
+		"own console. Never a button that acts from inside the mail.",
+		"",
+		"Sent by heraldyx at " + stampTime(now) + ". Nothing else in your install",
+		"depends on this message arriving.",
+		"",
+	}, "\n")
+	return Message{
+		Subject: fmt.Sprintf("[%s] notifications are working", boxName(cfg)),
+		Body:    body,
+	}
+}
+
 // Suppression renders the one notice sent when the hourly ceiling is holding
 // events back. It deliberately says nothing about the individual events: if
 // the mailbox is the thing under pressure, the fix is fewer messages, not a

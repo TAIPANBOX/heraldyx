@@ -19,7 +19,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
 	"github.com/TAIPANBOX/heraldyx/internal/config"
 	"github.com/TAIPANBOX/heraldyx/internal/deliver"
 	"github.com/TAIPANBOX/heraldyx/internal/record"
@@ -234,17 +233,7 @@ func sendTest(cfg config.Config, rendercfg render.Config, sender deliver.Sender)
 	if reason := cfg.Why(); reason != "" {
 		return fmt.Errorf("cannot send a test message: %s", reason)
 	}
-	now := time.Now()
-	m := render.Event(rendercfg, event.Event{
-		Schema:   event.SchemaV02,
-		TS:       now.UTC().Format(time.RFC3339),
-		Source:   "heraldyx",
-		Type:     "install_check",
-		AgentID:  "agent://example/installer",
-		Severity: event.SeverityInfo,
-	}, now)
-	m.Subject = fmt.Sprintf("[%s] notifications are working", cfg.Box)
-	m.Body = "This box can send you mail.\n\n" + m.Body
+	m := render.Test(rendercfg, time.Now())
 	if err := sender.Send(cfg.To, m); err != nil {
 		return fmt.Errorf("test message: %w", err)
 	}

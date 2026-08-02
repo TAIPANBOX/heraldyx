@@ -130,8 +130,21 @@ func run(args []string) error {
 	if reason := cfg.Why(); reason != "" {
 		log.Printf("notifications are OFF: %s. This process will watch and stay healthy, and send nothing.", reason)
 	} else {
-		log.Printf("watching %d path(s), floor %s, dedup %s, ceiling %d/hour, sending via %s to %d recipient(s)",
-			len(cfg.EventPaths), cfg.MinSeverity, cfg.DedupWindow, cfg.MaxPerHour, sender.Name(), len(cfg.To))
+		// The RESOLVED files, not the configured paths. A configured path is
+		// usually a directory, and counting those says "watching 1 path(s)"
+		// whether that directory holds two event logs or none at all. The one
+		// line an operator reads to check this process is connected to
+		// anything has to distinguish those two, because they look identical
+		// from here afterwards: an empty log and a quiet fleet both produce
+		// silence. Found on a live cluster where nothing had ever written an
+		// event, and this line said the same as always.
+		files := cfg.ResolveEventFiles()
+		log.Printf("watching %d file(s) under %d path(s), floor %s, dedup %s, ceiling %d/hour, sending via %s to %d recipient(s)",
+			len(files), len(cfg.EventPaths), cfg.MinSeverity, cfg.DedupWindow, cfg.MaxPerHour, sender.Name(), len(cfg.To))
+		if len(files) == 0 {
+			log.Printf("no event log exists yet under %s: this process will keep looking, and until one appears there is nothing to notify about",
+				strings.Join(cfg.EventPaths, ", "))
+		}
 	}
 
 	stop := make(chan os.Signal, 1)

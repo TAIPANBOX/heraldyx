@@ -35,6 +35,10 @@ type Config struct {
 	StatePath string
 	// MailFile, when set, writes messages to a file instead of sending them.
 	MailFile string
+	// SentPath is the dispatch journal: one chained agent-event per message
+	// sent. Defaults to `sent.ndjson` beside the state file, since both are
+	// this process's own writable place. Empty disables recording.
+	SentPath string
 
 	SMTPHost string
 	SMTPFrom string
@@ -57,6 +61,7 @@ func FromEnv() (Config, error) {
 		ConsoleURL:   os.Getenv("HERALDYX_CONSOLE_URL"),
 		StatePath:    getenv("HERALDYX_STATE", "/var/lib/stack/heraldyx/state.json"),
 		MailFile:     os.Getenv("HERALDYX_MAIL_FILE"),
+		SentPath:     os.Getenv("HERALDYX_SENT"),
 		SMTPHost:     os.Getenv("HERALDYX_SMTP_HOST"),
 		SMTPFrom:     os.Getenv("HERALDYX_SMTP_FROM"),
 		SMTPUser:     os.Getenv("HERALDYX_SMTP_USER"),
@@ -65,6 +70,13 @@ func FromEnv() (Config, error) {
 		MaxPerHour:   integer("HERALDYX_MAX_PER_HOUR", 20),
 		DigestPeriod: hours("HERALDYX_DIGEST_HOURS", 24),
 		PollInterval: millis("HERALDYX_POLL_MS", 2000),
+	}
+	// Defaulted here rather than in the struct literal above, because it is
+	// derived from another field the operator may have set. An explicitly
+	// empty HERALDYX_SENT stays empty: turning recording off is a choice, and
+	// a default that quietly reinstates it is not a default.
+	if _, set := os.LookupEnv("HERALDYX_SENT"); !set {
+		c.SentPath = filepath.Join(filepath.Dir(c.StatePath), "sent.ndjson")
 	}
 	if len(c.EventPaths) == 0 {
 		return c, fmt.Errorf("config: HERALDYX_EVENTS is empty, there is nothing to watch")

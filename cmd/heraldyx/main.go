@@ -22,6 +22,7 @@ import (
 	"github.com/TAIPANBOX/agent-stack-go/event"
 	"github.com/TAIPANBOX/heraldyx/internal/config"
 	"github.com/TAIPANBOX/heraldyx/internal/deliver"
+	"github.com/TAIPANBOX/heraldyx/internal/record"
 	"github.com/TAIPANBOX/heraldyx/internal/render"
 	"github.com/TAIPANBOX/heraldyx/internal/rule"
 	"github.com/TAIPANBOX/heraldyx/internal/state"
@@ -81,6 +82,16 @@ func run(args []string) error {
 		return sendTest(cfg, rendercfg, sender)
 	}
 
+	journal, err := record.Open(cfg.SentPath)
+	if err != nil {
+		// Not fatal, and the ordering matters: mail that goes out unrecorded is
+		// worse than mail that does not go out only in an argument nobody is
+		// having yet, while an alert that never left because an audit file
+		// could not be opened is a failure happening right now.
+		log.Printf("record: %v", err)
+	}
+	defer journal.Close()
+
 	snap, err := state.Load(cfg.StatePath)
 	if err != nil {
 		// Reported, not fatal: see state.Load.
@@ -107,7 +118,7 @@ func run(args []string) error {
 	defer tick.Stop()
 
 	for {
-		cycle(cfg, rcfg, rendercfg, w, snap, sender, time.Now())
+		cycle(cfg, rcfg, rendercfg, w, snap, sender, journal, time.Now())
 		snap.Offsets = w.Offsets()
 		if err := state.Save(cfg.StatePath, snap); err != nil {
 			log.Printf("state: %v", err)
@@ -133,16 +144,36 @@ func cycle(
 	w *watch.Watcher,
 	snap *state.Snapshot,
 	sender deliver.Sender,
+	journal *record.Journal,
 	now time.Time,
 ) {
 	w.SetPaths(cfg.ResolveEventFiles())
+	// The agent a digest or a suppression notice is attributed to. Neither is
+	// about one agent, but the envelope requires an id and this stack never
+	// invents one, so they are attributed to the last agent that actually
+	// caused a message this cycle. When nothing did, they are not recorded and
+	// the gap is counted, which is the honest outcome rather than a record
+	// filed under a made-up identity.
+	var lastAgent, lastRun string
 	for _, e := range w.Poll() {
 		switch rule.Decide(rcfg, snap.Rule, e, now) {
 		case rule.Notify:
-			send(cfg, sender, render.Event(rendercfg, e, now))
+			lastAgent, lastRun = e.AgentID, e.RunID
+			deliver_(cfg, sender, journal, render.Event(rendercfg, e, now), record.Dispatch{
+				Kind:    record.KindAlert,
+				AgentID: e.AgentID,
+				RunID:   e.RunID,
+				About:   rule.Key(e),
+			}, now)
 		case rule.Suppressed:
 			if n, due := snap.Rule.TakeSuppressionNotice(time.Hour, now); due {
-				send(cfg, sender, render.Suppression(rendercfg, n, now))
+				lastAgent, lastRun = e.AgentID, e.RunID
+				deliver_(cfg, sender, journal, render.Suppression(rendercfg, n, now), record.Dispatch{
+					Kind:    record.KindSuppression,
+					AgentID: e.AgentID,
+					RunID:   e.RunID,
+					About:   fmt.Sprintf("suppressed:%d", n),
+				}, now)
 			}
 		case rule.Digest, rule.Drop:
 			// Nothing now. The digest goes out on its own schedule below.
@@ -152,21 +183,46 @@ func cycle(
 	if cfg.DigestPeriod > 0 && snap.Rule.DigestDue(cfg.DigestPeriod, now) {
 		since := time.UnixMilli(snap.Rule.DigestSince)
 		entries := snap.Rule.TakeDigest(now)
-		send(cfg, sender, render.Digest(rendercfg, entries, since, now))
+		deliver_(cfg, sender, journal, render.Digest(rendercfg, entries, since, now), record.Dispatch{
+			Kind:    record.KindDigest,
+			AgentID: lastAgent,
+			RunID:   lastRun,
+			About:   fmt.Sprintf("digest:%d", len(entries)),
+		}, now)
 	}
 }
 
-// send delivers one message, or does nothing at all when this box has no
-// recipients. A delivery failure is logged and dropped: the alternative is a
-// retry queue in a process whose whole value is being simple, and the event
-// itself is already recorded in a log that outlives this process.
-func send(cfg config.Config, sender deliver.Sender, m render.Message) {
+// deliver_ sends one message and records that it did, or does neither when
+// this box has no recipients.
+//
+// Both halves live behind ONE condition on purpose. The first version of this
+// had them apart, and on a box with no address configured it sent nothing and
+// then wrote an audit record saying a message had been accepted. A trail that
+// claims a notification nobody received is worse than no trail: it is the
+// exact thing an operator would later hold up as proof.
+//
+// A delivery failure is logged, recorded as a refusal, and dropped. The
+// alternative is a retry queue inside a process whose whole value is being
+// simple, and the event that caused this is already in a log that outlives it.
+func deliver_(
+	cfg config.Config,
+	sender deliver.Sender,
+	journal *record.Journal,
+	m render.Message,
+	d record.Dispatch,
+	now time.Time,
+) {
 	if len(cfg.To) == 0 {
 		return
 	}
-	if err := sender.Send(cfg.To, m); err != nil {
+	err := sender.Send(cfg.To, m)
+	if err != nil {
 		log.Printf("delivery failed (%s): %v", sender.Name(), err)
 	}
+	d.To = cfg.To
+	d.Transport = sender.Name()
+	d.Err = err
+	journal.Sent(d, now)
 }
 
 func sendTest(cfg config.Config, rendercfg render.Config, sender deliver.Sender) error {

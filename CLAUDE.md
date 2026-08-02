@@ -89,9 +89,33 @@ an absent invariant.
    suppresses, edits or delays an event in the log, because it cannot: it only
    reads. Any future feature that would need to write to the event log belongs
    in another component.
-   *(not enforced; held by invariant 3's gate as a side effect, since writing
-   would need I/O in a layer that has none)*
-7. **A partial line is never consumed.** The writer on the other side is
+   *(gate: the read-only mount of the event volume in every deployment. That
+   used to read "held by invariant 3's gate as a side effect, since writing
+   would need I/O in a layer that has none", and stage 4 made that false:
+   `internal/record` writes a file. It writes heraldyx's OWN file, which is
+   invariant 9, and what still holds THIS one is the mount.)*
+7. **A message that was sent is written down, and a message that was NOT sent
+   is not.** Delivery and recording sit behind ONE condition, in
+   `deliver_`. They were apart once, and on a box with no address configured
+   that combination sent nothing and then recorded that a message had been
+   accepted. A trail claiming a notification nobody received is worse than no
+   trail: it is the exact thing an operator would later hold up as proof.
+   *(test: `TestNoRecipientsMeansNoRecord`, `TestASentMessageLeavesARecord`)*
+8. **The record says "accepted", never "delivered".** What this process
+   observes is a mail server taking the message. Whether it reached a mailbox,
+   a spam folder or a silently discarding filter is not knowable from here, and
+   an audit trail that claims the stronger fact is worse than one that admits
+   the weaker one.
+   *(test: `TestTheOutcomeIsAcceptedNotDelivered`)*
+9. **The dispatch journal is heraldyx's own file, never the shared event log.**
+   The planes' log is mounted read-only and that mount is invariant 6 made
+   physical. Writing the record there would mean mounting it writable, which
+   hands a compromised notifier the ability to corrupt the trail it reads. The
+   journal is the same envelope, the same library and the same verifier, on
+   this process's own volume.
+   *(gate: the read-only mount in the deployments; test:
+   `TestTheJournalIsAChainAndTheVerifierAgrees`)*
+10. **A partial line is never consumed.** The writer on the other side is
    appending, and half an event parsed now is an event lost forever. The read
    offset only advances past a newline.
    *(test: `TestAPartialLineIsNotConsumed`)*
@@ -102,10 +126,18 @@ This list is debt, and it is here to stay visible rather than to be tidy.
 
 **Held by this file alone: invariant 6.**
 
-- Invariant 6 is the one that would be worth a structural check the day this
-  process gains any writing capability at all. Today it is held indirectly:
-  the decision layer has no I/O imports, so there is nothing to write with.
-  That is a side effect of another rule, and side effects are not gates.
+Shipping the journal INTO the record plane (trailryx) is not done here and is
+not an oversight. Its network ingest is OTLP over HTTP with a protobuf body,
+and speaking it would mean an HTTP client and a protobuf encoder inside the one
+process in the box with a way out, which is what invariant 3's gate exists to
+prevent. This process produces a sealed, verifiable record; a component allowed
+to make that hop ships it.
+
+- Invariant 6's holder is a deployment fact rather than anything in this
+  repository: the event volume is mounted read-only in the cluster manifest and
+  in the compose file. A checkout of this repo alone cannot enforce it, and the
+  honest reading is that somebody editing a manifest could remove it without
+  any test here noticing.
 - The `catalog` in `internal/render` maps an event type to what it MEANS. An
   entry that is wrong is not caught by anything: the tests check that every
   mail has the two explanatory lines, not that those lines are true of the

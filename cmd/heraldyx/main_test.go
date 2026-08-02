@@ -161,6 +161,85 @@ func TestTestMailFailsWhenNothingIsConfigured(t *testing.T) {
 	}
 }
 
+// The record half of stage 4, end to end: a message that goes out leaves one
+// chained agent-event behind it.
+func TestASentMessageLeavesARecord(t *testing.T) {
+	dir := t.TempDir()
+	events := filepath.Join(dir, "tokenfuse.ndjson")
+	sent := filepath.Join(dir, "sent.ndjson")
+	write(t, events, ndjson("budget_exhausted", "critical", "run-7", ""))
+	env(t, map[string]string{
+		"HERALDYX_EVENTS":    events,
+		"HERALDYX_TO":        "ops@example.com",
+		"HERALDYX_MAIL_FILE": filepath.Join(dir, "mail.txt"),
+		"HERALDYX_STATE":     filepath.Join(dir, "state.json"),
+		"HERALDYX_SENT":      sent,
+	})
+	if err := run([]string{"--once", "--from-now=false"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := read(t, sent)
+	if strings.Count(got, "\n") != 1 {
+		t.Fatalf("want exactly one record:\n%s", got)
+	}
+	for _, want := range []string{
+		`"source":"heraldyx"`,
+		`"type":"alert_sent"`,
+		`"agent_id":"agent://acme/biller"`,
+		`"about":"budget_exhausted:run-7"`,
+		`"outcome":"accepted"`,
+		`"ops@example.com"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %s in:\n%s", want, got)
+		}
+	}
+}
+
+// The bug this test exists for: a box with no address sends nothing, so it
+// must record nothing. An audit trail claiming a notification nobody received
+// is worse than no trail at all.
+func TestNoRecipientsMeansNoRecord(t *testing.T) {
+	dir := t.TempDir()
+	events := filepath.Join(dir, "tokenfuse.ndjson")
+	sent := filepath.Join(dir, "sent.ndjson")
+	write(t, events, ndjson("budget_exhausted", "critical", "run-7", ""))
+	env(t, map[string]string{
+		"HERALDYX_EVENTS": events,
+		"HERALDYX_TO":     "",
+		"HERALDYX_STATE":  filepath.Join(dir, "state.json"),
+		"HERALDYX_SENT":   sent,
+	})
+	if err := run([]string{"--once", "--from-now=false"}); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(sent); err == nil && len(strings.TrimSpace(string(b))) != 0 {
+		t.Fatalf("a record was written for a message that was never sent:\n%s", b)
+	}
+}
+
+// Recording defaults on, beside the state file, without being asked for.
+func TestTheJournalDefaultsToBesideTheState(t *testing.T) {
+	dir := t.TempDir()
+	events := filepath.Join(dir, "tokenfuse.ndjson")
+	write(t, events, ndjson("budget_exhausted", "critical", "run-7", ""))
+	env(t, map[string]string{
+		"HERALDYX_EVENTS":    events,
+		"HERALDYX_TO":        "ops@example.com",
+		"HERALDYX_MAIL_FILE": filepath.Join(dir, "mail.txt"),
+		"HERALDYX_STATE":     filepath.Join(dir, "sub", "state.json"),
+	})
+	// HERALDYX_SENT deliberately unset above.
+	os.Unsetenv("HERALDYX_SENT")
+	if err := run([]string{"--once", "--from-now=false"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sub", "sent.ndjson")); err != nil {
+		t.Fatalf("no journal beside the state file: %v", err)
+	}
+}
+
 func ndjson(kind, severity, run, extra string) string {
 	return `{"schema":"taipanbox.dev/agent-event/v0.2","ts":"2026-08-02T14:00:00Z",` +
 		`"source":"tokenfuse","type":"` + kind + `","agent_id":"agent://acme/biller",` +
@@ -176,6 +255,7 @@ func env(t *testing.T, kv map[string]string) {
 		"HERALDYX_CONSOLE_URL", "HERALDYX_STATE", "HERALDYX_MAIL_FILE",
 		"HERALDYX_SMTP_HOST", "HERALDYX_SMTP_FROM", "HERALDYX_SMTP_USER", "HERALDYX_SMTP_PASS",
 		"HERALDYX_DEDUP_SECONDS", "HERALDYX_MAX_PER_HOUR", "HERALDYX_DIGEST_HOURS", "HERALDYX_POLL_MS",
+		"HERALDYX_SENT",
 	} {
 		t.Setenv(k, kv[k])
 	}

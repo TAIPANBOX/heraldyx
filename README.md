@@ -97,6 +97,7 @@ last mile.
 | `HERALDYX_MAX_PER_HOUR` | `20` | ceiling on immediate messages, `0` for none |
 | `HERALDYX_DIGEST_HOURS` | `24` | how often the below-the-floor summary goes out, `0` for never |
 | `HERALDYX_POLL_MS` | `2000` | how often to read the log |
+| `HERALDYX_SENT` | beside the state file | the dispatch journal; empty disables recording |
 
 `--test-mail` sends one message and exits. Installers run it while the operator
 is still at the keyboard, because a wrong SMTP setting that surfaces a week
@@ -121,6 +122,37 @@ message, and mail security gateways prefetch links, which would fire the action
 before a human read the sentence next to it. The link opens your console at
 that event; you sign in there, and destructive actions ask for your passkey.
 
+## What it wrote to you, afterwards
+
+Every message this process sends leaves one record behind it: an agent-event in
+the shared envelope, appended to a hash-chained NDJSON file
+(`sent.ndjson`, beside the state file). One line per message, carrying who was
+written to, what it was about, which transport carried it, and whether that
+transport took it.
+
+```bash
+agent-conform -chain sent.ndjson
+```
+
+(`agent-conform` is the checker in
+[agent-stack-go](https://github.com/TAIPANBOX/agent-stack-go), the same module
+that writes the chain.)
+
+Two words in there are chosen carefully.
+
+**"accepted", not "delivered".** What this process observes is a mail server
+taking the message. Whether it reached a mailbox, a spam folder or a filter
+that drops it silently is not knowable from here.
+
+**The journal names the recipients**, unlike the mail itself, which carries
+identifiers and numbers only. The difference is where each one goes: mail
+leaves your perimeter through a server we do not control, and this file never
+leaves your box. An operator proving they were told needs the address, and "one
+recipient, hash a3f2" proves nothing to anybody.
+
+It is written to heraldyx's own volume, never into the planes' event log. That
+log is mounted read-only here on purpose, and it stays that way.
+
 ## What it does not do
 
 - **It does not queue.** A message that cannot be delivered is logged and
@@ -129,6 +161,11 @@ that event; you sign in there, and destructive actions ask for your passkey.
   v0.1; the ceiling and the digest are the only volume controls.
 - **It does not talk to any plane.** No polling of an API, no credential, no
   client. If a fact is not in the event log, heraldyx does not know it.
+- **It does not ship the journal to the record plane.** Trailryx's ingest is
+  OTLP over HTTP with a protobuf body, and this is the one process in the box
+  with a way out: an HTTP client and a protobuf encoder do not belong in it.
+  What is written here is already sealed and already verifiable, so shipping it
+  is transport, and transport belongs to something else.
 - **It does not carry history.** A first run starts at the end of the log,
   because a month of old incidents arriving at once is how an operator learns
   to filter this sender to trash. Pass `--from-now=false` to read from the

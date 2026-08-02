@@ -21,6 +21,8 @@ import (
 
 	"github.com/TAIPANBOX/heraldyx/internal/config"
 	"github.com/TAIPANBOX/heraldyx/internal/deliver"
+	"github.com/TAIPANBOX/heraldyx/internal/fleet"
+	"github.com/TAIPANBOX/heraldyx/internal/passport"
 	"github.com/TAIPANBOX/heraldyx/internal/record"
 	"github.com/TAIPANBOX/heraldyx/internal/render"
 	"github.com/TAIPANBOX/heraldyx/internal/rule"
@@ -30,6 +32,11 @@ import (
 
 // version is stamped at build time (see the Makefile).
 var version = "dev"
+
+// aroundLimit is how many other agents an alert names. Long enough to show a
+// pattern, short enough that the alert is still about the thing it is about:
+// an operator who has to scroll a mail at 3am reads none of it.
+const aroundLimit = 6
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -101,6 +108,18 @@ func run(args []string) error {
 		// Reported, not fatal: see state.Load.
 		log.Printf("state: %v", err)
 	}
+	// Who is answerable, when a passport directory says so. Optional by
+	// design: without it an alert simply carries no owner line rather than a
+	// guessed one.
+	passports := passport.Open(cfg.PassportsPath)
+	if passports.Enabled() {
+		log.Printf("passports: %d owner(s) known from %s", passports.Count(time.Now()), cfg.PassportsPath)
+	}
+	// What else is going on. In memory only: this is what this process has seen
+	// since it started, and a fresh process says less rather than describing a
+	// fleet from before a rollout.
+	picture := fleet.New()
+
 	w := watch.New(cfg.ResolveEventFiles(), snap.Offsets)
 	if *fromNow && len(snap.Offsets) == 0 {
 		if err := w.SkipToEnd(); err != nil {
@@ -122,7 +141,7 @@ func run(args []string) error {
 	defer tick.Stop()
 
 	for {
-		cycle(cfg, rcfg, rendercfg, w, snap, sender, journal, time.Now())
+		cycle(cfg, rcfg, rendercfg, w, snap, sender, journal, passports, picture, time.Now())
 		snap.Offsets = w.Offsets()
 		if err := state.Save(cfg.StatePath, snap); err != nil {
 			log.Printf("state: %v", err)
@@ -149,6 +168,8 @@ func cycle(
 	snap *state.Snapshot,
 	sender deliver.Sender,
 	journal *record.Journal,
+	passports *passport.Directory,
+	picture *fleet.Picture,
 	now time.Time,
 ) {
 	w.SetPaths(cfg.ResolveEventFiles())
@@ -160,10 +181,19 @@ func cycle(
 	// filed under a made-up identity.
 	var lastAgent, lastRun string
 	for _, e := range w.Poll() {
+		// Every event feeds the picture, including the ones nobody is mailed
+		// about: an agent quietly at 80% of its budget is exactly the context
+		// that makes a different agent's alert worth reading.
+		picture.Note(e, now)
 		switch rule.Decide(rcfg, snap.Rule, e, now) {
 		case rule.Notify:
 			lastAgent, lastRun = e.AgentID, e.RunID
-			deliver_(cfg, sender, journal, render.Event(rendercfg, e, now), record.Dispatch{
+			around := make([]render.Around, 0, aroundLimit)
+			for _, a := range picture.Around(e.AgentID, now, aroundLimit) {
+				around = append(around, render.Around{Label: a.Kind.Label(), AgentID: fleet.Short(a.AgentID), What: a.What})
+			}
+			owner := passports.OwnerOf(e.AgentID, now)
+			deliver_(cfg, sender, journal, render.Event(rendercfg, e, now, owner, around), record.Dispatch{
 				Kind:    record.KindAlert,
 				AgentID: e.AgentID,
 				RunID:   e.RunID,

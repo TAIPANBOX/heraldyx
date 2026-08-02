@@ -29,6 +29,15 @@ import (
 	"github.com/TAIPANBOX/heraldyx/internal/rule"
 )
 
+// Around is one line of "and what else is going on", passed in by the caller
+// rather than gathered here, because this package does no I/O and holds no
+// state (see `scripts/one-way-out.sh`).
+type Around struct {
+	Label   string
+	AgentID string
+	What    string
+}
+
 // Config is what the renderer needs that an event cannot tell it.
 type Config struct {
 	// Box is the operator's own name for this deployment, used in the subject
@@ -185,7 +194,15 @@ var fallback = phrasing{
 }
 
 // Event renders one event into a message.
-func Event(cfg Config, e event.Event, now time.Time) Message {
+//
+// `owner` is empty unless a passport directory was configured and had one: this
+// process never invents an owner, and a mail with no owner line is better than
+// a mail naming the wrong team at three in the morning.
+//
+// `around` is what else the notifier has seen recently. An alert about one
+// agent is a fact without a situation, and the first thing the operator wants
+// to know is whether this is one bad night or the first of several.
+func Event(cfg Config, e event.Event, now time.Time, owner string, around []Around) Message {
 	subject := rule.Subject(e)
 	p, known := catalog[e.Type]
 	if !known {
@@ -205,8 +222,30 @@ func Event(cfg Config, e event.Event, now time.Time) Message {
 	fmt.Fprintf(&b, "\nWhat this box already did: %s\n", p.did)
 	fmt.Fprintf(&b, "\nIf nobody acts: %s\n", p.next)
 
-	if link := Link(cfg, e); link != "" {
-		fmt.Fprintf(&b, "\nOpen it in your console:\n%s\n", link)
+	if owner != "" {
+		fmt.Fprintf(&b, "\nAnswerable for it: %s\n", owner)
+	}
+
+	if len(around) > 0 {
+		b.WriteString("\nAround it right now:\n")
+		for _, a := range around {
+			fmt.Fprintf(&b, "  %-14s  %-40s  %s\n", a.Label, a.AgentID, a.What)
+		}
+	}
+
+	// Three coordinates, never an action. The console is where a freeze or a
+	// kill happens, after a sign-in and, for the destructive ones, a passkey.
+	// A link that acted would be an unauthenticated capability held by whoever
+	// forwards the message, and mail gateways prefetch links.
+	if base := consoleBase(cfg); base != "" {
+		b.WriteString("\nOpen in your console:\n")
+		fmt.Fprintf(&b, "  what happened   %s\n", Link(cfg, e))
+		if e.AgentID != "" {
+			fmt.Fprintf(&b, "  this agent      %s   (freeze, kill)\n", AgentLink(cfg, e.AgentID))
+		}
+		if owner != "" {
+			fmt.Fprintf(&b, "  its owner       %s   (everything they run)\n", OwnerLink(cfg, owner))
+		}
 	} else {
 		b.WriteString("\nNo console address is configured for this box, so this mail carries no link.\n")
 	}
@@ -294,12 +333,37 @@ func Digest(cfg Config, entries []rule.DigestEntry, since time.Time, now time.Ti
 // so a link built here names the same thing the console already stores. It is
 // a GET at a view. There is no action in it, and there is no token in it.
 func Link(cfg Config, e event.Event) string {
-	base := strings.TrimRight(cfg.ConsoleURL, "/")
+	base := consoleBase(cfg)
 	if base == "" {
 		return ""
 	}
 	return base + "/i/" + url.PathEscape(rule.Key(e))
 }
+
+// AgentLink opens the agent's own card, which is where freeze and kill are.
+func AgentLink(cfg Config, agentID string) string {
+	base := consoleBase(cfg)
+	if base == "" || agentID == "" {
+		return ""
+	}
+	return base + "/a/" + url.PathEscape(agentID)
+}
+
+// OwnerLink opens who is answerable, and what else they run.
+//
+// The OWNER, which agent-passport SPEC.md section 4 makes a required passport
+// field, and not the `on_behalf_of` principal, which says who the agent was
+// acting for at that moment. Often the same human, not always, and the two are
+// a different blast radius for a stop (Yurii, 2026-08-02).
+func OwnerLink(cfg Config, owner string) string {
+	base := consoleBase(cfg)
+	if base == "" || owner == "" {
+		return ""
+	}
+	return base + "/o/" + url.PathEscape(owner)
+}
+
+func consoleBase(cfg Config) string { return strings.TrimRight(cfg.ConsoleURL, "/") }
 
 // describe names the actor in the first sentence: the run when there is one,
 // with its agent, else the agent alone.

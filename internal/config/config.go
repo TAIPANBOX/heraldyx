@@ -35,6 +35,11 @@ type Config struct {
 	StatePath string
 	// MailFile, when set, writes messages to a file instead of sending them.
 	MailFile string
+	// PassportsPath is an optional directory of agent-passport JSON, read to
+	// answer "who is answerable for this agent". Unset means alerts carry no
+	// owner line, which is the honest default: the owner lives in the passport
+	// and nothing else in this process knows it.
+	PassportsPath string
 	// SentPath is the dispatch journal: one chained agent-event per message
 	// sent. Defaults to `sent.ndjson` beside the state file, since both are
 	// this process's own writable place. Empty disables recording.
@@ -54,22 +59,23 @@ type Config struct {
 // FromEnv reads the configuration.
 func FromEnv() (Config, error) {
 	c := Config{
-		EventPaths:   splitList(getenv("HERALDYX_EVENTS", "/var/lib/stack/events")),
-		To:           splitList(os.Getenv("HERALDYX_TO")),
-		MinSeverity:  getenv("HERALDYX_MIN_SEVERITY", "high"),
-		Box:          getenv("HERALDYX_BOX", "agent stack"),
-		ConsoleURL:   os.Getenv("HERALDYX_CONSOLE_URL"),
-		StatePath:    getenv("HERALDYX_STATE", "/var/lib/stack/heraldyx/state.json"),
-		MailFile:     os.Getenv("HERALDYX_MAIL_FILE"),
-		SentPath:     os.Getenv("HERALDYX_SENT"),
-		SMTPHost:     os.Getenv("HERALDYX_SMTP_HOST"),
-		SMTPFrom:     os.Getenv("HERALDYX_SMTP_FROM"),
-		SMTPUser:     os.Getenv("HERALDYX_SMTP_USER"),
-		SMTPPass:     os.Getenv("HERALDYX_SMTP_PASS"),
-		DedupWindow:  seconds("HERALDYX_DEDUP_SECONDS", 600),
-		MaxPerHour:   integer("HERALDYX_MAX_PER_HOUR", 20),
-		DigestPeriod: hours("HERALDYX_DIGEST_HOURS", 24),
-		PollInterval: millis("HERALDYX_POLL_MS", 2000),
+		EventPaths:    splitList(getenv("HERALDYX_EVENTS", "/var/lib/stack/events")),
+		To:            splitList(os.Getenv("HERALDYX_TO")),
+		MinSeverity:   getenv("HERALDYX_MIN_SEVERITY", "high"),
+		Box:           getenv("HERALDYX_BOX", "agent stack"),
+		ConsoleURL:    os.Getenv("HERALDYX_CONSOLE_URL"),
+		StatePath:     getenv("HERALDYX_STATE", "/var/lib/stack/heraldyx/state.json"),
+		MailFile:      os.Getenv("HERALDYX_MAIL_FILE"),
+		SentPath:      os.Getenv("HERALDYX_SENT"),
+		PassportsPath: os.Getenv("HERALDYX_PASSPORTS"),
+		SMTPHost:      os.Getenv("HERALDYX_SMTP_HOST"),
+		SMTPFrom:      os.Getenv("HERALDYX_SMTP_FROM"),
+		SMTPUser:      os.Getenv("HERALDYX_SMTP_USER"),
+		SMTPPass:      os.Getenv("HERALDYX_SMTP_PASS"),
+		DedupWindow:   seconds("HERALDYX_DEDUP_SECONDS", 600),
+		MaxPerHour:    integer("HERALDYX_MAX_PER_HOUR", 20),
+		DigestPeriod:  hours("HERALDYX_DIGEST_HOURS", 24),
+		PollInterval:  millis("HERALDYX_POLL_MS", 2000),
 	}
 	// Defaulted here rather than in the struct literal above, because it is
 	// derived from another field the operator may have set. An explicitly

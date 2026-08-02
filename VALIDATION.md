@@ -128,12 +128,29 @@ asserted. The journal recorded the same send as `transport: smtp`,
 What this does NOT establish is the last mile, which is why the list below
 still has an entry about mail.
 
+## 2026-08-02, the last mile
+
+A message sent from the notifier running on a five-node Kubernetes cluster on
+AWS, through the egress NetworkPolicy, through Gmail's submission service on
+587, arrived in a real human mailbox and was read there. Yurii pasted it back
+verbatim.
+
+That is the whole chain end to end on real infrastructure: an event in the
+shared log, the rules, the renderer, the SMTP client, a real provider, an inbox.
+Nothing in it was a fixture.
+
+Worth stating precisely, because "mail works" is the kind of sentence that grows
+in the retelling: what this establishes is that ONE message, from THIS cluster,
+through THAT provider, reached ONE inbox on 2026-08-02. It says nothing about
+volume, about deliverability from a different address, or about what a corporate
+spam filter does with the hundredth one.
+
 ## What has NOT been verified
 
-- **No mail has reached a real MAILBOX.** The SMTP path itself is no longer
-  untested (see below); what remains unproven is the last mile: a provider
-  accepting the message, deliverability, and whether it lands in an inbox or a
-  spam folder. That needs a real mail account and cannot be established here.
+- **Deliverability at volume, and what a filter does with these.** One message
+  reached one inbox (see below). Whether a hundred a day from a cloud address
+  keep landing there, and what a corporate filter makes of them, is not
+  something a single send establishes.
 - **Nothing has run on Kubernetes.** Since 2026-08-02 the manifest, the
   single-pod egress NetworkPolicy and the compose service all exist (in
   `stack-k8s`, `stack-single` and `stack-up`, since this repo ships no

@@ -112,6 +112,7 @@ last mile.
 | `HERALDYX_DIGEST_HOURS` | `24` | how often the below-the-floor summary goes out, `0` for never |
 | `HERALDYX_POLL_MS` | `2000` | how often to read the log |
 | `HERALDYX_SENT` | beside the state file | the dispatch journal; empty disables recording |
+| `HERALDYX_PASSPORTS` | (empty) | a directory of agent-passport JSON, read to name who is answerable; empty means alerts carry no owner |
 
 ### Proving the SMTP path without a mail account
 
@@ -131,6 +132,45 @@ cannot reach. See `VALIDATION.md` for the run.
 is still at the keyboard, because a wrong SMTP setting that surfaces a week
 later, through an alert that never arrived, is the worst failure this component
 has.
+
+## What an alert actually says
+
+```
+[prod-box] run-42 has exhausted its budget
+
+Run run-42 (agent billing-agent) has exhausted its budget. Occurrences 3, org acme.
+
+What this box already did: Calls from this run are being refused with a hard 402.
+If nobody acts: The run cannot spend again until someone raises its budget.
+
+Answerable for it: team-finance@acme.example
+
+Around it right now:
+  near the line   pricing-agent        82% of budget
+  behaving oddly  data-crawler         behaving unlike its own history
+  behaving oddly  runbook-executor     repeating the same step (14 times)
+
+Open in your console:
+  what happened   https://box/i/budget_exhausted:run-42
+  this agent      https://box/a/billing-agent            (freeze, kill)
+  its owner       https://box/o/team-finance@acme.example (everything they run)
+```
+
+**"Around it right now"** is built from the same event log this process already
+reads, so it costs no new input and cannot be stale in a way the alert is not.
+It lives in memory only: this is what the notifier has seen since it started,
+and a fresh process says less rather than describing a fleet from before a
+rollout. Every phrase in it comes from an event's TYPE and its numeric fields,
+never from text a producer wrote.
+
+**"Answerable for it"** comes from the agent's passport, not from the event: the
+envelope carries `agent_id` and `on_behalf_of`, and neither is the owner.
+`HERALDYX_PASSPORTS` is optional and unset by default, and an agent with no
+passport gets no owner line. This process does not invent one.
+
+**The three links** are the three things an operator wants at two in the
+morning, and all three are views. The action happens in the console after a
+sign-in, and a destructive one after a passkey.
 
 ## What is in the mail, and what is not
 

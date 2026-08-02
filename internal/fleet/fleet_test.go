@@ -135,3 +135,38 @@ func TestAnEventWithNoAgentIsIgnored(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// A budget that is GONE is not a budget being approached. The two get
+// different labels because the operator's next move differs: one agent needs a
+// decision before it stops, the other has stopped and its work is failing now.
+// Found in a real alert, where a stopped agent was listed under "near the
+// line" beside one genuinely at 82%.
+func TestAnExhaustedBudgetIsOverTheLineNotNearIt(t *testing.T) {
+	p := New()
+	p.Note(ev("budget_exhausted", "stopped", nil), t0)
+	got := p.Around("", t0, 5)
+	if len(got) != 1 || got[0].Kind != OverTheLine {
+		t.Fatalf("%+v", got)
+	}
+	if got[0].Kind.Label() != "over the line" {
+		t.Fatalf("label: %q", got[0].Kind.Label())
+	}
+}
+
+// Order of urgency: already failing, then about to, then investigate.
+func TestTheStoppedSortFirstThenTheApproachingThenTheOdd(t *testing.T) {
+	p := New()
+	p.Note(ev("sustained_loop", "zzz-odd", nil), t0)
+	p.Note(ev("budget_threshold", "mmm-near", nil), t0)
+	p.Note(ev("budget_exhausted", "aaa-over", nil), t0)
+
+	got := p.Around("", t0, 5)
+	if len(got) != 3 {
+		t.Fatalf("%+v", got)
+	}
+	for i, want := range []Kind{OverTheLine, NearTheLine, Odd} {
+		if got[i].Kind != want {
+			t.Fatalf("position %d: %+v", i, got)
+		}
+	}
+}

@@ -60,6 +60,20 @@ early warning that pages as loudly as an exhausted budget teaches its operator
 to ignore both. Lower `HERALDYX_MIN_SEVERITY` to `medium` to have it mailed as
 it happens.
 
+## Running it without building it
+
+```bash
+docker pull ghcr.io/TAIPANBOX/heraldyx:v0.1.0
+```
+
+Published on a tag, for `linux/amd64` and `linux/arm64`. **Immutable versions
+only**: there is no `:latest` and no `:main`, because "which build is running"
+has to have an answer that does not change under the operator. A moving tag is
+a deployment whose contents change without a rollout anybody recorded.
+
+Building from source still works and is what `make build` does; it is no longer
+what an install has to do.
+
 ## Try it without a mail server
 
 ```bash

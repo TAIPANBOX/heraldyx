@@ -101,12 +101,19 @@ an absent invariant.
    accepted. A trail claiming a notification nobody received is worse than no
    trail: it is the exact thing an operator would later hold up as proof.
    *(test: `TestNoRecipientsMeansNoRecord`, `TestASentMessageLeavesARecord`)*
-8. **The record says "accepted", never "delivered".** What this process
-   observes is a mail server taking the message. Whether it reached a mailbox,
-   a spam folder or a silently discarding filter is not knowable from here, and
-   an audit trail that claims the stronger fact is worse than one that admits
-   the weaker one.
-   *(test: `TestTheOutcomeIsAcceptedNotDelivered`)*
+8. **Never claim the stronger fact.** Two instances, one rule.
+
+   The record says "accepted", never "delivered": what this process observes is
+   a mail server taking the message, not a mailbox showing it.
+
+   And `--journal` does not report "verifies" for a single record. A chain of
+   one binds nothing, because the first record has no predecessor to hash, so
+   editing it is undetectable there. Found by running the tool against a real
+   one-record journal, editing the only line, and watching it still report a
+   good chain: correct behaviour for a hash chain, and a misleading sentence. A
+   check that cannot fail is worse than no check, because it is louder.
+   *(test: `TestTheOutcomeIsAcceptedNotDelivered`,
+   `TestASingleRecordIsNotAVerifiedChain`)*
 9. **The dispatch journal is heraldyx's own file, never the shared event log.**
    The planes' log is mounted read-only and that mount is invariant 6 made
    physical. Writing the record there would mean mounting it writable, which

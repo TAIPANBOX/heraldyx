@@ -131,7 +131,22 @@ written to, what it was about, which transport carried it, and whether that
 transport took it.
 
 ```bash
-agent-conform -chain sent.ndjson
+heraldyx --journal        # from the box, no shell needed
+agent-conform -chain sent.ndjson   # or with the estate's own checker
+```
+
+`--journal` exists because the image is distroless: there is no shell in it to
+`cat` the file with, which is the right posture for the one process with a way
+out and also means an operator would otherwise have to copy a volume out to
+read their own record. It reports and never repairs, and it exits non-zero on a
+broken chain so a deployment check can use it directly:
+
+```
+journal: /var/lib/stack/heraldyx/sent.ndjson
+records: 2 (alert 2)
+outcome: 2 accepted, 0 refused
+chain:   verifies (1 chained, 1 head(s))
+last:    2026-08-02T18:08:49Z  budget_exhausted:run-99 -> ops@example.com (accepted)
 ```
 
 (`agent-conform` is the checker in

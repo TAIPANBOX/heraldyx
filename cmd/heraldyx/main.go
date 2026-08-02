@@ -42,10 +42,11 @@ func main() {
 func run(args []string) error {
 	fs := flag.NewFlagSet("heraldyx", flag.ContinueOnError)
 	var (
-		testMail = fs.Bool("test-mail", false, "send one test message and exit (used by the installer, so a wrong mail setup is found while the operator is still at the keyboard)")
-		once     = fs.Bool("once", false, "poll once and exit, instead of running until stopped")
-		fromNow  = fs.Bool("from-now", true, "on a first run, start at the end of the event log rather than mailing its history")
-		showVer  = fs.Bool("version", false, "print the version and exit")
+		testMail  = fs.Bool("test-mail", false, "send one test message and exit (used by the installer, so a wrong mail setup is found while the operator is still at the keyboard)")
+		once      = fs.Bool("once", false, "poll once and exit, instead of running until stopped")
+		fromNow   = fs.Bool("from-now", true, "on a first run, start at the end of the event log rather than mailing its history")
+		showVer   = fs.Bool("version", false, "print the version and exit")
+		journalOn = fs.Bool("journal", false, "print what has been sent, verify the record chain, and exit non-zero if it is broken")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "heraldyx: mail the operator when an agent needs them\n\nflags:\n")
@@ -77,6 +78,10 @@ func run(args []string) error {
 		return err
 	}
 	rendercfg := render.Config{Box: cfg.Box, ConsoleURL: cfg.ConsoleURL}
+
+	if *journalOn {
+		return showJournal(cfg)
+	}
 
 	if *testMail {
 		return sendTest(cfg, rendercfg, sender)
@@ -244,6 +249,25 @@ func sendTest(cfg config.Config, rendercfg render.Config, sender deliver.Sender)
 		return fmt.Errorf("test message: %w", err)
 	}
 	fmt.Printf("test message sent to %s via %s\n", strings.Join(cfg.To, ", "), sender.Name())
+	return nil
+}
+
+// showJournal prints the dispatch record and fails when it is not intact.
+//
+// The image has no shell, deliberately, so an operator cannot read this file
+// themselves without copying a volume out. This is how they ask. It exits
+// non-zero on a broken chain so a deployment check can use it directly rather
+// than parsing prose.
+func showJournal(cfg config.Config) error {
+	st, err := record.ReadStatus(cfg.SentPath)
+	if err != nil {
+		return err
+	}
+	fmt.Print(st)
+	if !st.Ok() {
+		return fmt.Errorf("the record at %s is not intact: %d chain break(s), %d malformed line(s)",
+			st.Path, st.Breaks, st.Malformed)
+	}
 	return nil
 }
 

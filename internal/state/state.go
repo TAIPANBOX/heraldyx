@@ -78,11 +78,15 @@ func Save(path string, s *Snapshot) error {
 	defer os.Remove(tmpName)
 
 	if _, err := tmp.Write(raw); err != nil {
-		tmp.Close()
+		// The close error is deliberately discarded here and only here: the
+		// write already failed, the temp file is removed by the defer above,
+		// and reporting a close failure instead of the write failure would
+		// hide the reason this save did not happen.
+		_ = tmp.Close()
 		return fmt.Errorf("state: write: %w", err)
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("state: sync: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

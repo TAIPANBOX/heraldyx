@@ -137,11 +137,12 @@ that event; you sign in there, and destructive actions ask for your passkey.
 ## Gates
 
 ```sh
-gofmt -l .
-go vet ./...
-go test -race ./...
-./scripts/one-way-out.sh
+make gates
 ```
+
+which is `gofmt`, `go vet`, `staticcheck`, `go test -race ./...`, `gosec`,
+`govulncheck` and `./scripts/one-way-out.sh`: the same set CI runs, in the same
+order, so a green local run means a green CI run.
 
 The last one holds the architectural claim this component makes: SMTP lives in
 `internal/deliver` and nowhere else, nothing here speaks HTTP, and the layer

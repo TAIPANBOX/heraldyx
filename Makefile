@@ -2,7 +2,10 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 STATICCHECK ?= staticcheck
 
-.PHONY: build test test-race vet fmt lint staticcheck gates demo clean
+.PHONY: build test test-race vet fmt lint staticcheck gosec govulncheck gates demo clean
+
+GOSEC ?= gosec
+GOVULNCHECK ?= govulncheck
 
 build:
 	go build $(LDFLAGS) -o bin/heraldyx ./cmd/heraldyx
@@ -25,8 +28,18 @@ lint: vet staticcheck
 staticcheck:
 	@command -v $(STATICCHECK) >/dev/null 2>&1 && $(STATICCHECK) ./... || echo "staticcheck not installed; skipping (go install honnef.co/go/tools/cmd/staticcheck@latest)"
 
+gosec:
+	@command -v $(GOSEC) >/dev/null 2>&1 && $(GOSEC) -quiet ./... || echo "gosec not installed; skipping (go install github.com/securego/gosec/v2/cmd/gosec@latest)"
+
+govulncheck:
+	@command -v $(GOVULNCHECK) >/dev/null 2>&1 && $(GOVULNCHECK) ./... || echo "govulncheck not installed; skipping (go install golang.org/x/vuln/cmd/govulncheck@latest)"
+
 # Everything CI runs, in the order it runs it.
-gates: lint test-race
+#
+# gosec and govulncheck are in here because leaving them to CI cost a red build
+# on the first commit this repo ever had: a `make gates` that is quieter than
+# CI teaches you to trust it and then surprises you in public.
+gates: lint test-race gosec govulncheck
 	./scripts/one-way-out.sh
 
 # One event in, one message out, no mail server involved.

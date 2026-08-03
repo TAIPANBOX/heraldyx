@@ -158,6 +158,28 @@ an absent invariant.
    subject upstream. What holds it is that the exporter in tokenfuse counts
    skips instead, and its own invariant 6 forbids the fabrication)*
 
+12. **A limit's own notice reports the true count.** The hourly ceiling's notice
+   is sent at the END of a poll cycle, carrying everything held back since the
+   last notice, and a count stranded by the one-per-window rate limit leaves on
+   the first cycle after that window opens rather than waiting for a further
+   suppression to push it out.
+
+   Sent from inside the event loop, as it was until 2026-08-03, it reported the
+   FIRST event a burst was refused and stranded the rest: `rule.Decide` has just
+   counted that one event, so the counter is exactly 1 when the notice takes it,
+   and taking it stamps the window that blocks everything behind it. Measured on
+   30 events against a ceiling of 20: ten alerts held back, a mail saying one,
+   nine left in the state file.
+
+   A notice that understates a flood is worse than a missing one, because the
+   operator reads the small number and stops looking, during the exact event the
+   ceiling exists for. Invariant 8 says never claim the stronger fact; this is
+   that rule inverted, and it costs the same thing.
+   *(test: `TestTheSuppressionNoticeCountsTheWholeBurst`,
+   `TestAStrandedSuppressionCountLeavesOnTheNextCycle`; verified by moving the
+   take back inside the loop, which fails the first, and by making the take
+   conditional on a suppression in the same cycle, which fails the second)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

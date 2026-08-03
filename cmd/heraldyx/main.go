@@ -196,13 +196,17 @@ func cycle(
 	now time.Time,
 ) {
 	w.SetPaths(cfg.ResolveEventFiles())
-	// The agent a digest or a suppression notice is attributed to. Neither is
-	// about one agent, but the envelope requires an id and this stack never
-	// invents one, so they are attributed to the last agent that actually
-	// caused a message this cycle. When nothing did, they are not recorded and
-	// the gap is counted, which is the honest outcome rather than a record
-	// filed under a made-up identity.
+	// The agent the digest is attributed to. A digest is not about one agent,
+	// but the envelope requires an id and this stack never invents one, so it
+	// is attributed to the last agent that actually caused a message this
+	// cycle. When nothing did, it is not recorded and the gap is counted,
+	// which is the honest outcome rather than a record filed under a made-up
+	// identity.
 	var lastAgent, lastRun string
+	// And the last agent the ceiling actually HELD, which is a different
+	// question. A notice about alerts that were held back must not be recorded
+	// against an agent whose alert went out.
+	var heldAgent, heldRun string
 	for _, e := range w.Poll() {
 		// Every event feeds the picture, including the ones nobody is mailed
 		// about: an agent quietly at 80% of its budget is exactly the context
@@ -223,18 +227,46 @@ func cycle(
 				About:   rule.Key(e),
 			}, now)
 		case rule.Suppressed:
-			if n, due := snap.Rule.TakeSuppressionNotice(time.Hour, now); due {
-				lastAgent, lastRun = e.AgentID, e.RunID
-				deliver_(cfg, sender, journal, render.Suppression(rendercfg, n, now), record.Dispatch{
-					Kind:    record.KindSuppression,
-					AgentID: e.AgentID,
-					RunID:   e.RunID,
-					About:   fmt.Sprintf("suppressed:%d", n),
-				}, now)
-			}
+			// Counted by rule.Decide, told about below. The notice used to go
+			// from HERE, which meant it went on the FIRST event the ceiling
+			// refused: the counter stood at exactly 1 at that instant, and
+			// taking the notice stamped the one-per-hour window that then
+			// blocked every later event of the same burst. Measured
+			// 2026-08-03 on 30 events against a ceiling of 20: the mail said
+			// one alert had been held back, ten had, and nine sat in the state
+			// file. Understating a flood during the exact event the ceiling
+			// exists for.
+			heldAgent, heldRun = e.AgentID, e.RunID
 		case rule.Digest, rule.Drop:
 			// Nothing now. The digest goes out on its own schedule below.
 		}
+	}
+
+	// The ceiling's own notice: one per window, carrying everything held back
+	// since the last one. At the end of the cycle for the same reason the
+	// digest is, so it counts what this poll actually did rather than what its
+	// first refused event did.
+	//
+	// Taken unconditionally, not only when this cycle held something. What
+	// releases the count is the CLOCK, and a remainder that can only leave on
+	// the next suppression is a remainder nobody hears about in the ordinary
+	// ending, where the flood stops. This way it leaves on the first poll after
+	// the window opens, about two seconds later by default.
+	//
+	// When nothing was held this cycle there is no agent to file it under, and
+	// this stack does not invent one (invariant 11). The mail goes, and the
+	// journal counts the record it did not write, exactly as the digest below
+	// behaves when nothing caused a message.
+	if n, due := snap.Rule.TakeSuppressionNotice(time.Hour, now); due {
+		if heldAgent != "" {
+			lastAgent, lastRun = heldAgent, heldRun
+		}
+		deliver_(cfg, sender, journal, render.Suppression(rendercfg, n, now), record.Dispatch{
+			Kind:    record.KindSuppression,
+			AgentID: heldAgent,
+			RunID:   heldRun,
+			About:   fmt.Sprintf("suppressed:%d", n),
+		}, now)
 	}
 
 	if cfg.DigestPeriod > 0 && snap.Rule.DigestDue(cfg.DigestPeriod, now) {

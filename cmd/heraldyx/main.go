@@ -163,8 +163,12 @@ func run(args []string) error {
 	tick := time.NewTicker(cfg.PollInterval)
 	defer tick.Stop()
 
+	// How many unwritten records have already been logged. See sayUnrecorded.
+	said := 0
+
 	for {
 		cycle(cfg, rcfg, rendercfg, w, snap, sender, journal, passports, picture, time.Now())
+		said = sayUnrecorded(journal.Failures, said)
 		snap.Offsets = w.Offsets()
 		if err := state.Save(cfg.StatePath, snap); err != nil {
 			log.Printf("state: %v", err)
@@ -179,6 +183,32 @@ func run(args []string) error {
 		case <-tick.C:
 		}
 	}
+}
+
+// sayUnrecorded reports messages that went out with no record behind them, and
+// returns the count that has now been said.
+//
+// It exists because the two things that cause a missing record are invisible
+// from everywhere else. A dispatch with no agent id to file it under is not
+// recorded, because the envelope requires one and this stack does not invent
+// one (invariant 11); a chained write that failed is a journal that has stopped
+// recording. The first is a known gap in the trail and the second is a fault,
+// and an operator can act on neither one they are never told about. The mail
+// itself is unaffected in both cases, which is the whole reason this can go
+// unnoticed.
+//
+// It reports the GROWTH, not the standing count, because the journal's counter
+// is cumulative for the life of the process and this runs once per poll. A line
+// every two seconds about a gap from an hour ago is how an operator learns to
+// stop reading this process's log, which would cost more than the silence it
+// replaced.
+func sayUnrecorded(failures, said int) int {
+	if failures <= said {
+		return said
+	}
+	log.Printf("record: %d message(s) sent without a record just now, %d since this process started: no agent id to file them under, or the write failed. The mail went out either way, and the journal is short by that many.",
+		failures-said, failures)
+	return failures
 }
 
 // cycle is one pass: read what is new, decide, send. Split out so a test can

@@ -421,6 +421,112 @@ func TestAStrandedSuppressionCountLeavesOnTheNextCycle(t *testing.T) {
 	}
 }
 
+// A message that goes out with no record behind it is said out loud.
+//
+// `internal/record` describes its failure counter as "surfaced rather than
+// hidden", and until this test it was neither: `@measured` by grep on
+// 2026-08-03, nothing outside that package's own tests read `Journal.Failures`,
+// so every dispatch skipped for want of an agent id left the mail sent, the
+// trail short, and the log silent about the difference.
+//
+// The scenario is the ordinary one rather than a contrived error. A digest is
+// due in a cycle where nothing else caused a message, so there is no agent to
+// attribute it to; the envelope requires one and this stack does not invent one
+// (invariant 11), so the mail goes and the record does not. The state file is
+// seeded with a window opened more than a day ago because the alternative is a
+// test that waits twenty-four hours.
+func TestAMessageSentWithoutARecordIsReported(t *testing.T) {
+	dir := t.TempDir()
+	events := filepath.Join(dir, "tokenfuse.ndjson")
+	mail := filepath.Join(dir, "mail.txt")
+	sent := filepath.Join(dir, "sent.ndjson")
+	statePath := filepath.Join(dir, "state.json")
+
+	// A quiet log: the file exists, and nothing new is in it.
+	write(t, events, "")
+	// One condition waiting in a digest window that opened 25 hours ago, which
+	// is past the 24 hour default.
+	seedDigest(t, statePath, "policy_deny:run-1", 3, time.Now().Add(-25*time.Hour))
+
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	env(t, map[string]string{
+		"HERALDYX_EVENTS":    events,
+		"HERALDYX_TO":        "ops@example.com",
+		"HERALDYX_MAIL_FILE": mail,
+		"HERALDYX_BOX":       "prod-box",
+		"HERALDYX_STATE":     statePath,
+		"HERALDYX_SENT":      sent,
+	})
+	if err := run([]string{"--once", "--from-now=false"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The premise, asserted rather than assumed: the mail really did go, and
+	// the journal really is short by it. Without both, the log line below could
+	// pass on a run where nothing was sent at all.
+	if got := read(t, mail); !strings.Contains(got, "daily summary") {
+		t.Fatalf("the digest never went, so this test is not exercising the gap:\n%s", subjects(got))
+	}
+	if got := strings.TrimSpace(read(t, sent)); got != "" {
+		t.Fatalf("this test needs a dispatch that was NOT recorded, and one was:\n%s", got)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "1 message(s) sent without a record") {
+		t.Fatalf("a message went out unrecorded and the log never said so:\n%s", got)
+	}
+}
+
+// A gap already reported is not reported again on every poll.
+//
+// The journal's counter is cumulative for the life of the process and the
+// report runs once per cycle, which by default is every two seconds. Saying the
+// standing count rather than its growth would turn one missed record into a
+// line in the log forever, and a log that repeats itself is one an operator
+// stops reading: the same failure mode this whole component is built to avoid
+// in a mailbox.
+func TestAGapAlreadyReportedIsNotReportedAgainEveryPoll(t *testing.T) {
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	said := 0
+	// Two quiet cycles, one that misses a record, then two quiet ones again,
+	// then a cycle that misses two more.
+	for _, failures := range []int{0, 0, 1, 1, 1, 3} {
+		said = sayUnrecorded(failures, said)
+	}
+	if said != 3 {
+		t.Fatalf("the high-water mark is wrong: want 3, got %d", said)
+	}
+
+	got := out.String()
+	if n := strings.Count(got, "sent without a record"); n != 2 {
+		t.Fatalf("want one line per cycle that actually missed a record, 2 in all, got %d:\n%s", n, got)
+	}
+	if !strings.Contains(got, "1 message(s) sent without a record just now, 1 since") {
+		t.Errorf("the first gap is not reported as one message:\n%s", got)
+	}
+	if !strings.Contains(got, "2 message(s) sent without a record just now, 3 since") {
+		t.Errorf("the later gap must say what it added and what the total is:\n%s", got)
+	}
+}
+
+// seedDigest writes a state file whose digest window opened at since, so a
+// digest is due on the next cycle without anything having to wait for one.
+func seedDigest(t *testing.T, path, key string, count int, since time.Time) {
+	t.Helper()
+	snap := state.New()
+	snap.Rule.Digest[key] = count
+	snap.Rule.DigestSince = since.UnixMilli()
+	if err := state.Save(path, snap); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // subjects reduces a mail file to its subject lines, so a failure above prints
 // what was sent rather than several kilobytes of body.
 func subjects(mail string) string {

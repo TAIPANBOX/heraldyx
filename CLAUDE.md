@@ -180,6 +180,35 @@ an absent invariant.
    take back inside the loop, which fails the first, and by making the take
    conditional on a suppression in the same cycle, which fails the second)*
 
+13. **A message that went out with no record behind it is said out loud.**
+   `record.Journal` counts every dispatch it could not write, and `run` reports
+   the GROWTH of that count once per cycle, beside the `record:` and `state:`
+   lines it already prints. Two ordinary paths reach it: a dispatch with no agent
+   id to file it under, which invariant 11 forbids inventing, and a chained write
+   that failed. In both the mail goes out and only the trail is short, which is
+   the whole reason neither is visible from anywhere else.
+
+   `internal/record` has called that counter "surfaced rather than hidden" since
+   the day it was written, and until 2026-08-03 nothing outside its own tests
+   read it. A field documented as surfaced and printed nowhere is worse than an
+   absent one, because it reads as a check somebody is already doing.
+
+   The growth, not the standing total. The counter is cumulative for the life of
+   the process and this runs on every poll, so the total would put the same line
+   in the log every two seconds for a gap from an hour ago, and a log that
+   repeats itself is one an operator stops reading.
+
+   `--journal` deliberately does NOT carry the number. It is a separate
+   invocation that reads the journal FILE, and a record that was never written
+   leaves no trace in that file. Sourcing it from `state.json` instead would put
+   a number that is not in the file into `record.Status`, and would print a
+   confident zero after a fresh state volume on a box whose journal really is
+   short: invariant 8 again.
+   *(test: `TestAMessageSentWithoutARecordIsReported`,
+   `TestAGapAlreadyReportedIsNotReportedAgainEveryPoll`; verified by moving the
+   report below `--once`'s return, which fails the first, and by reporting the
+   standing count in place of the growth, which fails the second)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

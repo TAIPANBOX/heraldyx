@@ -102,7 +102,7 @@ func describe(e event.Event) (Kind, string) {
 	case "sustained_loop":
 		return Odd, "repeating the same step" + occurrences()
 	case "fanout_explosion":
-		return Odd, "driving many runs at once" + occurrences()
+		return Odd, "driving far more runs at once than usual" + occurrences()
 	case "spend_spike":
 		return Odd, "burning far faster than it usually does"
 	case "mcp_drift":

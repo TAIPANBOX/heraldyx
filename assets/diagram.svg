@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-18 -18 996 386" width="996" height="386" role="img" aria-label="heraldyx architecture: five planes append to one shared NDJSON event log, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume; the mail carries one link back into the operator's console">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-18 -18 996 386" width="996" height="386" role="img" aria-label="heraldyx architecture: four planes append to one shared NDJSON event log, which idryx also reads, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume; the mail carries one link back into the operator's console">
   <title>heraldyx: one log in, one mail out, one link back, and a sealed record of what was written</title>
   <rect x="-18" y="-18" width="996" height="386" rx="16" fill="#0A0E13"/>
   <rect x="-17.5" y="-17.5" width="995" height="385" rx="15.5" fill="none" stroke="rgba(255,255,255,.09)"/>
@@ -6,6 +6,9 @@
   <defs>
     <marker id="hx-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0 0 L8 4 L0 8 z" fill="#5A6675"/>
+    </marker>
+    <marker id="hx-read" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#3FB950"/>
     </marker>
     <marker id="hx-sky" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0 0 L8 4 L0 8 z" fill="#5BC8F5"/>
@@ -15,7 +18,7 @@
   <g font-family="ui-monospace,Menlo" text-anchor="middle">
 
     <!-- the planes that write -->
-    <text x="78" y="26" fill="#5A6675" font-size="10">the planes, already writing</text>
+    <text x="78" y="26" fill="#5A6675" font-size="10">four write, one reads</text>
     <rect x="8" y="36" width="140" height="36" rx="9" fill="#141C27" stroke="#2a3547"/>
     <text x="78" y="53" fill="#E9EFF6" font-size="11" font-weight="700">TokenFuse</text>
     <text x="78" y="66" fill="#8A97A6" font-size="10">money</text>
@@ -25,16 +28,16 @@
     <text x="78" y="110" fill="#8A97A6" font-size="10">policy</text>
 
     <rect x="8" y="124" width="140" height="36" rx="9" fill="#141C27" stroke="#2a3547"/>
-    <text x="78" y="141" fill="#E9EFF6" font-size="11" font-weight="700">Idryx</text>
-    <text x="78" y="154" fill="#8A97A6" font-size="10">identity</text>
+    <text x="78" y="141" fill="#E9EFF6" font-size="11" font-weight="700">Verdryx</text>
+    <text x="78" y="154" fill="#8A97A6" font-size="10">quality</text>
 
     <rect x="8" y="168" width="140" height="36" rx="9" fill="#141C27" stroke="#2a3547"/>
-    <text x="78" y="185" fill="#E9EFF6" font-size="11" font-weight="700">Verdryx</text>
-    <text x="78" y="198" fill="#8A97A6" font-size="10">quality</text>
+    <text x="78" y="185" fill="#E9EFF6" font-size="11" font-weight="700">Mockryx</text>
+    <text x="78" y="198" fill="#8A97A6" font-size="10">drills</text>
 
-    <rect x="8" y="212" width="140" height="36" rx="9" fill="#141C27" stroke="#2a3547"/>
-    <text x="78" y="229" fill="#E9EFF6" font-size="11" font-weight="700">Mockryx</text>
-    <text x="78" y="242" fill="#8A97A6" font-size="10">drills</text>
+    <rect x="8" y="212" width="140" height="36" rx="9" fill="#141C27" stroke="#3FB950"/>
+    <text x="78" y="229" fill="#E9EFF6" font-size="11" font-weight="700">Idryx</text>
+    <text x="78" y="242" fill="#3FB950" font-size="10">reads, never writes</text>
 
     <text x="78" y="268" fill="#5A6675" font-size="10">no credential here is</text>
     <text x="78" y="281" fill="#5A6675" font-size="10">held by heraldyx</text>
@@ -44,7 +47,7 @@
     <path d="M152 98 L172 98" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
     <path d="M152 142 L172 142" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
     <path d="M152 186 L172 186" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
-    <path d="M152 230 L172 230" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
+    <path d="M172 230 L152 230" stroke="#3FB950" stroke-width="1.2" marker-end="url(#hx-read)" fill="none"/>
 
     <!-- the shared log -->
     <rect x="176" y="36" width="106" height="212" rx="11" fill="#10161F" stroke="#2a3547"/>

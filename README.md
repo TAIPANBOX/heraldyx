@@ -9,7 +9,7 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/stage-v0.1%20(mail)-success.svg)
 
-<img src="assets/diagram.svg" alt="heraldyx architecture: five planes append to one shared NDJSON event log, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
+<img src="assets/diagram.svg" alt="heraldyx architecture: four planes append to one shared NDJSON event log which idryx also reads, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
 
 </div>
 
@@ -40,13 +40,16 @@ small enough to state in a sentence.
 flowchart LR
   TF["TokenFuse: money"] --> LOG[("shared event log<br/>NDJSON, one line per event")]
   WX["Wardryx: policy"] --> LOG
-  ID["Idryx: identity"] --> LOG
   VX["Verdryx: quality"] --> LOG
   MX["Mockryx: drills"] --> LOG
   LOG -->|"reads, never writes"| H["heraldyx"]
-  H -->|"SMTP"| M["the operator's mailbox"]
-  M -.->|"one link, a view not an action"| C["Genaryx console<br/>sign in, then act"]
+  LOG -->|"reads, never writes"| ID["Idryx: the identity graph"]
+  H -->|"SMTP"| M["your mailbox"]
+  M -.->|"one link, a view and never an action"| C["Genaryx console<br/>sign in, then act"]
 ```
+
+Four planes write and two read. Idryx is the other reader: it loads the same
+log to build an identity graph, and like heraldyx it never writes to it.
 
 Every plane already speaks one envelope
 ([agent-passport](https://github.com/TAIPANBOX/agent-passport) SPEC.md 6), so
@@ -71,7 +74,7 @@ and what it is not.
 
 | You get mail | Examples |
 |---|---|
-| immediately | `budget_exhausted`, `run_killed`, `policy_deny`, `dlp_block`, `sustained_loop`, `behavior_anomaly`, `quality_drift`, `sim_finding` |
+| immediately | `budget_exhausted`, `run_killed`, `policy_deny`, `dlp_block`, `sustained_loop`, `taint_block`, `quality_drift`, `sim_finding` |
 | in the daily summary | `budget_threshold` and everything else below the floor, including levels this build has never heard of |
 | never | anything you did not configure a recipient for, and anything about a whole organisation rather than one agent |
 
@@ -114,11 +117,18 @@ for, and the link still opens the console at it.
 | `approval_unanswered` | is still waiting for a human decision nobody has made |
 | `approval_timeout` | presented an approval that had already expired |
 | `identity_mismatch` | presented a credential that may not speak as the agent it claimed |
-| `behavior_anomaly` | is behaving unlike its own history |
-| `excessive_privilege` | holds more access than it uses |
+| `behavior_anomaly` | is behaving unlike its own history **(nothing raises this today)** |
+| `excessive_privilege` | holds more access than it uses **(nothing raises this today)** |
 | `mcp_drift` | is talking to an MCP tool that changed under its pinned lock |
 | `quality_drift` | is producing worse output than its baseline |
 | `sim_finding` | failed a rehearsal |
+
+**Two of them are not raised by anything today.** `behavior_anomaly` and
+`excessive_privilege` are concepts of the identity plane, and idryx has no event
+writer at all: it reads the same log to build its graph and answers through its
+own API. Their entries stay because the wire types are registered and a future
+producer should land on a correct sentence rather than the fallback. No mail
+carries them, so no table here promises one.
 
 Nothing can check that an entry is TRUE, which is why they are audited against
 the producing plane's own code rather than its README. Four of the seventeen

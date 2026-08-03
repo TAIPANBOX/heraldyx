@@ -145,6 +145,56 @@ through THAT provider, reached ONE inbox on 2026-08-02. It says nothing about
 volume, about deliverability from a different address, or about what a corporate
 spam filter does with the hundredth one.
 
+## 2026-08-02, on a live Kubernetes cluster
+
+A five-node cluster on AWS, plus a three-node cluster on GCP, plus a single box
+and an external machine acting as an SMTP receiver. All torn down.
+
+**What it established, after it found three things first.**
+
+The headline is the last one: **three real alerts, raised by the money plane's
+own detectors, rendered here, accepted by a real mail server, with the dispatch
+journal chain verifying afterwards.** That is this process doing its whole job
+on real infrastructure rather than on a fixture.
+
+Getting there needed three defects fixed, and each one is worth keeping because
+none was findable by reading code.
+
+**The notifications plane had no input at all.** The cloud plane, where the
+detectors live, ran with its event exporter off and wrote incidents nowhere:
+they reached the console stream and the plane's own API and stopped. So heraldyx
+read an empty directory and said nothing, correctly and uselessly. It was
+invisible because the log file **existed**, with the right owner and zero bytes,
+created by the gateway at startup. An empty journal looks exactly like a calm
+fleet. Fixed in the money plane, which now writes its own file rather than
+appending to the gateway's.
+
+**The state volume was unwritable from the first day**: `root:root 0755` against
+a process running as uid 65532. Nothing surfaced it while there was nothing to
+write; the first real event turned it into `state: temp file: permission denied`
+every two seconds. Left alone it would have broken invariant 5 silently, so
+every rollout would re-send the same incidents, which is how an operator learns
+to filter this sender to trash. Fixed with `fsGroup: 65532` in the deployment,
+which the other three manifests in that repo already had.
+
+**The startup line counted configured paths, not journals.** `watching 1 path(s)`
+printed the same whether the directory held two logs or none, and that is the
+one line an operator reads to check the process is attached to anything. It hid
+the first defect for an hour.
+
+**The egress matrix, twelve directions, measured with a probe wearing the
+notifier's own label.** Ten behaved as designed: 443 and 80 outward denied, the
+five planes inside denied, a mail port to a private address denied, the cloud
+metadata address denied, 587 to a public submission service allowed. Two did
+not, and both are findings rather than mistakes:
+
+- **2525 is denied**, because the policy does not list it. That is the
+  alternative submission port SendGrid, Mailgun and others offer precisely for
+  networks where 25 and 587 are closed. An operator on such a provider will hit
+  our policy and not know why.
+- **25 is denied by AWS itself**, which blocks outbound 25 by default against
+  spam. Our allowance for 25 is therefore decorative there.
+
 ## 2026-08-03, the ceiling's notice said one when ten were held
 
 `@measured` against the unfixed binary at `d111f84`, 2026-08-03: 30 distinct
@@ -319,21 +369,31 @@ because one number cannot tell them apart. Splitting the counter is a change to
 
 ## What has NOT been verified
 
-- **Deliverability at volume, and what a filter does with these.** One message
-  reached one inbox (see below). Whether a hundred a day from a cloud address
+- **Deliverability at volume, and what a filter does with these.** A handful of
+  messages reached real inboxes. Whether a hundred a day from a cloud address
   keep landing there, and what a corporate filter makes of them, is not
-  something a single send establishes.
-- **Nothing has run on Kubernetes.** Since 2026-08-02 the manifest, the
-  single-pod egress NetworkPolicy and the compose service all exist (in
-  `stack-k8s`, `stack-single` and `stack-up`, since this repo ships no
-  deployment of its own), and none of them has been applied to a live cluster
-  or a real box. The sentence that used to be here said no manifest existed at
-  all, which stopped being true the day one was written: what is untested is
-  the RUN, not the existence.
-- **The `catalog` in `internal/render` has not been checked against the
-  producing planes' own docs.** Each entry claims what a type MEANS and what
-  the box already did about it. The tests assert those lines exist, never that
-  they are true.
+  something those sends establish.
+- **Most producing planes are not wired to the event log in most deployments.**
+  Measured 2026-08-03 across `stack-k8s`, `stack-single` and `stack-up`: the
+  money plane's gateway path is set in all three, its cloud path in two, the
+  policy plane's in one, and the quality and drill planes' in none. Every one of
+  those planes CAN emit; their emitters are opt-in on an environment variable,
+  and nothing turns most of them on.
+
+  So on a real box this process can only alert on money. Policy alerts arrive in
+  one deployment out of three, quality and drill alerts in none. This is the
+  same defect the cluster run found for the cloud plane, which was fixed for
+  that one plane and never swept for the others, and it is open.
+- **One event type in the `catalog` has no producer anywhere.**
+  `excessive_privilege` appears in no plane, only in the console. So this build
+  carries a sentence for something nothing raises. Same class as the four
+  catalog entries corrected on 2026-08-03.
+- **The rest of the producing planes' triggers have not been read against their
+  own names.** One was: `budget_exhausted` fired on any three blocks from a set
+  that includes loop detection and policy violations, so a run with no budget at
+  all could receive a High incident titled "budget exhausted", and did. It was
+  narrowed at the source. Finding one wrong is not evidence the others are
+  right.
 - **The journal has never been shipped into trailryx.** heraldyx produces the
   record and stops there, deliberately (see CLAUDE.md). Nothing has yet carried
   one of these files into the record plane, so "the notification is in the

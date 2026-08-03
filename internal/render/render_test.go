@@ -252,3 +252,17 @@ func TestTaintBlockSaysTheMoneyWasAlreadySpent(t *testing.T) {
 		t.Fatalf("taint_block no longer says the call was paid for: %q", p.did)
 	}
 }
+
+// The unit ledger is in-process and per-gateway: it resets on restart and is
+// not fleet-consistent, which tokenfuse's own module says plainly. A mail that
+// implied a fleet-wide cap would send an operator to the wrong conclusion
+// about how much of their estate has stopped.
+func TestTheUnitCapDoesNotImplyAFleetWideStop(t *testing.T) {
+	p, ok := catalog["unit_cap_exceeded"]
+	if !ok {
+		t.Fatal("unit_cap_exceeded left the catalog")
+	}
+	if !strings.Contains(p.did, "this gateway") {
+		t.Fatalf("does not say which gateway: %q", p.did)
+	}
+}

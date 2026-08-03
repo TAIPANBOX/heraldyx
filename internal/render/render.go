@@ -156,6 +156,17 @@ var catalog = map[string]phrasing{
 		did:  "The drift was recorded. Whether calls are refused depends on the broker's mode.",
 		next: "A tool that changed after it was approved is the rug-pull case this check exists for.",
 	},
+	// A business unit's monthly cap, refused at the gateway (tokenfuse
+	// docs/20). Deliberately says "this gateway": the unit ledger is
+	// in-process and per-gateway, resets on restart, and is not
+	// fleet-consistent, which its own module says plainly. A sentence
+	// implying a fleet-wide cap would be the same class of falsehood as the
+	// four fixed on 2026-08-03.
+	"unit_cap_exceeded": {
+		what: "has spent its business unit's monthly cap",
+		did:  "Calls attributed to that unit are being refused at this gateway with a hard 402.",
+		next: "Every agent in the unit is refused there until someone raises the cap or the UTC month rolls over.",
+	},
 	"policy_deny": {
 		what: "was denied by policy",
 		did:  "The action was refused at the decision point.",

@@ -91,7 +91,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 20 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 18 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -117,18 +117,15 @@ for, and the link still opens the console at it.
 | `approval_unanswered` | is still waiting for a human decision nobody has made |
 | `approval_timeout` | presented an approval that had already expired |
 | `identity_mismatch` | presented a credential that may not speak as the agent it claimed |
-| `behavior_anomaly` | is behaving unlike its own history **(nothing raises this today)** |
-| `excessive_privilege` | holds more access than it uses **(nothing raises this today)** |
 | `mcp_drift` | is talking to an MCP tool that changed under its pinned lock |
 | `quality_drift` | is producing worse output than its baseline |
 | `sim_finding` | failed a rehearsal |
 
-**Two of them are not raised by anything today.** `behavior_anomaly` and
-`excessive_privilege` are concepts of the identity plane, and idryx has no event
-writer at all: it reads the same log to build its graph and answers through its
-own API. Their entries stay because the wire types are registered and a future
-producer should land on a correct sentence rather than the fallback. No mail
-carries them, so no table here promises one.
+`behavior_anomaly` and `excessive_privilege` were listed here until 2026-08-03.
+They were removed because nothing raises them: both are concepts of the identity
+plane, and idryx has no event writer at all. It reads this same log to build its
+graph and answers through its own API. An entry describing an event that cannot
+arrive is a claim nobody ever sees be wrong, which is the worst kind to keep.
 
 Nothing can check that an entry is TRUE, which is why they are audited against
 the producing plane's own code rather than its README. Four of the seventeen

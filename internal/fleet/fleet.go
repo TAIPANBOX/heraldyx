@@ -107,8 +107,6 @@ func describe(e event.Event) (Kind, string) {
 		return Odd, "burning far faster than it usually does"
 	case "mcp_drift":
 		return Odd, "its MCP tool changed under the pinned lock"
-	case "behavior_anomaly":
-		return Odd, "behaving unlike its own history"
 	case "impossible_travel":
 		return Odd, "used from two places at once"
 	case "quality_drift":

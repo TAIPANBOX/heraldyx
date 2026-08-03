@@ -115,9 +115,13 @@ var catalog = map[string]phrasing{
 		did:  "The loop detector has flagged the run. Spend continues unless a budget stops it.",
 		next: "A loop that nobody interrupts spends the whole budget on the same step.",
 	},
+	// Since tokenfuse#156 this is a CHANGE, not a height: the last minute
+	// against the org's own preceding half hour, times a multiple, with the
+	// configured rate kept only as a floor. The old sentence, "faster than its
+	// configured rate", described the predicate that was replaced.
 	"spend_spike": {
-		what: "is burning money faster than its configured rate",
-		did:  "Nothing automatic. This is a rate observation across the whole org.",
+		what: "is burning money far faster than it usually does",
+		did:  "Nothing automatic. This is a rate observation across the whole org, against its own recent normal.",
 		next: "If the rate holds, budgets set for a normal day are gone inside hours.",
 	},
 	"fanout_explosion": {

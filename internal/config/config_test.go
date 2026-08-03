@@ -80,3 +80,33 @@ func TestOnlyNDJSONIsRead(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+// A path that cannot be stat'ed is not a path that is not there.
+//
+// On a shared network volume the two look identical from one syscall and are
+// not remotely the same thing. Measured on a live cluster 2026-08-03: the RWX
+// event volume answered `Remote I/O error` for the mount point while listing
+// its three logs in the same breath, and treating that as absence made the
+// notifier permanently deaf with a fully readable log underneath it.
+//
+// Absence is skipped, as it always was. Anything else is kept as a candidate,
+// because a failed open per poll is cheaper than silence.
+func TestAPathThatCannotBeStattedIsKeptRatherThanDropped(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root walks through the permission bits this test needs")
+	}
+	parent := t.TempDir()
+	inner := filepath.Join(parent, "events")
+	if err := os.MkdirAll(inner, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+
+	got := Config{EventPaths: []string{inner}}.ResolveEventFiles()
+	if len(got) != 1 || got[0] != inner {
+		t.Fatalf("an unreadable path was dropped instead of kept: %v", got)
+	}
+}

@@ -8,7 +8,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -124,8 +126,36 @@ func (c Config) ResolveEventFiles() []string {
 	for _, p := range c.EventPaths {
 		info, err := os.Stat(p)
 		if err != nil {
-			// Not there yet. A plane may simply not be deployed, and the path
-			// may appear later; the caller re-resolves on every poll.
+			if !errors.Is(err, fs.ErrNotExist) {
+				// Something other than absence: on a shared network volume a
+				// stat of the mount point can fail while the files under it
+				// read perfectly. Measured on a live cluster 2026-08-03, where
+				// the RWX event volume answered `Remote I/O error` for the
+				// directory itself and listed its three logs in the same
+				// breath. Treating that as "not there yet" made the notifier
+				// permanently deaf with a fully readable log under it.
+				//
+				// So try it as a directory anyway. Glob does its own readdir
+				// and does not care what stat thought.
+				if matches, gerr := filepath.Glob(filepath.Join(p, "*.ndjson")); gerr == nil && len(matches) > 0 {
+					for _, m := range matches {
+						if !seen[m] {
+							seen[m] = true
+							out = append(out, m)
+						}
+					}
+					continue
+				}
+				// Not a directory we can list. It may still be a readable
+				// file, and an unreadable one costs a failed open per poll,
+				// which is cheaper than silence.
+				if !seen[p] {
+					seen[p] = true
+					out = append(out, p)
+				}
+			}
+			// Genuinely absent: a plane may simply not be deployed, and the
+			// path may appear later; the caller re-resolves on every poll.
 			continue
 		}
 		if !info.IsDir() {

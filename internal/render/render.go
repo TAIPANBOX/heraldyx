@@ -124,8 +124,11 @@ var catalog = map[string]phrasing{
 		did:  "Nothing automatic. This is a rate observation across the whole org, against its own recent normal.",
 		next: "If the rate holds, budgets set for a normal day are gone inside hours.",
 	},
+	// "Unusual" became true in tokenfuse#158: the count is measured against
+	// this agent's own habit rather than a fixed number, so the word now
+	// describes what fired. Saying which habit is the useful part.
 	"fanout_explosion": {
-		what: "is driving an unusual number of runs",
+		what: "is driving far more runs at once than it usually does",
 		did:  "Nothing automatic. The runs are being attributed to one agent.",
 		next: "Fan-out multiplies spend and makes per-run budgets ineffective.",
 	},

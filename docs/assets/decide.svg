@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-18 -18 996 416" width="996" height="416" role="img" aria-label="How heraldyx decides: one event passes four checks in order, an unknown severity and anything below the floor go to the daily digest, a condition already mailed within the dedup window is dropped, an event over the hourly ceiling is suppressed with one notice, and what is left is mailed immediately; a measured burst of 120 events produced 20 alert mails">
+  <title>rule.Decide: four checks, four outcomes, and dedup deliberately before the ceiling</title>
+  <rect x="-18" y="-18" width="996" height="416" rx="16" fill="#0A0E13"/>
+  <rect x="-17.5" y="-17.5" width="995" height="415" rx="15.5" fill="none" stroke="rgba(255,255,255,.09)"/>
+
+  <defs>
+    <marker id="dc-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#5A6675"/>
+    </marker>
+    <marker id="dc-sky" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#5BC8F5"/>
+    </marker>
+  </defs>
+
+  <g font-family="ui-monospace,Menlo" text-anchor="middle">
+
+    <text x="480" y="24" fill="#E9EFF6" font-size="13" font-weight="700">one event, four checks, in this order</text>
+    <text x="480" y="41" fill="#5A6675" font-size="10">internal/rule: a pure decision, no I/O, so every awkward case is testable without a mail server</text>
+
+    <!-- the spine -->
+    <path d="M181 86 L199 86" stroke="#5BC8F5" stroke-width="1.3" marker-end="url(#dc-sky)" fill="none"/>
+    <path d="M373 86 L391 86" stroke="#5BC8F5" stroke-width="1.3" marker-end="url(#dc-sky)" fill="none"/>
+    <path d="M565 86 L583 86" stroke="#5BC8F5" stroke-width="1.3" marker-end="url(#dc-sky)" fill="none"/>
+    <path d="M757 86 L775 86" stroke="#5BC8F5" stroke-width="1.3" marker-end="url(#dc-sky)" fill="none"/>
+
+    <!-- gate 1 -->
+    <rect x="11" y="58" width="170" height="56" rx="10" fill="#141C27" stroke="#2a3547"/>
+    <text x="96" y="78" fill="#E9EFF6" font-size="10.5" font-weight="700">a severity this</text>
+    <text x="96" y="92" fill="#E9EFF6" font-size="10.5" font-weight="700">build knows?</text>
+    <text x="96" y="107" fill="#8A97A6" font-size="9.5">five levels, nothing else</text>
+
+    <!-- gate 2 -->
+    <rect x="203" y="58" width="170" height="56" rx="10" fill="#141C27" stroke="#2a3547"/>
+    <text x="288" y="78" fill="#E9EFF6" font-size="10.5" font-weight="700">at or above</text>
+    <text x="288" y="92" fill="#E9EFF6" font-size="10.5" font-weight="700">the floor?</text>
+    <text x="288" y="107" fill="#8A97A6" font-size="9.5">floor defaults to high</text>
+
+    <!-- gate 3 -->
+    <rect x="395" y="58" width="170" height="56" rx="10" fill="#141C27" stroke="#2a3547"/>
+    <text x="480" y="78" fill="#E9EFF6" font-size="10.5" font-weight="700">said already,</text>
+    <text x="480" y="92" fill="#E9EFF6" font-size="10.5" font-weight="700">within 10 min?</text>
+    <text x="480" y="107" fill="#8A97A6" font-size="9.5">key is type + subject</text>
+
+    <!-- gate 4 -->
+    <rect x="587" y="58" width="170" height="56" rx="10" fill="#141C27" stroke="#2a3547"/>
+    <text x="672" y="78" fill="#E9EFF6" font-size="10.5" font-weight="700">20 already sent</text>
+    <text x="672" y="92" fill="#E9EFF6" font-size="10.5" font-weight="700">this hour?</text>
+    <text x="672" y="107" fill="#8A97A6" font-size="9.5">0 turns the ceiling off</text>
+
+    <!-- notify -->
+    <rect x="779" y="58" width="170" height="56" rx="10" fill="#141C27" stroke="#3FB950" stroke-width="1.3"/>
+    <text x="864" y="80" fill="#3FB950" font-size="11" font-weight="700">NOTIFY</text>
+    <text x="864" y="97" fill="#8A97A6" font-size="9.5">one mail, now</text>
+    <text x="864" y="109" fill="#8A97A6" font-size="9.5">and one record</text>
+
+    <!-- drop-out arrows -->
+    <path d="M96 118 L96 158" stroke="#5A6675" stroke-width="1.2" marker-end="url(#dc-a)" fill="none"/>
+    <path d="M288 118 L288 158" stroke="#5A6675" stroke-width="1.2" marker-end="url(#dc-a)" fill="none"/>
+    <path d="M480 118 L480 158" stroke="#5A6675" stroke-width="1.2" marker-end="url(#dc-a)" fill="none"/>
+    <path d="M672 118 L672 158" stroke="#5A6675" stroke-width="1.2" marker-end="url(#dc-a)" fill="none"/>
+
+    <text x="107" y="136" fill="#5A6675" font-size="9" text-anchor="start">no</text>
+    <text x="299" y="136" fill="#5A6675" font-size="9" text-anchor="start">no</text>
+    <text x="491" y="136" fill="#5A6675" font-size="9" text-anchor="start">yes</text>
+    <text x="683" y="136" fill="#5A6675" font-size="9" text-anchor="start">yes</text>
+
+    <!-- outcomes -->
+    <rect x="11" y="162" width="170" height="60" rx="10" fill="#141C27" stroke="#E3B341"/>
+    <text x="96" y="182" fill="#E3B341" font-size="11" font-weight="700">DIGEST</text>
+    <text x="96" y="198" fill="#8A97A6" font-size="9.5">not escalated and not</text>
+    <text x="96" y="211" fill="#8A97A6" font-size="9.5">silently dropped either</text>
+
+    <rect x="203" y="162" width="170" height="60" rx="10" fill="#141C27" stroke="#E3B341"/>
+    <text x="288" y="182" fill="#E3B341" font-size="11" font-weight="700">DIGEST</text>
+    <text x="288" y="198" fill="#8A97A6" font-size="9.5">real signal, but not</text>
+    <text x="288" y="211" fill="#8A97A6" font-size="9.5">worth waking anyone</text>
+
+    <rect x="395" y="162" width="170" height="60" rx="10" fill="#141C27" stroke="#5A6675"/>
+    <text x="480" y="182" fill="#9AA7B8" font-size="11" font-weight="700">DROP</text>
+    <text x="480" y="198" fill="#8A97A6" font-size="9.5">the event stays in the</text>
+    <text x="480" y="211" fill="#8A97A6" font-size="9.5">log; only mail is spared</text>
+
+    <rect x="587" y="162" width="170" height="60" rx="10" fill="#141C27" stroke="#F0544C"/>
+    <text x="672" y="182" fill="#F0544C" font-size="11" font-weight="700">SUPPRESSED</text>
+    <text x="672" y="198" fill="#8A97A6" font-size="9.5">one notice per window,</text>
+    <text x="672" y="211" fill="#8A97A6" font-size="9.5">never the events inside</text>
+
+    <!-- why the order matters -->
+    <rect x="11" y="240" width="746" height="42" rx="9" fill="#10161F" stroke="#2a3547"/>
+    <text x="384" y="257" fill="#E9EFF6" font-size="10.5" font-weight="700">dedup runs BEFORE the ceiling, on purpose</text>
+    <text x="384" y="272" fill="#8A97A6" font-size="10">a condition that trips two hundred times must not eat an operator's whole hourly budget</text>
+
+    <rect x="779" y="240" width="170" height="42" rx="9" fill="#10161F" stroke="#2a3547"/>
+    <text x="864" y="257" fill="#8A97A6" font-size="9.5">every limit is a limit</text>
+    <text x="864" y="270" fill="#8A97A6" font-size="9.5">on MESSAGES, never</text>
+    <text x="864" y="282" fill="#5BC8F5" font-size="9.5" font-weight="700">on evidence</text>
+
+    <!-- the measured burst -->
+    <rect x="11" y="298" width="938" height="82" rx="11" fill="#10161F" stroke="#5BC8F5" stroke-width="1.3"/>
+    <text x="126" y="318" fill="#5BC8F5" font-size="10.5" font-weight="700">one burst, measured</text>
+    <text x="126" y="333" fill="#8A97A6" font-size="9.5">120 events in one poll,</text>
+    <text x="126" y="345" fill="#8A97A6" font-size="9.5">default limits, no mail</text>
+    <text x="126" y="357" fill="#8A97A6" font-size="9.5">server involved</text>
+    <text x="126" y="372" fill="#5A6675" font-size="9">scripts/burst-demo.sh</text>
+
+    <path d="M246 339 L266 339" stroke="#5A6675" stroke-width="1.2" marker-end="url(#dc-a)" fill="none"/>
+
+    <rect x="274" y="310" width="128" height="58" rx="9" fill="#141C27" stroke="#3FB950"/>
+    <text x="338" y="330" fill="#3FB950" font-size="17" font-weight="700">20</text>
+    <text x="338" y="346" fill="#8A97A6" font-size="9.5">alert mails</text>
+    <text x="338" y="359" fill="#5A6675" font-size="9">1 loop + 19 denials</text>
+
+    <rect x="414" y="310" width="128" height="58" rx="9" fill="#141C27" stroke="#5A6675"/>
+    <text x="478" y="330" fill="#9AA7B8" font-size="17" font-weight="700">29</text>
+    <text x="478" y="346" fill="#8A97A6" font-size="9.5">dropped, deduped</text>
+    <text x="478" y="359" fill="#5A6675" font-size="9">one run, one message</text>
+
+    <rect x="554" y="310" width="128" height="58" rx="9" fill="#141C27" stroke="#E3B341"/>
+    <text x="618" y="330" fill="#E3B341" font-size="17" font-weight="700">65</text>
+    <text x="618" y="346" fill="#8A97A6" font-size="9.5">held for the digest</text>
+    <text x="618" y="359" fill="#5A6675" font-size="9">62 medium, 3 unknown</text>
+
+    <rect x="694" y="310" width="128" height="58" rx="9" fill="#141C27" stroke="#F0544C"/>
+    <text x="758" y="330" fill="#F0544C" font-size="17" font-weight="700">6</text>
+    <text x="758" y="346" fill="#8A97A6" font-size="9.5">over the ceiling</text>
+    <text x="758" y="359" fill="#5A6675" font-size="9">1 notice, not 6 mails</text>
+
+    <rect x="834" y="310" width="115" height="58" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <text x="891" y="332" fill="#8A97A6" font-size="9.5">a scenario, not</text>
+    <text x="891" y="345" fill="#8A97A6" font-size="9.5">a measurement</text>
+    <text x="891" y="358" fill="#8A97A6" font-size="9.5">of a real fleet</text>
+  </g>
+</svg>

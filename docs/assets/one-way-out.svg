@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-18 -18 996 396" width="996" height="396" role="img" aria-label="The one way out: heraldyx's nine packages in three tiers, where rule, render and fleet touch no I/O at all, config, watch, state, record and passport touch files only, and internal/deliver is the single package that may import net/smtp and cross the default-deny egress boundary; scripts/one-way-out.sh fails the build if any of the three rules is broken">
+  <title>One way out: the privilege to leave the box lives in exactly one package, and a gate keeps it there</title>
+  <rect x="-18" y="-18" width="996" height="396" rx="16" fill="#0A0E13"/>
+  <rect x="-17.5" y="-17.5" width="995" height="395" rx="15.5" fill="none" stroke="rgba(255,255,255,.09)"/>
+
+  <defs>
+    <marker id="ow-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#5A6675"/>
+    </marker>
+    <marker id="ow-sky" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#5BC8F5"/>
+    </marker>
+  </defs>
+
+  <g font-family="ui-monospace,Menlo" text-anchor="middle">
+
+    <text x="480" y="24" fill="#E9EFF6" font-size="13" font-weight="700">nine packages, and only one of them can leave</text>
+    <text x="480" y="41" fill="#5A6675" font-size="10">the whole design rests on this staying true, so a script fails the build rather than a paragraph asking nicely</text>
+
+    <!-- the perimeter -->
+    <rect x="8" y="54" width="764" height="216" rx="13" fill="none" stroke="#2a3547" stroke-dasharray="5 4"/>
+    <text x="390" y="72" fill="#5A6675" font-size="10">the process, inside a box whose egress is default-deny</text>
+
+    <!-- tier 1: no I/O -->
+    <rect x="24" y="82" width="232" height="176" rx="11" fill="#10161F" stroke="#3FB950"/>
+    <text x="140" y="101" fill="#3FB950" font-size="10.5" font-weight="700">decide, and touch nothing</text>
+
+    <rect x="40" y="112" width="200" height="30" rx="7" fill="#141C27" stroke="#2a3547"/>
+    <text x="140" y="126" fill="#E9EFF6" font-size="10.5" font-weight="700">internal/rule</text>
+    <text x="140" y="137" fill="#8A97A6" font-size="9">whether to say it</text>
+
+    <rect x="40" y="148" width="200" height="30" rx="7" fill="#141C27" stroke="#2a3547"/>
+    <text x="140" y="162" fill="#E9EFF6" font-size="10.5" font-weight="700">internal/render</text>
+    <text x="140" y="173" fill="#8A97A6" font-size="9">what to say</text>
+
+    <rect x="40" y="184" width="200" height="30" rx="7" fill="#141C27" stroke="#2a3547"/>
+    <text x="140" y="198" fill="#E9EFF6" font-size="10.5" font-weight="700">internal/fleet</text>
+    <text x="140" y="209" fill="#8A97A6" font-size="9">what else it has seen</text>
+
+    <text x="140" y="230" fill="#8A97A6" font-size="9">render imports net/url, which</text>
+    <text x="140" y="241" fill="#8A97A6" font-size="9">escapes a path and opens</text>
+    <text x="140" y="252" fill="#8A97A6" font-size="9">no socket. rule imports none.</text>
+
+    <!-- tier 2: files only -->
+    <rect x="272" y="82" width="232" height="176" rx="11" fill="#10161F" stroke="#2a3547"/>
+    <text x="388" y="101" fill="#9AA7B8" font-size="10.5" font-weight="700">files, and only their own</text>
+
+    <rect x="288" y="112" width="200" height="24" rx="6" fill="#141C27" stroke="#2a3547"/>
+    <text x="388" y="128" fill="#E9EFF6" font-size="10" font-weight="700">internal/watch</text>
+
+    <rect x="288" y="140" width="200" height="24" rx="6" fill="#141C27" stroke="#2a3547"/>
+    <text x="388" y="156" fill="#E9EFF6" font-size="10" font-weight="700">internal/config</text>
+
+    <rect x="288" y="168" width="200" height="24" rx="6" fill="#141C27" stroke="#2a3547"/>
+    <text x="388" y="184" fill="#E9EFF6" font-size="10" font-weight="700">internal/state</text>
+
+    <rect x="288" y="196" width="200" height="24" rx="6" fill="#141C27" stroke="#2a3547"/>
+    <text x="388" y="212" fill="#E9EFF6" font-size="10" font-weight="700">internal/record</text>
+
+    <rect x="288" y="224" width="200" height="24" rx="6" fill="#141C27" stroke="#2a3547"/>
+    <text x="388" y="240" fill="#E9EFF6" font-size="10" font-weight="700">internal/passport</text>
+
+    <!-- tier 3: the way out -->
+    <rect x="520" y="82" width="232" height="176" rx="11" fill="#10161F" stroke="#5BC8F5" stroke-width="1.4">
+      <animate attributeName="stroke-opacity" values="1;.4;1" dur="3.2s" repeatCount="indefinite"/>
+    </rect>
+    <text x="636" y="101" fill="#5BC8F5" font-size="10.5" font-weight="700">the one way out</text>
+
+    <rect x="536" y="112" width="200" height="58" rx="8" fill="#141C27" stroke="#5BC8F5"/>
+    <text x="636" y="132" fill="#E9EFF6" font-size="11" font-weight="700">internal/deliver</text>
+    <text x="636" y="147" fill="#5BC8F5" font-size="9.5">imports net/smtp</text>
+    <text x="636" y="160" fill="#8A97A6" font-size="9">holds the one credential</text>
+
+    <rect x="536" y="180" width="200" height="66" rx="8" fill="#141C27" stroke="#2a3547"/>
+    <text x="636" y="197" fill="#8A97A6" font-size="9">nothing in this process</text>
+    <text x="636" y="209" fill="#8A97A6" font-size="9">imports net/http, ever.</text>
+    <text x="636" y="224" fill="#8A97A6" font-size="9">an HTTP client is the first</text>
+    <text x="636" y="236" fill="#8A97A6" font-size="9">step to becoming a client</text>
+
+    <!-- crossing out -->
+    <path d="M756 141 L800 141" stroke="#5BC8F5" stroke-width="1.4" marker-end="url(#ow-sky)" fill="none"/>
+    <circle cx="758" cy="141" r="2.8" fill="#5BC8F5">
+      <animate attributeName="cx" values="758;797" dur="2.8s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;1;0" dur="2.8s" repeatCount="indefinite"/>
+    </circle>
+
+    <rect x="808" y="104" width="144" height="74" rx="10" fill="#141C27" stroke="#2a3547"/>
+    <text x="880" y="124" fill="#E9EFF6" font-size="10.5" font-weight="700">your mail server</text>
+    <text x="880" y="140" fill="#8A97A6" font-size="9.5">TCP 587, 465 or 25</text>
+    <text x="880" y="153" fill="#8A97A6" font-size="9.5">own or corporate SMTP</text>
+    <text x="880" y="169" fill="#5A6675" font-size="9">hosted providers meter</text>
+
+    <text x="880" y="200" fill="#5A6675" font-size="9">one pod, one hole,</text>
+    <text x="880" y="212" fill="#5A6675" font-size="9">one credential, and a</text>
+    <text x="880" y="224" fill="#5A6675" font-size="9">blast radius you can</text>
+    <text x="880" y="236" fill="#5A6675" font-size="9">state in a sentence</text>
+
+    <!-- the gate -->
+    <rect x="8" y="288" width="944" height="72" rx="11" fill="#10161F" stroke="#2a3547"/>
+    <text x="126" y="309" fill="#5BC8F5" font-size="10.5" font-weight="700">the gate, not the promise</text>
+    <text x="126" y="325" fill="#8A97A6" font-size="9.5">scripts/one-way-out.sh</text>
+    <text x="126" y="339" fill="#8A97A6" font-size="9.5">runs in make gates</text>
+    <text x="126" y="352" fill="#8A97A6" font-size="9.5">and in CI</text>
+
+    <rect x="256" y="298" width="220" height="52" rx="8" fill="#141C27" stroke="#F0544C"/>
+    <text x="366" y="316" fill="#F0544C" font-size="9.5" font-weight="700">FAIL if anything but deliver</text>
+    <text x="366" y="329" fill="#F0544C" font-size="9.5" font-weight="700">imports net/smtp</text>
+    <text x="366" y="344" fill="#8A97A6" font-size="9">verified by moving the import</text>
+
+    <rect x="490" y="298" width="220" height="52" rx="8" fill="#141C27" stroke="#F0544C"/>
+    <text x="600" y="316" fill="#F0544C" font-size="9.5" font-weight="700">FAIL if anything at all</text>
+    <text x="600" y="329" fill="#F0544C" font-size="9.5" font-weight="700">imports net/http</text>
+    <text x="600" y="344" fill="#8A97A6" font-size="9">no plane is ever called from here</text>
+
+    <rect x="724" y="298" width="220" height="52" rx="8" fill="#141C27" stroke="#F0544C"/>
+    <text x="834" y="316" fill="#F0544C" font-size="9.5" font-weight="700">FAIL if rule or render reach</text>
+    <text x="834" y="329" fill="#F0544C" font-size="9.5" font-weight="700">os, net, io or exec</text>
+    <text x="834" y="344" fill="#8A97A6" font-size="9">an os import in rule fails it today</text>
+  </g>
+</svg>

@@ -383,7 +383,41 @@ func Link(cfg Config, e event.Event) string {
 	if base == "" {
 		return ""
 	}
-	return base + "/i/" + url.PathEscape(rule.Key(e))
+	return base + "/i/" + escapePath(rule.Key(e))
+}
+
+// escapePath escapes an id for a URL path WITHOUT escaping the separators it is
+// already made of.
+//
+// `url.PathEscape` turns every `/` into `%2F`, so
+// `agent://meridian.io/finops/unit-economics-analyst` reached a mailbox as
+// `agent:%2F%2Fmeridian.io%2Ffinops%2Funit-economics-analyst`: eight characters
+// longer than the id and, at three in the morning, unreadable. A mail is
+// text/plain, so the address IS the link text. There is no shorter label to
+// show instead, and no styling to lean on: what is in the URL is what the
+// operator reads.
+//
+// A path is a sequence of segments separated by slashes, so the slashes belong
+// there. Each segment is escaped on its own and they are rejoined, which leaves
+// an agent id looking like itself and still escapes anything inside a segment
+// that would change the shape of the URL. The console reads everything after
+// its prefix, so more segments cost it nothing.
+//
+// This drops sixteen characters and every `%2F`. Two things it deliberately
+// does NOT do: strip the `agent://` scheme, and strip the organisation. Both
+// are shorter still, and both would need the console to GUESS which of several
+// id shapes it was handed. An earlier version of this did strip the scheme, and
+// the guess it forced on the other side turned `run/42 a` into an agent id in
+// the console's own tests.
+//
+// Applied to what goes in the URL only. `rule.Key` is the dedup key and the
+// journal's subject, and neither may change shape.
+func escapePath(id string) string {
+	parts := strings.Split(id, "/")
+	for i, p := range parts {
+		parts[i] = url.PathEscape(p)
+	}
+	return strings.Join(parts, "/")
 }
 
 // AgentLink opens the agent's own card, which is where freeze and kill are.
@@ -392,7 +426,7 @@ func AgentLink(cfg Config, agentID string) string {
 	if base == "" || agentID == "" {
 		return ""
 	}
-	return base + "/a/" + url.PathEscape(agentID)
+	return base + "/a/" + escapePath(agentID)
 }
 
 // OwnerLink opens who is answerable, and what else they run.
@@ -406,7 +440,7 @@ func OwnerLink(cfg Config, owner string) string {
 	if base == "" || owner == "" {
 		return ""
 	}
-	return base + "/o/" + url.PathEscape(owner)
+	return base + "/o/" + escapePath(owner)
 }
 
 func consoleBase(cfg Config) string { return strings.TrimRight(cfg.ConsoleURL, "/") }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +102,40 @@ func TestNoRecipientsIsHealthyAndSilent(t *testing.T) {
 	})
 	if err := run([]string{"--once", "--from-now=false"}); err != nil {
 		t.Fatalf("a box with no address configured must still run: %v", err)
+	}
+}
+
+// Silent is not the same as blind, and the startup log has to say which.
+//
+// With no mail configured this used to print the "notifications are OFF" line
+// INSTEAD of the line naming what it reads, so an operator asking why no mail
+// arrived could not tell a notifier that is deliberately off from one that
+// cannot see its input. Measured on a live cluster 2026-08-03: a check looking
+// for that line concluded the notifier saw none of three logs it was watching.
+func TestItSaysWhatItReadsEvenWhenItCannotSend(t *testing.T) {
+	dir := t.TempDir()
+	events := filepath.Join(dir, "tokenfuse.ndjson")
+	write(t, events, ndjson("budget_exhausted", "critical", "run-1", ""))
+
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	env(t, map[string]string{
+		"HERALDYX_EVENTS": events,
+		"HERALDYX_TO":     "",
+		"HERALDYX_STATE":  filepath.Join(dir, "state.json"),
+	})
+	if err := run([]string{"--once", "--from-now=false"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "watching 1 file(s)") {
+		t.Errorf("a notifier with no address still reads a log and must say so:\n%s", got)
+	}
+	if !strings.Contains(got, "notifications are OFF") {
+		t.Errorf("and it must still say it cannot send:\n%s", got)
 	}
 }
 

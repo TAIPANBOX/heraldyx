@@ -145,6 +145,88 @@ through THAT provider, reached ONE inbox on 2026-08-02. It says nothing about
 volume, about deliverability from a different address, or about what a corporate
 spam filter does with the hundredth one.
 
+## 2026-08-03, the ceiling's notice said one when ten were held
+
+`@measured` against the unfixed binary at `d111f84`, 2026-08-03: 30 distinct
+`policy_deny` events at `high` in one NDJSON file, default limits (floor `high`,
+dedup 10m, ceiling 20/hour), `HERALDYX_MAIL_FILE` set,
+`./bin/heraldyx --once --from-now=false`.
+
+```
+20 alerts sent
+Subject: [prod-box] 1 alerts suppressed this hour
+state.json:  "suppressed_since": 9
+```
+
+Ten alerts were held back and the operator was told about one. The other nine
+sat in the state file.
+
+The notice was sent from inside the event loop, on the FIRST event the ceiling
+refused. `rule.Decide` had just called `NoteSuppressed`, so the counter stood at
+exactly 1 at that instant: `TakeSuppressionNotice` took that 1, reset the
+counter, and stamped the one-per-hour window that then blocked every later event
+of the same burst. The remainder could only leave on a further suppression more
+than an hour later, if one ever came.
+
+This lands during the exact event the ceiling exists for, and it understates,
+which is invariant 8's rule about never claiming the stronger fact, inverted.
+
+`rule` itself was never wrong about it. `TestCeilingHolds` has asserted since
+the first commit that 995 suppressed events produce one notice carrying 995. The
+defect was entirely in the caller, which is the shape a package's own unit tests
+cannot see.
+
+**The fix.** The notice goes at the END of the cycle now, where the digest
+already goes, so it carries what the whole poll held back. It is taken
+unconditionally rather than only when this cycle suppressed something, because
+what releases the count is the CLOCK: a remainder that can only leave on the
+next suppression is a remainder nobody hears about in the ordinary ending, where
+the flood stops. It now leaves on the first poll after the window opens, about
+two seconds later by default. The one-per-window rate limit is untouched.
+
+`@measured` the same input against the fixed binary, 2026-08-03:
+
+```
+20 alerts sent
+Subject: [prod-box] 10 alerts suppressed this hour
+state.json:  "suppressed_since": 0
+```
+
+`@measured` red before green, 2026-08-03: both new tests were run against the
+unfixed code first and both failed on the count, reporting `1 alerts suppressed
+this hour` where 10 and 5 were expected.
+
+| test | what it holds |
+|---|---|
+| `TestTheSuppressionNoticeCountsTheWholeBurst` | the notice carries the whole burst, and `suppressed_since` is left at 0 |
+| `TestAStrandedSuppressionCountLeavesOnTheNextCycle` | a count stranded by the rate limit leaves on the next cycle after the window opens, with no new event to trigger it |
+
+`@measured` both were then verified by breaking the FIXED code, 2026-08-03.
+Adding `&& heldAgent != ""` to the take, which is exactly the flush's own
+condition, fails the second test and only the second: that is the half nothing
+else would have covered. Moving the take back inside the loop fails the first.
+
+`@measured` gates after the change, 2026-08-03: `gofmt -l .` clean, `go vet`
+clean, `staticcheck ./...` clean, `go test -race ./...` all packages ok,
+`gosec -quiet ./...` clean, `govulncheck ./...` no vulnerabilities found,
+`./scripts/one-way-out.sh` OK. All three linters confirmed present at
+`~/go/bin` rather than skipped by the Makefile's `command -v` guard.
+
+`@measured` `--journal` on the reproduction run, 2026-08-03:
+`records: 21 (alert 20, suppression 1)`, `outcome: 21 accepted, 0 refused`,
+`chain: verifies (20 chained, 1 head(s))`, and the suppression record is
+attributed to `run-29`, the last run the ceiling actually held.
+
+`@claude` one consequence worth writing down here rather than leaving to be
+found. When the flush fires with nothing held in that same cycle, there is no
+agent to attribute the notice to, and this stack does not invent one (invariant
+11). The mail goes and `record.Journal.Sent` counts the record it did not write,
+which is what the digest already does in the same situation. `internal/record`
+describes that counter as surfaced rather than hidden; `@measured` by grep,
+2026-08-03, `Journal.Failures` is read by nothing outside `record_test.go`, so
+the gap is counted and invisible. That is a separate defect from this one and is
+listed below.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** One message
@@ -170,3 +252,10 @@ spam filter does with the hundredth one.
   and the digest period are reasoned defaults carried over from the money
   plane's own alert pipeline, not numbers anyone has watched an operator live
   with.
+- **`Journal.Failures` is counted and never printed.** `internal/record` says
+  the count of records it could not write is "surfaced rather than hidden", and
+  as of 2026-08-03 nothing outside that package's own tests reads it. Every
+  path that skips a record for want of an agent id (a digest, or a suppression
+  notice flushed in a cycle that held nothing) is therefore invisible to an
+  operator. The counter is right; the sentence claiming it is surfaced is the
+  part that is not true yet.

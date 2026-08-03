@@ -2,11 +2,24 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/TAIPANBOX/heraldyx/internal/config"
+	"github.com/TAIPANBOX/heraldyx/internal/deliver"
+	"github.com/TAIPANBOX/heraldyx/internal/fleet"
+	"github.com/TAIPANBOX/heraldyx/internal/passport"
+	"github.com/TAIPANBOX/heraldyx/internal/record"
+	"github.com/TAIPANBOX/heraldyx/internal/render"
+	"github.com/TAIPANBOX/heraldyx/internal/rule"
+	"github.com/TAIPANBOX/heraldyx/internal/state"
+	"github.com/TAIPANBOX/heraldyx/internal/watch"
 )
 
 // The whole chain, end to end, with no mail server: an event lands in the log,
@@ -274,6 +287,168 @@ func TestTheJournalDefaultsToBesideTheState(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "sub", "sent.ndjson")); err != nil {
 		t.Fatalf("no journal beside the state file: %v", err)
 	}
+}
+
+// The ceiling holds ten alerts back, and the notice about it says ten.
+//
+// It said one. The notice was sent from INSIDE the event loop, on the first
+// event the ceiling refused: `rule.Decide` had just counted that one event, so
+// the counter stood at exactly 1 when the notice took it, and taking it
+// stamped the one-per-hour window. Every later event of the same burst was
+// counted and then found that window closed, so the rest sat in the state file
+// waiting for a further suppression more than an hour later.
+//
+// The failure lands during the exact event the ceiling exists for: an operator
+// watching a flood is told one alert was held back when ten were. It
+// understates, which is invariant 8's rule about never claiming the stronger
+// fact, inverted.
+//
+// Measured against the unfixed binary on 2026-08-03 with this exact input: 20
+// alerts sent, notice "1 alerts suppressed this hour", `suppressed_since: 9`
+// left in state.json.
+func TestTheSuppressionNoticeCountsTheWholeBurst(t *testing.T) {
+	dir := t.TempDir()
+	events := filepath.Join(dir, "tokenfuse.ndjson")
+	mail := filepath.Join(dir, "mail.txt")
+	statePath := filepath.Join(dir, "state.json")
+
+	// Thirty distinct conditions, so dedup never fires and the ceiling is the
+	// only thing that can hold the line. The default ceiling is 20 an hour.
+	for i := range 30 {
+		write(t, events, ndjson("policy_deny", "high", fmt.Sprintf("run-%d", i), ""))
+	}
+
+	env(t, map[string]string{
+		"HERALDYX_EVENTS":    events,
+		"HERALDYX_TO":        "ops@example.com",
+		"HERALDYX_MAIL_FILE": mail,
+		"HERALDYX_BOX":       "prod-box",
+		"HERALDYX_STATE":     statePath,
+	})
+
+	if err := run([]string{"--once", "--from-now=false"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := read(t, mail)
+	if !strings.Contains(got, "[prod-box] 10 alerts suppressed this hour") {
+		t.Fatalf("the notice does not carry the whole burst, subjects were:\n%s", subjects(got))
+	}
+	// And nothing is stranded behind it. A count that can only leave on the
+	// next suppression is a count the operator may never be told.
+	if n := suppressedSince(t, statePath); n != 0 {
+		t.Fatalf("%d suppressed events were left behind in the state file", n)
+	}
+}
+
+// A count the ceiling stranded leaves on the next cycle, not on the next flood.
+//
+// The notice is rate limited to one an hour on purpose, so the notice cannot
+// become the flood it warns about. But an arriving event used to be the only
+// thing that could ever release the count, so anything held back after a
+// notice had gone out waited for a further suppression an hour or more later.
+// When the fleet calms down instead, which is the ordinary ending, nobody is
+// told about the tail at all.
+//
+// This drives `cycle` with a fixed clock rather than `run`, because an hour
+// wide window cannot be tested by waiting an hour.
+func TestAStrandedSuppressionCountLeavesOnTheNextCycle(t *testing.T) {
+	dir := t.TempDir()
+	events := filepath.Join(dir, "tokenfuse.ndjson")
+	mail := filepath.Join(dir, "mail.txt")
+	env(t, map[string]string{
+		"HERALDYX_EVENTS":    events,
+		"HERALDYX_TO":        "ops@example.com",
+		"HERALDYX_MAIL_FILE": mail,
+		"HERALDYX_BOX":       "prod-box",
+		"HERALDYX_STATE":     filepath.Join(dir, "state.json"),
+	})
+	cfg, err := config.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	minRank, err := rule.ParseSeverity(cfg.MinSeverity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rcfg := rule.Config{MinRank: minRank, DedupWindow: cfg.DedupWindow, MaxPerHour: cfg.MaxPerHour}
+	snap := state.New()
+	journal, err := record.Open(cfg.SentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer journal.Close()
+	w := watch.New(cfg.ResolveEventFiles(), snap.Offsets)
+	poll := func(now time.Time) {
+		cycle(cfg, rcfg, render.Config{Box: cfg.Box}, w, snap, deliver.NewFile(mail),
+			journal, passport.Open(""), fleet.New(), now)
+	}
+
+	t0 := time.Date(2026, 8, 3, 14, 0, 0, 0, time.UTC)
+
+	// Twenty-five distinct conditions at once: 20 go out, 5 are held, and the
+	// notice for those 5 goes at the end of this cycle.
+	for i := range 25 {
+		write(t, events, ndjson("policy_deny", "high", fmt.Sprintf("run-%d", i), ""))
+	}
+	poll(t0)
+	if got := read(t, mail); !strings.Contains(got, "5 alerts suppressed this hour") {
+		t.Fatalf("the first notice does not carry the burst, subjects were:\n%s", subjects(got))
+	}
+
+	// A minute later, three more are held. The window is closed, so no notice
+	// goes now, and that is the rate limit working rather than a fault.
+	for i := 25; i < 28; i++ {
+		write(t, events, ndjson("policy_deny", "high", fmt.Sprintf("run-%d", i), ""))
+	}
+	poll(t0.Add(time.Minute))
+	if n := snap.Rule.SuppressedSince; n != 3 {
+		t.Fatalf("want the 3 held events waiting, have %d", n)
+	}
+	if strings.Count(read(t, mail), "alerts suppressed this hour") != 1 {
+		t.Fatal("the notice itself became the flood it warns about")
+	}
+
+	// An hour on, with nothing new in the log at all. The three must leave
+	// here: waiting for another suppression is waiting for a flood that may
+	// never come.
+	poll(t0.Add(61 * time.Minute))
+	if got := read(t, mail); !strings.Contains(got, "3 alerts suppressed this hour") {
+		t.Fatalf("the stranded count never left, subjects were:\n%s", subjects(got))
+	}
+	if n := snap.Rule.SuppressedSince; n != 0 {
+		t.Fatalf("%d events are still stranded after the flush", n)
+	}
+}
+
+// subjects reduces a mail file to its subject lines, so a failure above prints
+// what was sent rather than several kilobytes of body.
+func subjects(mail string) string {
+	var out []string
+	for _, line := range strings.Split(mail, "\n") {
+		if strings.HasPrefix(line, "Subject:") {
+			out = append(out, line)
+		}
+	}
+	if len(out) == 0 {
+		return "(no messages at all)"
+	}
+	return strings.Join(out, "\n")
+}
+
+// suppressedSince reads the counter the ceiling keeps out of the state file,
+// which is the half of this that an assertion on the mail cannot see.
+func suppressedSince(t *testing.T, path string) int {
+	t.Helper()
+	var snap struct {
+		Rule struct {
+			SuppressedSince int `json:"suppressed_since"`
+		} `json:"rule"`
+	}
+	if err := json.Unmarshal([]byte(read(t, path)), &snap); err != nil {
+		t.Fatalf("state file at %s did not parse: %v", path, err)
+	}
+	return snap.Rule.SuppressedSince
 }
 
 func ndjson(kind, severity, run, extra string) string {

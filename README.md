@@ -52,7 +52,19 @@ and what it is not.
 |---|---|
 | immediately | `budget_exhausted`, `run_killed`, `policy_deny`, `dlp_block`, `sustained_loop`, `behavior_anomaly`, `quality_drift`, `sim_finding` |
 | in the daily summary | `budget_threshold` and everything else below the floor, including levels this build has never heard of |
-| never | anything you did not configure a recipient for |
+| never | anything you did not configure a recipient for, and anything about a whole organisation rather than one agent |
+
+That last row is a boundary of this plane, and worth stating plainly rather
+than discovering. The shared envelope requires an `agent_id` (agent-passport
+SPEC.md section 6.1), so a fact about a whole organisation has no subject to
+travel under, and no producer is allowed to invent one to make it fit.
+`spend_spike` is the current example: the money plane raises it, the console
+shows it, and it never arrives here. A mail whose subject line named an agent
+that had not spiked would be worse than silence.
+
+Org-wide facts live where they have always lived, in the console and in the
+plane's own API. Changing that is a change to the envelope every product in the
+stack shares, not something this process can decide.
 
 `budget_threshold` is the "approaching the line" signal, and it is deliberately
 one band below the incident it precedes: nothing has gone wrong yet, and an
@@ -249,6 +261,9 @@ log is mounted read-only here on purpose, and it stays that way.
   with a way out: an HTTP client and a protobuf encoder do not belong in it.
   What is written here is already sealed and already verifiable, so shipping it
   is transport, and transport belongs to something else.
+- **It does not report anything about an organisation as a whole.** See the
+  boundary above: no `agent_id`, no subject, no mail. This is the one class of
+  signal the stack raises that this process cannot see, and the fix is not here.
 - **It does not carry history.** A first run starts at the end of the log,
   because a month of old incidents arriving at once is how an operator learns
   to filter this sender to trash. Pass `--from-now=false` to read from the

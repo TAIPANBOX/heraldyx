@@ -1,7 +1,6 @@
 package render
 
 import (
-	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -93,10 +92,15 @@ func TestEveryLinkIsAConsoleView(t *testing.T) {
 	// version of this test blacklisted action verbs and failed on `run_killed`,
 	// whose own TYPE contains "kill": the property that matters is not "no
 	// scary word appears" but "this is exactly the console's view of that id".
+	// Written out rather than built with `url.PathEscape`, because that is the
+	// function under test: escaping the whole id here would restate the old
+	// behaviour and agree with any change to it. The separators of a path are
+	// left alone (see `escapePath`); everything else is still escaped, which is
+	// why the owner's `@` is not.
 	want := []string{
-		"https://box.example.com/i/" + url.PathEscape("run_killed:run-42"),
-		"https://box.example.com/a/" + url.PathEscape("agent://acme.example/biller"),
-		"https://box.example.com/o/" + url.PathEscape("team-finance@acme.example"),
+		"https://box.example.com/i/run_killed:run-42",
+		"https://box.example.com/a/agent://acme.example/biller",
+		"https://box.example.com/o/team-finance@acme.example",
 	}
 	for i, w := range want {
 		if urls[i] != w {

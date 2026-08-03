@@ -155,13 +155,31 @@ to make that hop ships it.
   in the compose file. A checkout of this repo alone cannot enforce it, and the
   honest reading is that somebody editing a manifest could remove it without
   any test here noticing.
-- The `catalog` in `internal/render` maps an event type to what it MEANS. An
-  entry that is wrong is not caught by anything: the tests check that every
-  mail has the two explanatory lines, not that those lines are true of the
-  type. Getting one wrong tells an operator a confident falsehood about their
-  own system, which is worse than the fallback's honest "this build does not
-  know". Check a new entry against the producing plane's own docs, and prefer
-  the fallback to a guess.
+- The `catalog` in `internal/render` maps an event type to what it MEANS, and
+  nothing can check that an entry is TRUE. The tests check that every mail has
+  the two explanatory lines, not that those lines describe what the producing
+  plane does.
+
+  Audited against the producing code on 2026-08-03, for the first time. Four of
+  seventeen entries were wrong, and each was wrong in a way that would send an
+  operator somewhere useless:
+
+  - `taint_block` said the call was blocked before it left the perimeter. The
+    firewall evaluates the RESPONSE: the provider call went out and was paid
+    for, and the answer was withheld from the agent.
+  - `approval_requested` said a hold eventually times out. Nothing expires a
+    hold in the policy plane.
+  - `approval_timeout` said somebody waited for a decision that never came. It
+    fires when an agent redeems an approval that HAD been granted and had
+    expired.
+  - `sim_finding` said production was not touched, which is a claim about the
+    operator's setup that the event does not carry.
+
+  `TestTheCatalogDoesNotRepeatTheFourClaimsThatWereFalse` pins those four
+  phrases. It cannot pin truth. Read a new entry against the producing plane's
+  own CODE, not its README, and prefer the fallback to a guess: "this build
+  does not know" is honest, and a confident falsehood about somebody's own
+  system is not.
 - Quiet hours are designed (see `heraldyx-plan.md` section 5) and not built.
   Do not half-build them: a quiet window that silences a `critical` is a bug
   with a friendly name.

@@ -211,3 +211,44 @@ func TestSuppressionNoticeCarriesNoEvents(t *testing.T) {
 		t.Fatalf("the suppression notice must not carry the flood it is about:\n%s", m.Body)
 	}
 }
+
+// The catalog says what an event MEANS, and nothing checked those sentences
+// against the planes that raise them until 2026-08-03. Four were wrong. These
+// pin the specific claims that were wrong, in the terms that made them wrong,
+// so re-introducing one fails here rather than in somebody's inbox.
+//
+// This cannot check that a sentence is true, only that the four known
+// falsehoods are gone. Anything added to the catalog still has to be read
+// against the producing plane's own code, which is what found these.
+func TestTheCatalogDoesNotRepeatTheFourClaimsThatWereFalse(t *testing.T) {
+	for _, c := range []struct {
+		kind, mustNotSay, why string
+	}{
+		{"taint_block", "before it left the perimeter",
+			"the firewall blocks the RESPONSE: the call went out and was paid for"},
+		{"approval_requested", "eventually times out",
+			"nothing expires a hold in the policy plane; it stays pending until a human decides"},
+		{"approval_timeout", "waited for a human decision",
+			"this fires when an agent redeems an EXPIRED approval, not when nobody answered"},
+		{"sim_finding", "Production was not touched",
+			"the drill runs against whichever gateway it was pointed at, and this event cannot tell"},
+	} {
+		p, ok := catalog[c.kind]
+		if !ok {
+			t.Fatalf("%s left the catalog: check that its meaning is still stated somewhere", c.kind)
+		}
+		joined := p.what + " " + p.did + " " + p.next
+		if strings.Contains(joined, c.mustNotSay) {
+			t.Errorf("%s says %q again: %s", c.kind, c.mustNotSay, c.why)
+		}
+	}
+}
+
+// The one an operator acts on money with. Spend already happened, and the mail
+// has to say so.
+func TestTaintBlockSaysTheMoneyWasAlreadySpent(t *testing.T) {
+	p := catalog["taint_block"]
+	if !strings.Contains(p.did, "paid for") {
+		t.Fatalf("taint_block no longer says the call was paid for: %q", p.did)
+	}
+}

@@ -135,10 +135,16 @@ var catalog = map[string]phrasing{
 		did:  "The call was blocked before it left the perimeter.",
 		next: "The agent sees an error. The matched value is NOT included in this mail.",
 	},
+	// NOT "blocked before it left the perimeter", which is what this said
+	// until 2026-08-03 and is the opposite of what happens. The firewall
+	// evaluates the RESPONSE: the provider call already went out and its cost
+	// is recorded as an ordinary allow, and what gets blocked is the answer
+	// reaching the agent. An operator told the call was stopped assumes no
+	// spend and no exposure, and is wrong about both.
 	"taint_block": {
-		what: "was stopped by the agent firewall",
-		did:  "The call was blocked before it left the perimeter.",
-		next: "The agent sees an error and its run continues under the same rules.",
+		what: "was refused a tool its taint labels do not allow",
+		did:  "The provider call had already gone out and was paid for. What was blocked is the response reaching the agent.",
+		next: "The agent sees an error. Its run continues under the same rules.",
 	},
 	"identity_mismatch": {
 		what: "presented a credential that may not speak as the agent it claimed",
@@ -158,12 +164,20 @@ var catalog = map[string]phrasing{
 	"approval_requested": {
 		what: "is waiting for a human decision",
 		did:  "The action is held. Nothing is running and nothing is refused yet.",
-		next: "A held action stays held. If nobody decides, it eventually times out.",
+		// Nothing expires a hold. There is no sweeper in the policy plane and
+		// `Pending()` there means only "no decision yet", so the previous
+		// "it eventually times out" told an operator the system would resolve
+		// this without them. It will not, and the agent stays blocked.
+		next: "A held action stays held until a human decides. Nothing expires it on its own.",
 	},
+	// Not a hold that nobody answered. The policy plane raises this when an
+	// agent REDEEMS an approval whose window has closed, which means a human
+	// very likely did decide, and the agent came back too late. Sending
+	// somebody to look at an unattended approval queue is the wrong errand.
 	"approval_timeout": {
-		what: "waited for a human decision and timed out",
-		did:  "The held action was not taken.",
-		next: "The agent has been refused by default. Nothing further happens on its own.",
+		what: "presented an approval that had already expired",
+		did:  "The action was refused. The approval was granted earlier and its window had closed by the time the agent redeemed it.",
+		next: "Nothing further happens on its own. A fresh approval is needed.",
 	},
 	"quality_drift": {
 		what: "is producing worse output than its baseline",
@@ -182,7 +196,11 @@ var catalog = map[string]phrasing{
 	},
 	"sim_finding": {
 		what: "failed a rehearsal",
-		did:  "The drill recorded a guardrail that did not hold. Production was not touched.",
+		// "Production was not touched" was a claim about the operator's setup
+		// that this event does not carry: the drill runs against whichever
+		// gateway it was pointed at, normally a pre-production one, and
+		// nothing here can tell.
+		did:  "The drill recorded a guardrail that did not hold, against the gateway it was pointed at.",
 		next: "A guardrail that failed a drill will fail the same way in production.",
 	},
 }

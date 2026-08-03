@@ -373,14 +373,21 @@ because one number cannot tell them apart. Splitting the counter is a change to
   messages reached real inboxes. Whether a hundred a day from a cloud address
   keep landing there, and what a corporate filter makes of them, is not
   something those sends establish.
-- **Two event types in the `catalog` have no producer anywhere.** Measured
-  2026-08-03 across the producing repositories: `quality_drift` is named only in
-  comments and in the field a drill uses to WAIT for such an event, and
-  `excessive_privilege` appears in no plane at all. The quality plane emits no
-  agent-events of any kind. So this build carries a sentence, and the README
-  carries a promise of immediate mail, for two things nothing raises. That is
-  the same class of defect as the four catalog entries corrected on 2026-08-03,
-  and it is open.
+- **Most producing planes are not wired to the event log in most deployments.**
+  Measured 2026-08-03 across `stack-k8s`, `stack-single` and `stack-up`: the
+  money plane's gateway path is set in all three, its cloud path in two, the
+  policy plane's in one, and the quality and drill planes' in none. Every one of
+  those planes CAN emit; their emitters are opt-in on an environment variable,
+  and nothing turns most of them on.
+
+  So on a real box this process can only alert on money. Policy alerts arrive in
+  one deployment out of three, quality and drill alerts in none. This is the
+  same defect the cluster run found for the cloud plane, which was fixed for
+  that one plane and never swept for the others, and it is open.
+- **One event type in the `catalog` has no producer anywhere.**
+  `excessive_privilege` appears in no plane, only in the console. So this build
+  carries a sentence for something nothing raises. Same class as the four
+  catalog entries corrected on 2026-08-03.
 - **The rest of the producing planes' triggers have not been read against their
   own names.** One was: `budget_exhausted` fired on any three blocks from a set
   that includes loop detection and policy violations, so a run with no budget at

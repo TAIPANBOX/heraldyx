@@ -188,6 +188,15 @@ var catalog = map[string]phrasing{
 		// this without them. It will not, and the agent stays blocked.
 		next: "A held action stays held until a human decides. Nothing expires it on its own.",
 	},
+	// The hold nobody answered, which until 2026-08-03 had no event at all.
+	// Its sentence has to be about the HUMAN, not the agent: the agent is
+	// doing exactly what it was told, and the only thing that moves this is
+	// somebody deciding.
+	"approval_unanswered": {
+		what: "is still waiting for a human decision nobody has made",
+		did:  "The action is held. Nothing is running and nothing is refused.",
+		next: "Nothing expires it. The agent waits until a person decides, however long that is.",
+	},
 	// Not a hold that nobody answered. The policy plane raises this when an
 	// agent REDEEMS an approval whose window has closed, which means a human
 	// very likely did decide, and the agent came back too late. Sending

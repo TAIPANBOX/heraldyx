@@ -38,8 +38,12 @@ const maxAgents = 2000
 type Kind int
 
 const (
-	// NearTheLine is spend approaching a budget: nothing is wrong yet.
-	NearTheLine Kind = iota
+	// OverTheLine is an agent that has already been stopped by its budget.
+	// Its work is failing right now, which is why it sorts first.
+	OverTheLine Kind = iota
+	// NearTheLine is spend approaching a budget: nothing is wrong yet, and
+	// this is the one an operator can still act on cheaply.
+	NearTheLine
 	// Odd is behaviour unlike the agent's own normal: a loop, a burst, a
 	// fan-out, an identity anomaly.
 	Odd
@@ -94,7 +98,7 @@ func describe(e event.Event) (Kind, string) {
 		}
 		return NearTheLine, "approaching its budget"
 	case "budget_exhausted":
-		return NearTheLine, "budget gone, calls refused"
+		return OverTheLine, "budget gone, calls refused"
 	case "sustained_loop":
 		return Odd, "repeating the same step" + occurrences()
 	case "fanout_explosion":
@@ -158,9 +162,10 @@ func (p *Picture) Around(exclude string, now time.Time, limit int) []Line {
 		}
 		out = append(out, Line{Kind: o.kind, AgentID: id, What: o.what})
 	}
-	// Near-the-line first, because that is the one an operator can still act
-	// on cheaply; then by agent id so the order is stable between two mails
-	// about the same moment.
+	// Stopped first, then approaching, then odd: an agent already refused is
+	// failing now, an agent near its budget is the one still worth saving, and
+	// anything else is an investigation. Then by agent id, so the order is
+	// stable between two mails about the same moment.
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Kind != out[j].Kind {
 			return out[i].Kind < out[j].Kind
@@ -174,11 +179,20 @@ func (p *Picture) Around(exclude string, now time.Time, limit int) []Line {
 }
 
 // Label is the column an operator reads first.
+//
+// "near the line" used to cover a budget that was already gone, which read as
+// a warning about something that had in fact already happened. Crossing a line
+// is not approaching it, and the operator's next move differs: one agent needs
+// a decision before it stops, the other has stopped and its work is failing.
 func (k Kind) Label() string {
-	if k == NearTheLine {
+	switch k {
+	case OverTheLine:
+		return "over the line"
+	case NearTheLine:
 		return "near the line"
+	default:
+		return "behaving oddly"
 	}
-	return "behaving oddly"
 }
 
 // Short trims an agent id for a column without losing the recognisable end.

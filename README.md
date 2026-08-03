@@ -208,7 +208,8 @@ Every message this process sends leaves one record behind it: an agent-event in
 the shared envelope, appended to a hash-chained NDJSON file
 (`sent.ndjson`, beside the state file). One line per message, carrying who was
 written to, what it was about, which transport carried it, and whether that
-transport took it.
+transport took it. There is one exception, named below, and the process tells
+you when it happens rather than leaving you to find it.
 
 ```bash
 heraldyx --journal        # from the box, no shell needed
@@ -238,6 +239,23 @@ Two words in there are chosen carefully.
 **"accepted", not "delivered".** What this process observes is a mail server
 taking the message. Whether it reached a mailbox, a spam folder or a filter
 that drops it silently is not knowable from here.
+
+**The exception: a record needs an agent to name.** The shared envelope requires
+an `agent_id` and nothing here invents one (see the boundary further down). A
+digest or a ceiling notice sent in a cycle where no single agent caused a message
+has nothing to be filed under, so the mail goes out and the record does not. The
+same is true of a write that simply fails, since the mail has already gone by
+then. Neither is silent. The process says so on stderr:
+
+```
+record: 1 message(s) sent without a record just now, 1 since this process
+started: no agent id to file them under, or the write failed. The mail went out
+either way, and the journal is short by that many.
+```
+
+`--journal` cannot show you this and does not pretend to: a record that was
+never written leaves no trace in the file it would have been written to, so the
+count lives in the log of the process that knows it.
 
 **The journal names the recipients**, unlike the mail itself, which carries
 identifiers and numbers only. The difference is where each one goes: mail

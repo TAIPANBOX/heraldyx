@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-18 -18 996 386" width="996" height="386" role="img" aria-label="heraldyx architecture: five planes append to one shared NDJSON event log, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume; the mail carries one link back into the operator's console">
+  <title>heraldyx: one log in, one mail out, one link back, and a sealed record of what was written</title>
+  <rect x="-18" y="-18" width="996" height="386" rx="16" fill="#0A0E13"/>
+  <rect x="-17.5" y="-17.5" width="995" height="385" rx="15.5" fill="none" stroke="rgba(255,255,255,.09)"/>
+
+  <defs>
+    <marker id="hx-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#5A6675"/>
+    </marker>
+    <marker id="hx-sky" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#5BC8F5"/>
+    </marker>
+  </defs>
+
+  <g font-family="ui-monospace,Menlo" text-anchor="middle">
+
+    <!-- the planes that write -->
+    <text x="78" y="26" fill="#5A6675" font-size="10">the planes, already writing</text>
+    <rect x="8" y="36" width="140" height="36" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <text x="78" y="53" fill="#E9EFF6" font-size="11" font-weight="700">TokenFuse</text>
+    <text x="78" y="66" fill="#8A97A6" font-size="10">money</text>
+
+    <rect x="8" y="80" width="140" height="36" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <text x="78" y="97" fill="#E9EFF6" font-size="11" font-weight="700">Wardryx</text>
+    <text x="78" y="110" fill="#8A97A6" font-size="10">policy</text>
+
+    <rect x="8" y="124" width="140" height="36" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <text x="78" y="141" fill="#E9EFF6" font-size="11" font-weight="700">Idryx</text>
+    <text x="78" y="154" fill="#8A97A6" font-size="10">identity</text>
+
+    <rect x="8" y="168" width="140" height="36" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <text x="78" y="185" fill="#E9EFF6" font-size="11" font-weight="700">Verdryx</text>
+    <text x="78" y="198" fill="#8A97A6" font-size="10">quality</text>
+
+    <rect x="8" y="212" width="140" height="36" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <text x="78" y="229" fill="#E9EFF6" font-size="11" font-weight="700">Mockryx</text>
+    <text x="78" y="242" fill="#8A97A6" font-size="10">drills</text>
+
+    <text x="78" y="268" fill="#5A6675" font-size="10">no credential here is</text>
+    <text x="78" y="281" fill="#5A6675" font-size="10">held by heraldyx</text>
+
+    <!-- arrows into the log -->
+    <path d="M152 54 L172 54" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
+    <path d="M152 98 L172 98" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
+    <path d="M152 142 L172 142" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
+    <path d="M152 186 L172 186" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
+    <path d="M152 230 L172 230" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
+
+    <!-- the shared log -->
+    <rect x="176" y="36" width="106" height="212" rx="11" fill="#10161F" stroke="#2a3547"/>
+    <text x="229" y="60" fill="#E9EFF6" font-size="11" font-weight="700">shared</text>
+    <text x="229" y="74" fill="#E9EFF6" font-size="11" font-weight="700">event log</text>
+    <text x="229" y="92" fill="#8A97A6" font-size="10">NDJSON</text>
+    <text x="229" y="105" fill="#8A97A6" font-size="10">one line</text>
+    <text x="229" y="118" fill="#8A97A6" font-size="10">per event</text>
+
+    <rect x="190" y="132" width="78" height="9" rx="2" fill="#1d2735"/>
+    <rect x="190" y="146" width="78" height="9" rx="2" fill="#1d2735"/>
+    <rect x="190" y="160" width="78" height="9" rx="2" fill="#1d2735"/>
+    <rect x="190" y="174" width="78" height="9" rx="2" fill="#1d2735"/>
+    <rect x="190" y="188" width="78" height="9" rx="2" fill="#1d2735"/>
+
+    <rect x="188" y="208" width="82" height="24" rx="6" fill="#141C27" stroke="#3FB950"/>
+    <text x="229" y="219" fill="#3FB950" font-size="9.5" font-weight="700">mounted</text>
+    <text x="229" y="229" fill="#3FB950" font-size="9.5" font-weight="700">READ-ONLY</text>
+
+    <text x="229" y="266" fill="#5A6675" font-size="10">heraldyx limits</text>
+    <text x="229" y="279" fill="#5A6675" font-size="10">messages, never</text>
+    <text x="229" y="292" fill="#5A6675" font-size="10">evidence</text>
+
+    <!-- the read arrow, with events travelling it -->
+    <path d="M286 142 L306 142" stroke="#5BC8F5" stroke-width="1.3" marker-end="url(#hx-sky)" fill="none"/>
+    <circle cx="288" cy="142" r="2.6" fill="#5BC8F5">
+      <animate attributeName="cx" values="288;304" dur="1.6s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;1;0" dur="1.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="288" cy="142" r="2.6" fill="#5BC8F5">
+      <animate attributeName="cx" values="288;304" dur="1.6s" begin="0.8s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;1;1;0" dur="1.6s" begin="0.8s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- heraldyx core -->
+    <rect x="310" y="20" width="300" height="284" rx="14" fill="#10161F" stroke="#5BC8F5" stroke-width="1.4">
+      <animate attributeName="stroke-opacity" values="1;.45;1" dur="3.4s" repeatCount="indefinite"/>
+    </rect>
+    <text x="460" y="44" fill="#5BC8F5" font-size="14" font-weight="700">heraldyx</text>
+    <text x="460" y="61" fill="#5A6675" font-size="10">it reads a file and sends mail</text>
+
+    <rect x="326" y="74" width="268" height="46" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <rect x="326" y="74" width="5" height="46" rx="2.5" fill="#E3B341"/>
+    <text x="460" y="92" fill="#E9EFF6" font-size="11" font-weight="700">severity floor</text>
+    <text x="460" y="108" fill="#8A97A6" font-size="10">default high; below it, the digest</text>
+
+    <rect x="326" y="128" width="268" height="46" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <rect x="326" y="128" width="5" height="46" rx="2.5" fill="#E3B341"/>
+    <text x="460" y="146" fill="#E9EFF6" font-size="11" font-weight="700">dedup window</text>
+    <text x="460" y="162" fill="#8A97A6" font-size="10">10 min: one condition is one message</text>
+
+    <rect x="326" y="182" width="268" height="46" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <rect x="326" y="182" width="5" height="46" rx="2.5" fill="#E3B341"/>
+    <text x="460" y="200" fill="#E9EFF6" font-size="11" font-weight="700">hourly ceiling</text>
+    <text x="460" y="216" fill="#8A97A6" font-size="10">20 an hour, so a flood cannot reach you</text>
+
+    <rect x="326" y="240" width="268" height="46" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <text x="460" y="258" fill="#8A97A6" font-size="10">no API, no client for any plane,</text>
+    <text x="460" y="272" fill="#8A97A6" font-size="10">no action on any agent, no HTTP at all</text>
+
+    <!-- out to mail -->
+    <path d="M614 142 L646 142" stroke="#5BC8F5" stroke-width="1.3" marker-end="url(#hx-sky)" fill="none"/>
+    <circle cx="616" cy="142" r="2.8" fill="#5BC8F5">
+      <animate attributeName="cx" values="616;644" dur="3.4s" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="0;0;1;1;0" dur="3.4s" repeatCount="indefinite"/>
+    </circle>
+    <text x="630" y="132" fill="#5A6675" font-size="9.5">SMTP</text>
+
+    <!-- the perimeter and the one hole -->
+    <rect x="650" y="20" width="304" height="284" rx="14" fill="none" stroke="#2a3547" stroke-dasharray="5 4"/>
+    <text x="802" y="40" fill="#5A6675" font-size="10">outside the box: default-deny egress,</text>
+    <text x="802" y="53" fill="#5A6675" font-size="10">and this is the only hole in it</text>
+
+    <rect x="666" y="70" width="272" height="86" rx="11" fill="#141C27" stroke="#2a3547"/>
+    <rect x="666" y="70" width="5" height="86" rx="2.5" fill="#5BC8F5"/>
+    <text x="806" y="90" fill="#E9EFF6" font-size="11" font-weight="700">one mail, four short paragraphs</text>
+    <text x="806" y="107" fill="#8A97A6" font-size="10">what happened, with its numbers</text>
+    <text x="806" y="120" fill="#8A97A6" font-size="10">what this box already did about it</text>
+    <text x="806" y="133" fill="#8A97A6" font-size="10">what happens if nobody acts</text>
+    <text x="806" y="146" fill="#8A97A6" font-size="10">one link, and the link is a view</text>
+
+    <rect x="666" y="170" width="130" height="52" rx="10" fill="#141C27" stroke="#2a3547"/>
+    <text x="731" y="190" fill="#E9EFF6" font-size="11" font-weight="700">the operator</text>
+    <text x="731" y="206" fill="#8A97A6" font-size="10">reads it at 02:14</text>
+
+    <rect x="808" y="170" width="130" height="52" rx="10" fill="#141C27" stroke="#2a3547"/>
+    <text x="873" y="190" fill="#E9EFF6" font-size="11" font-weight="700">the console</text>
+    <text x="873" y="206" fill="#8A97A6" font-size="10">signs in, then acts</text>
+
+    <path d="M798 196 L805 196" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
+
+    <rect x="666" y="234" width="272" height="56" rx="10" fill="#141C27" stroke="#F0544C"/>
+    <text x="802" y="252" fill="#F0544C" font-size="10.5" font-weight="700">never an action from inside the mail</text>
+    <text x="802" y="268" fill="#8A97A6" font-size="10">mail gateways prefetch links, and a</text>
+    <text x="802" y="281" fill="#8A97A6" font-size="10">forwarded one would still fire it</text>
+
+    <!-- the dispatch journal -->
+    <path d="M460 308 L460 322" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
+    <rect x="176" y="322" width="568" height="26" rx="8" fill="#141C27" stroke="#2a3547"/>
+    <text x="326" y="339" fill="#E9EFF6" font-size="10.5" font-weight="700">the dispatch journal</text>
+    <text x="560" y="339" fill="#8A97A6" font-size="10">hash-chained, on heraldyx's own volume</text>
+    <circle cx="220" cy="335" r="3.4" fill="#5BC8F5">
+      <animate attributeName="opacity" values=".25;1;.25" dur="2.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="234" cy="335" r="3.4" fill="#5BC8F5">
+      <animate attributeName="opacity" values=".25;1;.25" dur="2.6s" begin="0.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="248" cy="335" r="3.4" fill="#5BC8F5">
+      <animate attributeName="opacity" values=".25;1;.25" dur="2.6s" begin="1s" repeatCount="indefinite"/>
+    </circle>
+
+    <text x="860" y="339" fill="#5A6675" font-size="9.5">github.com/TAIPANBOX/heraldyx</text>
+  </g>
+</svg>

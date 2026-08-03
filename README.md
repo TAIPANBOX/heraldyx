@@ -9,6 +9,8 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Status](https://img.shields.io/badge/stage-v0.1%20(mail)-success.svg)
 
+<img src="assets/diagram.svg" alt="heraldyx architecture: five planes append to one shared NDJSON event log, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
+
 </div>
 
 heraldyx watches the NDJSON event log the [TAIPANBOX](https://github.com/TAIPANBOX)
@@ -21,6 +23,14 @@ It reads a file and sends mail. That is the whole of it, and the narrowness is
 the design: this is the one component of the box that opens a connection to
 something outside it, so it is the one component whose blast radius has to be
 small enough to state in a sentence.
+
+<div align="center">
+
+<img src="docs/assets/one-way-out.svg" alt="heraldyx's nine packages in three tiers: rule, render and fleet touch no I/O at all, config, watch, state, record and passport touch files only, and internal/deliver is the single package that may import net/smtp and cross the default-deny egress boundary. scripts/one-way-out.sh fails the build if any of the three rules is broken" width="960">
+
+<sub>The claim is checked rather than promised: <code>scripts/one-way-out.sh</code> runs in <code>make gates</code> and in CI.</sub>
+
+</div>
 
 ---
 
@@ -45,6 +55,17 @@ plane, has no API of its own, and can take no action on any agent.
 
 ## What reaches you, by default
 
+Every event meets four checks, in a fixed order, and comes out of exactly one
+of four doors.
+
+<div align="center">
+
+<img src="docs/assets/decide.svg" alt="One event passes four checks in order: an unknown severity and anything below the floor go to the daily digest, a condition already mailed within the dedup window is dropped, an event over the hourly ceiling is suppressed with one notice, and what is left is mailed immediately. A measured burst of 120 events produced 20 alert mails" width="960">
+
+<sub>The numbers are from <code>scripts/burst-demo.sh</code>, which runs the real binary over a generated burst. It is a scenario: what a real fleet produces is unmeasured, and <code>VALIDATION.md</code> says so.</sub>
+
+</div>
+
 The floor is `high`, so this is roughly what an ordinary day is silent about
 and what it is not.
 
@@ -65,6 +86,46 @@ that had not spiked would be worse than silence.
 Org-wide facts live where they have always lived, in the console and in the
 plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
+
+<details>
+<summary><b>The 20 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+
+<br>
+
+Each of these has three lines in the catalog: what happened, what the box
+already did about it, and what happens if nobody acts. A type not listed here
+is not dropped; it is described honestly as one this build has no description
+for, and the link still opens the console at it.
+
+| type | the mail's first sentence says the subject |
+|---|---|
+| `budget_threshold` | is approaching its budget |
+| `budget_exhausted` | has exhausted its budget |
+| `run_killed` | was killed |
+| `sustained_loop` | is repeating the same step |
+| `spend_spike` | is burning money far faster than it usually does |
+| `fanout_explosion` | is driving far more runs at once than it usually does |
+| `breaker_tripped` | was refused by the breaker |
+| `unit_cap_exceeded` | has spent its business unit's monthly cap |
+| `dlp_block` | tried to send something that matched a secret pattern |
+| `taint_block` | was refused a tool its taint labels do not allow |
+| `policy_deny` | was denied by policy |
+| `approval_requested` | is waiting for a human decision |
+| `approval_unanswered` | is still waiting for a human decision nobody has made |
+| `approval_timeout` | presented an approval that had already expired |
+| `identity_mismatch` | presented a credential that may not speak as the agent it claimed |
+| `behavior_anomaly` | is behaving unlike its own history |
+| `excessive_privilege` | holds more access than it uses |
+| `mcp_drift` | is talking to an MCP tool that changed under its pinned lock |
+| `quality_drift` | is producing worse output than its baseline |
+| `sim_finding` | failed a rehearsal |
+
+Nothing can check that an entry is TRUE, which is why they are audited against
+the producing plane's own code rather than its README. Four of the seventeen
+that existed on 2026-08-03 were wrong, and each was wrong in a way that would
+have sent an operator somewhere useless. See `CLAUDE.md`.
+
+</details>
 
 `budget_threshold` is the "approaching the line" signal, and it is deliberately
 one band below the incident it precedes: nothing has gone wrong yet, and an
@@ -104,6 +165,17 @@ Append an event to `/tmp/heraldyx/events.ndjson`, run it again, and read
 `/tmp/heraldyx/mail.txt`. `HERALDYX_MAIL_FILE` writes what WOULD be sent, which
 is also the honest way to see this in a demo: the whole chain runs except the
 last mile.
+
+To watch the three limits work rather than read about them:
+
+```bash
+./scripts/burst-demo.sh
+```
+
+It builds a burst of 120 events, runs the real binary over it with the default
+limits, and prints what came out. The three limits are easy to describe and
+hard to believe until a flood goes in one end and twenty messages come out the
+other.
 
 ## Configuration
 
@@ -168,6 +240,14 @@ Open in your console:
   its owner       https://box/o/team-finance@acme.example (everything they run)
 ```
 
+<div align="center">
+
+<img src="docs/assets/anatomy.svg" alt="Every line of the mail colour-coded by where it came from: the event itself, the catalog of what a type means, the agent's passport for who is answerable, the in-memory fleet picture for what else is happening, and the operator's console address for the three links" width="960">
+
+<sub>Five sources, each with a rule about what it may contribute, and not one of them is free text.</sub>
+
+</div>
+
 **"Around it right now"** is built from the same event log this process already
 reads, so it costs no new input and cannot be stale in a way the alert is not.
 It lives in memory only: this is what the notifier has seen since it started,
@@ -195,6 +275,14 @@ matched secrets. Mail leaves your perimeter through a server we do not control,
 so `data` is rendered through an allowlist of keys whose values must also look
 like identifiers or numbers. A denylist would be one new producer away from
 leaking.
+
+<div align="center">
+
+<img src="docs/assets/allowlist.svg" alt="An event's data passes two independent gates before any of it reaches a mailbox: the key must be one of eleven allowlisted names, and the value must be a number, a boolean, or a short single-line identifier-shaped string. A live secret is perfectly identifier-shaped, so only the key allowlist stops it" width="960">
+
+<sub>The <code>matched</code> row is the one that carries the design: a live secret passes the shape check comfortably, so the KEY list is what stops it.</sub>
+
+</div>
 
 **One link, and it is a view.** The mail never carries an action. A link that
 acts is an unauthenticated capability held by anyone who sees or forwards the
@@ -232,6 +320,14 @@ last:    2026-08-02T18:08:49Z  budget_exhausted:run-99 -> ops@example.com (accep
 (`agent-conform` is the checker in
 [agent-stack-go](https://github.com/TAIPANBOX/agent-stack-go), the same module
 that writes the chain.)
+
+<div align="center">
+
+<img src="docs/assets/journal.svg" alt="Every message sent appends one hash-chained agent-event on heraldyx's own volume, never into the planes' read-only event log. Editing any record breaks the chain from that point on and heraldyx --journal exits non-zero. The record says accepted rather than delivered, and a chain of one record is not reported as verified because it binds nothing" width="960">
+
+<sub>The broken-chain output above is a real one: a four-record journal with its third record edited.</sub>
+
+</div>
 
 Two words in there are chosen carefully.
 

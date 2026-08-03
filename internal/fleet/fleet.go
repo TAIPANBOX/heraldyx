@@ -104,7 +104,7 @@ func describe(e event.Event) (Kind, string) {
 	case "fanout_explosion":
 		return Odd, "driving many runs at once" + occurrences()
 	case "spend_spike":
-		return Odd, "burning faster than its configured rate"
+		return Odd, "burning far faster than it usually does"
 	case "mcp_drift":
 		return Odd, "its MCP tool changed under the pinned lock"
 	case "behavior_anomaly":

@@ -211,16 +211,17 @@ var catalog = map[string]phrasing{
 		did:  "The drift was measured and recorded. No traffic was stopped.",
 		next: "Quality drift does not stop anything by itself. It is a signal to look.",
 	},
-	"behavior_anomaly": {
-		what: "is behaving unlike its own history",
-		did:  "The finding was recorded. No access was changed.",
-		next: "Nothing automatic. This is an identity observation, not an enforcement.",
-	},
-	"excessive_privilege": {
-		what: "holds more access than it uses",
-		did:  "The finding was recorded. No access was changed.",
-		next: "Nothing automatic. Excess privilege is blast radius, not an active incident.",
-	},
+	// `behavior_anomaly` and `excessive_privilege` were here until 2026-08-03
+	// and were removed because nothing raises them. Both are concepts of the
+	// identity plane, and idryx has no event writer at all: it READS this log
+	// to build its graph and answers through its own API. Measured across the
+	// producing repositories, neither type is emitted anywhere.
+	//
+	// A catalog entry is a claim about what another plane did. Keeping one for
+	// an event that cannot arrive is the same defect as the four entries this
+	// file already carries tests against, only quieter: nobody ever sees it be
+	// wrong. If the identity plane grows a writer, add them back by reading its
+	// code, not by copying these sentences out of git history.
 	"sim_finding": {
 		what: "failed a rehearsal",
 		// "Production was not touched" was a claim about the operator's setup

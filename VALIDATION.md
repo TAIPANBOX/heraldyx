@@ -384,10 +384,11 @@ because one number cannot tell them apart. Splitting the counter is a change to
   one deployment out of three, quality and drill alerts in none. This is the
   same defect the cluster run found for the cloud plane, which was fixed for
   that one plane and never swept for the others, and it is open.
-- **One event type in the `catalog` has no producer anywhere.**
-  `excessive_privilege` appears in no plane, only in the console. So this build
-  carries a sentence for something nothing raises. Same class as the four
-  catalog entries corrected on 2026-08-03.
+- **The identity plane raises nothing this build can describe**, because it
+  raises nothing at all. `behavior_anomaly` and `excessive_privilege` left the
+  catalog on 2026-08-03 for that reason, and idryx has no event writer to give
+  them one. Its findings live in its own API and its graph. If that changes,
+  the entries come back from reading its code.
 - **The rest of the producing planes' triggers have not been read against their
   own names.** One was: `budget_exhausted` fired on any three blocks from a set
   that includes loop detection and policy violations, so a run with no budget at

@@ -7,7 +7,7 @@
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
-![Status](https://img.shields.io/badge/stage-v0.1%20(mail)-success.svg)
+![Version](https://img.shields.io/badge/version-v0.2.2-success.svg)
 
 <img src="assets/diagram.svg" alt="heraldyx architecture: four planes append to one shared NDJSON event log which idryx also reads, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
 
@@ -91,7 +91,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 20 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 18 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -117,18 +117,15 @@ for, and the link still opens the console at it.
 | `approval_unanswered` | is still waiting for a human decision nobody has made |
 | `approval_timeout` | presented an approval that had already expired |
 | `identity_mismatch` | presented a credential that may not speak as the agent it claimed |
-| `behavior_anomaly` | is behaving unlike its own history **(nothing raises this today)** |
-| `excessive_privilege` | holds more access than it uses **(nothing raises this today)** |
 | `mcp_drift` | is talking to an MCP tool that changed under its pinned lock |
 | `quality_drift` | is producing worse output than its baseline |
 | `sim_finding` | failed a rehearsal |
 
-**Two of them are not raised by anything today.** `behavior_anomaly` and
-`excessive_privilege` are concepts of the identity plane, and idryx has no event
-writer at all: it reads the same log to build its graph and answers through its
-own API. Their entries stay because the wire types are registered and a future
-producer should land on a correct sentence rather than the fallback. No mail
-carries them, so no table here promises one.
+`behavior_anomaly` and `excessive_privilege` were listed here until 2026-08-03.
+They were removed because nothing raises them: both are concepts of the identity
+plane, and idryx has no event writer at all. It reads this same log to build its
+graph and answers through its own API. An entry describing an event that cannot
+arrive is a claim nobody ever sees be wrong, which is the worst kind to keep.
 
 Nothing can check that an entry is TRUE, which is why they are audited against
 the producing plane's own code rather than its README. Four of the seventeen
@@ -146,7 +143,7 @@ it happens.
 ## Running it without building it
 
 ```bash
-docker pull ghcr.io/TAIPANBOX/heraldyx:v0.1.0
+docker pull ghcr.io/TAIPANBOX/heraldyx:v0.2.2
 ```
 
 Published on a tag, for `linux/amd64` and `linux/arm64`. **Immutable versions
@@ -374,10 +371,12 @@ log is mounted read-only here on purpose, and it stays that way.
 
 ## What it does not do
 
-- **It does not queue.** A message that cannot be delivered is logged and
-  dropped. The event itself is still in the log, which outlives this process.
-- **It does not know your working hours.** Quiet hours are not implemented in
-  v0.1; the ceiling and the digest are the only volume controls.
+- **It does not queue.** A message that cannot be delivered is logged, written
+  into the dispatch journal as a refusal, and dropped. A retry queue inside the
+  one process with a way out is the opposite of the design, and the event itself
+  is still in the log, which outlives this process.
+- **It does not know your working hours.** Quiet hours are designed and not
+  built; the ceiling and the digest are the only volume controls.
 - **It does not talk to any plane.** No polling of an API, no credential, no
   client. If a fact is not in the event log, heraldyx does not know it.
 - **It does not ship the journal to the record plane.** Trailryx's ingest is

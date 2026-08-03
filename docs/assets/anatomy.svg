@@ -58,7 +58,7 @@
     <text x="618" y="146" fill="#B48CFF" font-size="10.5" font-weight="700">the catalog, in internal/render</text>
     <text x="618" y="161" fill="#8A97A6" font-size="9.5">what a type MEANS: what the box already</text>
     <text x="618" y="174" fill="#8A97A6" font-size="9.5">did, and what happens if nobody acts.</text>
-    <text x="618" y="188" fill="#8A97A6" font-size="9.5">20 types known; the rest say so plainly</text>
+    <text x="618" y="188" fill="#8A97A6" font-size="9.5">18 types known; the rest say so plainly</text>
 
     <rect x="600" y="208" width="352" height="60" rx="10" fill="#141C27" stroke="#2a3547"/>
     <rect x="600" y="208" width="5" height="60" rx="2.5" fill="#34D399"/>

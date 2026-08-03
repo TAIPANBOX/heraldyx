@@ -224,8 +224,98 @@ agent to attribute the notice to, and this stack does not invent one (invariant
 which is what the digest already does in the same situation. `internal/record`
 describes that counter as surfaced rather than hidden; `@measured` by grep,
 2026-08-03, `Journal.Failures` is read by nothing outside `record_test.go`, so
-the gap is counted and invisible. That is a separate defect from this one and is
-listed below.
+the gap is counted and invisible. That is a separate defect from this one, and
+it is fixed in the entry below.
+
+## 2026-08-03, the counter that said "surfaced" and was not
+
+`internal/record` describes `Journal.Failures` as counting records it could not
+write, "surfaced rather than hidden: a journal that stopped recording is worth
+an operator's attention". `@measured` by grep against `1625a31`, 2026-08-03:
+nothing outside `internal/record/record_test.go` read the field, and
+`cmd/heraldyx/main.go` never printed it. The counter was right and the sentence
+about it was not.
+
+Two live paths increment it, and both are ordinary rather than exotic. A
+dispatch with an empty `AgentID` is not recorded, because the envelope requires
+one and this stack does not invent one (invariant 11); and a chained write that
+fails is counted and stepped over, because the mail has already gone. Both
+reach a real cycle: a digest sent when nothing else caused a message that cycle,
+and, since `1625a31`, a suppression notice flushed in a cycle that held nothing
+back. In both the mail goes out, the journal stays short, and nothing said so.
+
+`@measured` against the unfixed binary at `1625a31`, 2026-08-03: an empty event
+log, `HERALDYX_MAIL_FILE` set, and a seeded state file whose digest window
+opened 25 hours earlier with one condition in it,
+`./bin/heraldyx --once --from-now=false`.
+
+```
+watching 1 file(s) under 1 path(s), floor high, dedup 10m0s, ceiling 20/hour
+sending via file to 1 recipient(s)
+Subject: [prod-box] daily summary: 1 conditions below the alert line
+sent.ndjson: 0 records
+```
+
+A message went out, the journal was short by it, and the log has nothing
+between those two lines.
+
+**The fix.** `run` reports the counter's GROWTH once per cycle, beside the
+`record:` and `state:` lines it already prints. `@measured` the same input
+against the fixed binary, 2026-08-03:
+
+```
+record: 1 message(s) sent without a record just now, 1 since this process
+started: no agent id to file them under, or the write failed. The mail went out
+either way, and the journal is short by that many.
+```
+
+Growth rather than the standing count, because the counter is cumulative for the
+life of the process and this runs on every poll. Reporting the total would put
+the same line in the log every two seconds for a gap from an hour ago, and a log
+that repeats itself is one an operator stops reading: the same failure this
+component's dedup window exists to prevent in a mailbox.
+
+`@claude` `--journal` was considered for this and deliberately does NOT carry
+it. `--journal` is a separate invocation that reads the journal FILE, and a
+record that was never written leaves no trace in that file, so the number would
+have to come from somewhere else. `@measured` on the unrecorded run above,
+2026-08-03: `--journal` reports `records: 0 (none)`, which is a true statement
+about the file and says nothing about the message that went out. Carrying the
+count there would mean persisting it in `state.json` and having `record.Status`,
+which is documented as what the journal file says about itself, report a number
+that is not in the file. Worse, a fresh state volume would reset it, so
+`--journal` would print a confident zero on a box whose journal really is short.
+That is invariant 8's rule about never claiming the stronger fact, and a deploy
+check reading it would be the one holding the wrong answer.
+
+`@measured` red before green, 2026-08-03. Both tests were run against the
+unfixed code first. `TestAMessageSentWithoutARecordIsReported` failed on the log
+assertion and only that one, so its two premise checks confirm the run really
+did send the mail and really did leave the journal empty.
+`TestAGapAlreadyReportedIsNotReportedAgainEveryPoll` failed with six lines where
+two were expected, printing the spam it exists to prevent.
+
+| test | what it holds |
+|---|---|
+| `TestAMessageSentWithoutARecordIsReported` | a digest sent with no agent to file it under leaves the journal empty AND says so in the log |
+| `TestAGapAlreadyReportedIsNotReportedAgainEveryPoll` | one line per cycle that actually missed a record, carrying the growth and the total, not one line per poll |
+
+`@measured` both were then verified by breaking the FIXED code, 2026-08-03, and
+each break failed its own test and only its own. Moving the report below `--once`'s
+`return` fails the first. Reporting `failures` in place of `failures-said` fails
+the second, on the assertion that the later gap names what it added.
+
+`@measured` gates after the change, 2026-08-03: `gofmt -l .` clean, `go vet`
+clean, `staticcheck ./...` clean, `go test -race ./...` all ten packages ok,
+`gosec -quiet ./...` clean, `govulncheck ./...` no vulnerabilities found,
+`./scripts/one-way-out.sh` OK. All three linters confirmed present at `~/go/bin`
+rather than skipped by the Makefile's `command -v` guard.
+
+`@claude` what this does NOT do. The counter still lumps two different facts
+together: a record deliberately skipped for want of a subject, which is invariant
+11 working, and a write that failed, which is a fault. The log line names both
+because one number cannot tell them apart. Splitting the counter is a change to
+`internal/record`'s own shape and was left alone.
 
 ## What has NOT been verified
 
@@ -252,10 +342,3 @@ listed below.
   and the digest period are reasoned defaults carried over from the money
   plane's own alert pipeline, not numbers anyone has watched an operator live
   with.
-- **`Journal.Failures` is counted and never printed.** `internal/record` says
-  the count of records it could not write is "surfaced rather than hidden", and
-  as of 2026-08-03 nothing outside that package's own tests reads it. Every
-  path that skips a record for want of an agent id (a digest, or a suppression
-  notice flushed in a cycle that held nothing) is therefore invisible to an
-  operator. The counter is right; the sentence claiming it is surfaced is the
-  part that is not true yet.

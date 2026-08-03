@@ -78,12 +78,22 @@ an absent invariant.
    says nothing.
    *(test: `TestNoRecipientsIsHealthyAndSilent`,
    `TestTestMailFailsWhenNothingIsConfigured`)*
-5. **Both halves of the state survive a restart.** Read offsets AND dedup
-   counters. A container restarts on every rollout; a process that forgets
+5. **Both halves of the state survive a restart, AND a blink in the file set
+   is not a restart.** Read offsets AND dedup counters. A container restarts on every rollout; a process that forgets
    either one turns a quiet incident into a mailbox full of the same incident,
    which is how an operator learns to filter this sender to trash.
+   The second clause was added after the first was found to be technically
+   true and practically worthless. The offsets were persisted, reloaded and
+   correct, and the process still re-read every log from byte zero on a live
+   cluster, because `SetPaths` dropped the position of any file missing from
+   the set it was handed, and resolving that set comes back short for a moment
+   now and then. Persisting a number nothing later honours is not state, it is
+   a decoration on a file.
    *(test: `TestDedupSurvivesARestart`, `TestARestartRemembersBothHalves`,
-   `TestOneEventBecomesOneMessage`'s second pass)*
+   `TestOneEventBecomesOneMessage`'s second pass,
+   `TestAPathOutOfSightForOnePollKeepsItsPlace`, and
+   `TestAReplacedFileIsStillReadFromTheStart` for the case that makes keeping
+   a position safe)*
 6. **Every limit is a limit on MESSAGES, never on evidence.** Dedup, the
    ceiling and the digest decide what is said, and nothing else. heraldyx never
    suppresses, edits or delays an event in the log, because it cannot: it only

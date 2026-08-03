@@ -44,16 +44,41 @@ func New(paths []string, offsets map[string]int64) *Watcher {
 	return w
 }
 
-// SetPaths replaces the watched set, keeping the offsets of files that are
-// still in it.
+// maxRememberedPaths bounds how many read positions are kept for files that
+// are not in the current set. One per event log the box has ever had is a
+// handful; this is a backstop against a pathological directory, not a policy.
+const maxRememberedPaths = 256
+
+// SetPaths replaces the watched set.
 //
 // Called on every poll, because the set is not fixed: a plane deployed after
 // this process started writes a file that did not exist at startup, and the
 // alternative to noticing it is an operator wondering why one plane never
 // alerts. A file that appears later is read from its beginning, which is
 // right: everything in it is new.
+//
+// It does NOT forget where it was in a file that is missing from the set right
+// now. It used to, and that cost the whole point of persisting offsets:
+// resolving the set can come back short for a moment (a directory that cannot
+// be stat'ed on one poll, a mount not yet visible), and one such moment threw
+// away every read position. The next poll then re-read every log from byte
+// zero and mailed the operator its entire history again, bounded only by the
+// ten-minute dedup window, which is to say not bounded at all for anything
+// older than ten minutes.
+//
+// Measured on a live cluster 2026-08-02: every restart of the notifier
+// re-processed the full event log, and the counter that proved it was the
+// digest, which had counted six events between seven and eight times each.
+//
+// Keeping the position is also the safe direction. A file genuinely replaced
+// or rotated is caught in pollOne, where a size smaller than the offset means
+// start over; a file that is simply out of sight for one poll keeps its place
+// and loses nothing.
 func (w *Watcher) SetPaths(paths []string) {
 	w.paths = paths
+	if len(w.offsets) <= maxRememberedPaths {
+		return
+	}
 	keep := make(map[string]int64, len(paths))
 	for _, p := range paths {
 		if off, ok := w.offsets[p]; ok {

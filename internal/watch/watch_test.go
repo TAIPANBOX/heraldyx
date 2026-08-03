@@ -140,3 +140,64 @@ func TestSetPathsKeepsOffsetsAndPicksUpNewFiles(t *testing.T) {
 		t.Fatalf("the new file should be read, the old one not re-read: %+v", got)
 	}
 }
+
+// The defect this was written for, and the most expensive one this component
+// has had: a poll where the file is not in the resolved set used to throw the
+// read position away, so the poll after it re-read the log from byte zero and
+// mailed the operator its whole history again.
+//
+// Resolving the set can come back short for a moment: a directory that cannot
+// be stat'ed once, a mount not yet visible. That is a blink, not a new file.
+func TestAPathOutOfSightForOnePollKeepsItsPlace(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "plane.ndjson")
+	write(t, p, line("r1"))
+
+	w := New([]string{p}, nil)
+	if got := w.Poll(); len(got) != 1 {
+		t.Fatalf("first read: %+v", got)
+	}
+	at := w.Offsets()[p]
+	if at == 0 {
+		t.Fatal("nothing was read")
+	}
+
+	// One blind poll: the resolver came back with nothing.
+	w.SetPaths(nil)
+	if len(w.Poll()) != 0 {
+		t.Fatal("watching nothing must read nothing")
+	}
+	// And the file is back.
+	w.SetPaths([]string{p})
+	if got := w.Poll(); len(got) != 0 {
+		t.Fatalf("re-read %d event(s) that had already been read", len(got))
+	}
+	if w.Offsets()[p] != at {
+		t.Fatalf("position moved: %d, was %d", w.Offsets()[p], at)
+	}
+}
+
+// The other half of the same rule: a file genuinely replaced is still read
+// from the start, because its size is smaller than the position held for it.
+// Keeping a position is only safe because this case is caught here.
+func TestAReplacedFileIsStillReadFromTheStart(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "plane.ndjson")
+	write(t, p, line("r1")+line("r2"))
+
+	w := New([]string{p}, nil)
+	if got := w.Poll(); len(got) != 2 {
+		t.Fatalf("first read: %+v", got)
+	}
+	// Rotated away and started again, shorter than what was read before.
+	if err := os.WriteFile(p, []byte(line("r3")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := w.Poll()
+	if len(got) != 1 || got[0].RunID != "r3" {
+		t.Fatalf("%+v", got)
+	}
+	if w.Truncations != 1 {
+		t.Fatalf("truncations: %d", w.Truncations)
+	}
+}

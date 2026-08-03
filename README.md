@@ -7,7 +7,7 @@
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
-![Status](https://img.shields.io/badge/stage-v0.1%20(mail)-success.svg)
+![Version](https://img.shields.io/badge/version-v0.2.2-success.svg)
 
 <img src="assets/diagram.svg" alt="heraldyx architecture: four planes append to one shared NDJSON event log which idryx also reads, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
 
@@ -143,7 +143,7 @@ it happens.
 ## Running it without building it
 
 ```bash
-docker pull ghcr.io/TAIPANBOX/heraldyx:v0.1.0
+docker pull ghcr.io/TAIPANBOX/heraldyx:v0.2.2
 ```
 
 Published on a tag, for `linux/amd64` and `linux/arm64`. **Immutable versions
@@ -371,10 +371,12 @@ log is mounted read-only here on purpose, and it stays that way.
 
 ## What it does not do
 
-- **It does not queue.** A message that cannot be delivered is logged and
-  dropped. The event itself is still in the log, which outlives this process.
-- **It does not know your working hours.** Quiet hours are not implemented in
-  v0.1; the ceiling and the digest are the only volume controls.
+- **It does not queue.** A message that cannot be delivered is logged, written
+  into the dispatch journal as a refusal, and dropped. A retry queue inside the
+  one process with a way out is the opposite of the design, and the event itself
+  is still in the log, which outlives this process.
+- **It does not know your working hours.** Quiet hours are designed and not
+  built; the ceiling and the digest are the only volume controls.
 - **It does not talk to any plane.** No polling of an API, no credential, no
   client. If a fact is not in the event log, heraldyx does not know it.
 - **It does not ship the journal to the record plane.** Trailryx's ingest is

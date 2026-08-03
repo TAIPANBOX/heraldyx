@@ -137,6 +137,27 @@ an absent invariant.
    offset only advances past a newline.
    *(test: `TestAPartialLineIsNotConsumed`)*
 
+11. **What cannot name an agent does not arrive, and must not be made to.**
+   The shared envelope requires an `agent_id` (agent-passport SPEC.md section
+   6.1). A signal about a whole organisation therefore has no subject to travel
+   under, its producer skips it rather than inventing one, and this process
+   never sees it. `spend_spike` is the live example: raised by the money plane,
+   shown in the console, absent here.
+
+   Accepted as a boundary of this plane by the user on 2026-08-03 and written
+   into the README where an operator will meet it, rather than left as a
+   surprise for the night something org-wide goes wrong.
+
+   The failure this forecloses is the tempting one: a fallback subject, a
+   "various" agent, an org id in the `agent_id` field. Any of those makes every
+   downstream count wrong and puts a name in a subject line that did not do the
+   thing. If org-wide facts are ever to be mailed, the envelope grows a subject
+   kind and every product changes together; it is not a feature of the
+   notifier.
+   *(not enforced: nothing here can stop a future producer from fabricating a
+   subject upstream. What holds it is that the exporter in tokenfuse counts
+   skips instead, and its own invariant 6 forbids the fabrication)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

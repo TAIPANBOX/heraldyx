@@ -106,7 +106,7 @@ for, and the link still opens the console at it.
 | `budget_exhausted` | has exhausted its budget |
 | `run_killed` | was killed |
 | `sustained_loop` | is repeating the same step |
-| `spend_spike` | is burning money far faster than it usually does |
+| `spend_spike` | is burning money far faster than it usually does (a sentence that cannot currently be shown: see the row above about org-wide facts) |
 | `fanout_explosion` | is driving far more runs at once than it usually does |
 | `breaker_tripped` | was refused by the breaker |
 | `unit_cap_exceeded` | has spent its business unit's monthly cap |
@@ -227,25 +227,35 @@ has.
 ## What an alert actually says
 
 ```
-[prod-box] run-42 has exhausted its budget
+[prod-box] run-4471 has exhausted its budget
 
-Run run-42 (agent billing-agent) has exhausted its budget. Occurrences 3, org acme.
+Run run-4471 (agent agent://meridian.io/...s/unit-economics-analyst) has exhausted its budget.
+Spent $1.25 of $1.25 (100%).
 
 What this box already did: Calls from this run are being refused with a hard 402.
+
 If nobody acts: The run cannot spend again until someone raises its budget.
 
-Answerable for it: team-finance@acme.example
+Answerable for it: w.zhang
 
 Around it right now:
-  near the line   pricing-agent        82% of budget
-  behaving oddly  data-crawler         behaving unlike its own history
-  behaving oddly  runbook-executor     repeating the same step (14 times)
+  near the line   agent://meridian.io/sre/runbook-executor  82% of budget
+  behaving oddly  agent://meridian.io/data/query-cost-optimizer  repeating the same step (14 times)
 
 Open in your console:
-  what happened   https://box/i/budget_exhausted:run-42
-  this agent      https://box/a/billing-agent            (freeze, kill)
-  its owner       https://box/o/team-finance@acme.example (everything they run)
+  what happened   https://box/i/budget_exhausted:run-4471
+  this agent      https://box/a/agent://meridian.io/finops/unit-economics-analyst   (freeze, kill)
+  its owner       https://box/o/w.zhang   (everything they run)
+
+Raised by tokenfuse at 2026-08-04 01:14:07 UTC. This mail carries identifiers and numbers only, never the content of a call.
 ```
+
+<sub>Transcribed from <code>render.Event</code>'s own output rather than written by
+hand. The previous sample showed three things this build cannot produce: a fact
+line reading "Occurrences 3, org acme" beside a budget event (the budget branch
+returns early and prints the spend sentence alone), the phrase "behaving unlike
+its own history" (it belonged to <code>behavior_anomaly</code>, removed above),
+and no closing sentence about what the mail carries.</sub>
 
 <div align="center">
 

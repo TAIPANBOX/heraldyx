@@ -10,7 +10,7 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.2-success.svg)
 
-<img src="assets/diagram.svg" alt="heraldyx architecture: the planes append to one shared NDJSON event log which idryx also reads, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
+<img src="assets/diagram.svg" alt="heraldyx architecture: five planes append to one shared NDJSON event log which idryx and qryx also read, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
 
 </div>
 

@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-18 -18 996 386" width="996" height="386" role="img" aria-label="heraldyx architecture: four planes append to one shared NDJSON event log, which idryx also reads, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume; the mail carries one link back into the operator's console">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-18 -18 996 410" width="996" height="410" role="img" aria-label="heraldyx architecture: five planes append to one shared NDJSON event log, which idryx and qryx also read, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume; the mail carries one link back into the operator's console">
   <title>heraldyx: one log in, one mail out, one link back, and a sealed record of what was written</title>
-  <rect x="-18" y="-18" width="996" height="386" rx="16" fill="#0A0E13"/>
-  <rect x="-17.5" y="-17.5" width="995" height="385" rx="15.5" fill="none" stroke="rgba(255,255,255,.09)"/>
+  <rect x="-18" y="-18" width="996" height="410" rx="16" fill="#0A0E13"/>
+  <rect x="-17.5" y="-17.5" width="995" height="409" rx="15.5" fill="none" stroke="rgba(255,255,255,.09)"/>
 
   <defs>
     <marker id="hx-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
@@ -35,19 +35,29 @@
     <text x="78" y="185" fill="#E9EFF6" font-size="11" font-weight="700">Mockryx</text>
     <text x="78" y="198" fill="#8A97A6" font-size="10">drills</text>
 
-    <rect x="8" y="212" width="140" height="36" rx="9" fill="#141C27" stroke="#3FB950"/>
-    <text x="78" y="229" fill="#E9EFF6" font-size="11" font-weight="700">Idryx</text>
-    <text x="78" y="242" fill="#3FB950" font-size="10">reads, never writes</text>
+    <rect x="8" y="212" width="140" height="36" rx="9" fill="#141C27" stroke="#2a3547"/>
+    <text x="78" y="229" fill="#E9EFF6" font-size="11" font-weight="700">Engram</text>
+    <text x="78" y="242" fill="#8A97A6" font-size="10">memory</text>
 
-    <text x="78" y="268" fill="#5A6675" font-size="10">no credential here is</text>
-    <text x="78" y="281" fill="#5A6675" font-size="10">held by heraldyx</text>
+    <rect x="8" y="256" width="140" height="36" rx="9" fill="#141C27" stroke="#3FB950"/>
+    <text x="78" y="273" fill="#E9EFF6" font-size="11" font-weight="700">Idryx</text>
+    <text x="78" y="286" fill="#3FB950" font-size="10">reads, never writes</text>
+
+    <rect x="8" y="300" width="140" height="36" rx="9" fill="#141C27" stroke="#3FB950"/>
+    <text x="78" y="317" fill="#E9EFF6" font-size="11" font-weight="700">Qryx</text>
+    <text x="78" y="330" fill="#3FB950" font-size="10">reads, never writes</text>
+
+    <text x="78" y="356" fill="#5A6675" font-size="10">no credential here is</text>
+    <text x="78" y="369" fill="#5A6675" font-size="10">held by heraldyx</text>
 
     <!-- arrows into the log -->
     <path d="M152 54 L172 54" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
     <path d="M152 98 L172 98" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
     <path d="M152 142 L172 142" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
     <path d="M152 186 L172 186" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
-    <path d="M172 230 L152 230" stroke="#3FB950" stroke-width="1.2" marker-end="url(#hx-read)" fill="none"/>
+    <path d="M152 230 L172 230" stroke="#5A6675" stroke-width="1.2" marker-end="url(#hx-a)" fill="none"/>
+    <path d="M172 274 L152 274" stroke="#3FB950" stroke-width="1.2" marker-end="url(#hx-read)" fill="none"/>
+    <path d="M172 318 L152 318" stroke="#3FB950" stroke-width="1.2" marker-end="url(#hx-read)" fill="none"/>
 
     <!-- the shared log -->
     <rect x="176" y="36" width="106" height="212" rx="11" fill="#10161F" stroke="#2a3547"/>

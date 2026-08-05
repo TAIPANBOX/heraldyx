@@ -515,6 +515,43 @@ func TestAGapAlreadyReportedIsNotReportedAgainEveryPoll(t *testing.T) {
 	}
 }
 
+// A journal that fails to close is said out loud, not silently dropped.
+//
+// defer journal.Close() at the end of run() used to discard its return value
+// entirely: neither counted, unlike a per-dispatch write failure (which
+// increments record.Journal.Failures), nor logged, unlike every other error
+// path in run() (record.Open and state.Load both log and continue). This is
+// the one write-adjacent failure invariant 13 did not surface.
+//
+// closeJournal is exercised directly rather than through run(), because
+// forcing record.Open's own file to fail closing from outside the package
+// would need platform-specific fd tricks; a double close on the same journal
+// is a real, deterministic way to make Close return a non-nil error without
+// one, and it drives the exact function run()'s defer calls.
+func TestAJournalCloseFailureIsLogged(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sent.ndjson")
+	journal, err := record.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Premise: the first close must succeed, so the second one failing is
+	// really about a double close and not some other setup problem.
+	if err := journal.Close(); err != nil {
+		t.Fatalf("premise: the first close must succeed: %v", err)
+	}
+
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	closeJournal(journal, path)
+
+	if !strings.Contains(out.String(), "record: close") {
+		t.Fatalf("a journal close failure must be logged, got:\n%s", out.String())
+	}
+}
+
 // seedDigest writes a state file whose digest window opened at since, so a
 // digest is due on the next cycle without anything having to wait for one.
 func seedDigest(t *testing.T, path, key string, count int, since time.Time) {

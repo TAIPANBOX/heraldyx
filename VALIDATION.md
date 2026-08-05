@@ -533,6 +533,86 @@ invariant 3 has the identical gap in its own prose ("`internal/render` and
 what this defect named (README.md and the SVG aria-label) and also left
 alone.
 
+## 2026-08-05, the one unsurfaced write-adjacent failure
+
+`cmd/heraldyx/main.go` had `defer journal.Close()` at the end of `run()`, its
+return value discarded. `@claude`: this was the only write-adjacent failure
+mode in the codebase that was neither counted (unlike a per-dispatch write
+failure, which increments `record.Journal.Failures`) nor logged (unlike every
+other error path in `run()`: `record.Open` and `state.Load` both log and
+continue), in a repo whose invariant 13 is about surfacing exactly this class
+of gap.
+
+**The fix.** The close is wrapped in a small `closeJournal(journal, path)`
+helper, in the same spirit `cycle` was already split out of `run()` "so a
+test can drive it with a fixed clock." It logs a failed close with
+`log.Printf("record: close %s: %v", path, err)`, matching the voice of the
+`record.Open` error a few lines above it in the same function and of
+`state.Load`'s error a few lines below.
+
+`@claude` on NOT folding this into `Journal.Failures`, considered and
+rejected. `Failures` counts per-dispatch write failures, and its growth is
+reported by `sayUnrecorded` once per poll cycle, called from inside the loop
+in `run()`. The deferred close runs exactly once, after that loop has already
+returned (through `--once` or the stop signal), so an increment there would
+never reach `sayUnrecorded` and would be exactly the kind of counter this
+defect is about: real, and never read. A close failure is also a different
+fact from a per-message write failure: it is about the journal file as a
+whole, at the moment this process is shutting down, not about one dispatch.
+Logging it directly says the true thing without stretching a counter to cover
+a case its own reporting mechanism cannot reach.
+
+`@measured` red before green, 2026-08-05, in two steps because the seam did
+not exist on unfixed code. `TestAJournalCloseFailureIsLogged` opens a
+journal, closes it once (asserting that first close succeeds, as the
+premise), then calls `closeJournal` on the already-closed journal and asserts
+the log contains `record: close`. Run against the literally unfixed code (a
+bare `defer journal.Close()`, no helper), it fails to build:
+
+```
+cmd/heraldyx/main_test.go:547:2: undefined: closeJournal
+```
+
+A compile-time red, because `closeJournal` is the seam this fix adds; there
+is nothing running yet to assert against. Adding the helper WITHOUT the
+`log.Printf` call (an intermediate step, not committed on its own) makes it
+build and fail on the assertion instead:
+
+```
+=== RUN   TestAJournalCloseFailureIsLogged
+    main_test.go:550: a journal close failure must be logged, got:
+--- FAIL: TestAJournalCloseFailureIsLogged (0.00s)
+FAIL
+```
+
+`@measured` the same test against the finished fix, 2026-08-05: passes. The
+actual line it now asserts on, captured separately with a throwaway probe
+(not part of the committed suite):
+
+```
+record: close /.../sent.ndjson: close /.../sent.ndjson: file already closed
+```
+
+The path appears twice because `os.File.Close()`'s own error already reads
+"close <path>: <reason>", the same shape `record.Open`'s existing errors have
+("record: open %s: %w" wrapping an `*os.PathError` that already says "open
+<path>: ..."), so `log.Printf("record: %v", err)` a few lines above this
+change already double-prefixes "record:" for exactly the same reason. Not
+polished away, because it was not introduced by this change either.
+
+The double-close used to produce that error is a real, deterministic way to
+make `Close` fail without an interface seam or a platform-specific fd trick;
+forcing `record.Open`'s own file handle to fail on close from outside the
+package it wraps is not practical, which is why `closeJournal` is tested
+directly rather than through `run()`.
+
+`@measured` gates after the change, 2026-08-05: `gofmt -l .` clean, `go vet`
+clean, `go build ./...` clean, `go test -race ./...` all ten packages ok, zero
+failures, `staticcheck ./...` clean, `gosec -quiet ./...` clean,
+`govulncheck ./...` no vulnerabilities found, `./scripts/one-way-out.sh` OK.
+The new test function moved `scripts/readme-numbers.sh` from 98 to 99; the
+badge is updated in this commit.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of

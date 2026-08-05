@@ -84,6 +84,49 @@ var safeString = regexp.MustCompile(`^[A-Za-z0-9_:@./\- ]{1,64}$`)
 // message into a dump.
 const maxDataFields = 6
 
+// maxOwnerLength bounds a passport's owner value before it can reach a mail
+// or a console link. 64 mirrors the cap this file already holds every other
+// short, identifier-shaped string reaching the mail to (see safeString
+// above): long enough for a team name, an email address or a Slack handle,
+// short enough that "Answerable for it: <owner>" stays one line a human
+// reads at three in the morning rather than a paragraph a bad file dumped
+// into it, and short enough that the console link stays a link.
+const maxOwnerLength = 64
+
+// ownerShape is the character set a passport's owner value must be made of to
+// be rendered. Deliberately the same identifier-like set safeString holds
+// `data` values to, so this file has one definition of "safe to put in a
+// mail" rather than two that can drift apart. A team name, an email address
+// and a Slack handle all fit it; a newline or another control character does
+// not, which is the point: the first would inject a line into a plain-text
+// mail body and either would still be a value not worth linking to even
+// URL-escaped.
+var ownerShape = regexp.MustCompile(`^[A-Za-z0-9_:@./\- ]+$`)
+
+// sanitizeOwner returns owner unchanged when it is short enough and shaped
+// like an owner, and "" otherwise.
+//
+// The owner's provenance is different from `data`'s: it comes from a file the
+// operator wrote or generated, not from a producer that sits next to prompts
+// and model output. That makes this check a defence against an oversized or
+// oddly-shaped FILE rather than an adversarial one, and correspondingly lower
+// severity than the allowlist above. It is not a reason to skip it: a
+// passport directory can be large, machine-generated, or synced from an
+// inventory system, and a multi-line owner value reaches this file's own
+// `Fprintf` call with no escaping at all.
+//
+// "" is not a special case: it is exactly what [Event] already does for an
+// agent with no passport, so a value that fails this check falls back to the
+// no-owner rendering rather than being truncated or escaped into something
+// that still reads as a real owner. A mangled owner is worse than none, for
+// the same reason a guessed one is.
+func sanitizeOwner(owner string) string {
+	if owner == "" || len(owner) > maxOwnerLength || !ownerShape.MatchString(owner) {
+		return ""
+	}
+	return owner
+}
+
 // phrasing is what a type MEANS, in the three sentences a human needs: what
 // happened, what the box already did about it, and what happens if nobody
 // acts. Types the registry does not list fall back to a generic, honest line
@@ -243,12 +286,16 @@ var fallback = phrasing{
 //
 // `owner` is empty unless a passport directory was configured and had one: this
 // process never invents an owner, and a mail with no owner line is better than
-// a mail naming the wrong team at three in the morning.
+// a mail naming the wrong team at three in the morning. An owner that is too
+// long or shaped wrong (see [sanitizeOwner]) is treated exactly the same way:
+// dropped, never truncated or escaped into something that still reads like a
+// real one.
 //
 // `around` is what else the notifier has seen recently. An alert about one
 // agent is a fact without a situation, and the first thing the operator wants
 // to know is whether this is one bad night or the first of several.
 func Event(cfg Config, e event.Event, now time.Time, owner string, around []Around) Message {
+	owner = sanitizeOwner(owner)
 	subject := rule.Subject(e)
 	p, known := catalog[e.Type]
 	if !known {
@@ -435,8 +482,17 @@ func AgentLink(cfg Config, agentID string) string {
 // field, and not the `on_behalf_of` principal, which says who the agent was
 // acting for at that moment. Often the same human, not always, and the two are
 // a different blast radius for a stop (Yurii, 2026-08-02).
+//
+// [sanitizeOwner] runs here too, not only in [Event]: this function is
+// exported and callable on its own, so it has to be safe to call directly
+// rather than relying on its one current caller having already checked.
+// escapePath alone is not enough, because it makes the URL well-formed, not
+// the value worth linking to: escapePath percent-encodes a control character
+// rather than refusing it, so an unsanitized owner reached this link exactly
+// as unsafely as it reached the body, only URL-encoded.
 func OwnerLink(cfg Config, owner string) string {
 	base := consoleBase(cfg)
+	owner = sanitizeOwner(owner)
 	if base == "" || owner == "" {
 		return ""
 	}

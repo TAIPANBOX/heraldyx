@@ -39,13 +39,20 @@ func TestAnAgentIdInALinkKeepsItsSlashes(t *testing.T) {
 
 // Anything inside a segment that would change the shape of the URL is still
 // escaped. Only the separators are left alone.
+//
+// Exercised through AgentLink rather than OwnerLink. Until 2026-08-05 either
+// would do, but OwnerLink now also shape-validates its argument before
+// escapePath ever sees it (see sanitizeOwner), and "team a/b?c#d" is not a
+// realistic owner, so OwnerLink would refuse it outright and this test would
+// be asserting on an empty string rather than on escapePath's behaviour.
+// AgentLink applies no such rule, which is what this test is actually about.
 func TestWhatIsInsideASegmentIsStillEscaped(t *testing.T) {
 	cfg := Config{ConsoleURL: "https://box"}
-	got := OwnerLink(cfg, "team a/b?c#d")
-	if strings.ContainsAny(strings.TrimPrefix(got, "https://box/o/"), "?# ") {
+	got := AgentLink(cfg, "team a/b?c#d")
+	if strings.ContainsAny(strings.TrimPrefix(got, "https://box/a/"), "?# ") {
 		t.Fatalf("a segment reached the URL unescaped: %q", got)
 	}
-	if !strings.Contains(got, "/o/team%20a/b%3Fc%23d") {
+	if !strings.Contains(got, "/a/team%20a/b%3Fc%23d") {
 		t.Fatalf("unexpected escaping: %q", got)
 	}
 }

@@ -432,6 +432,30 @@ clean, `go build ./...` clean, `staticcheck ./...` clean,
 The new table test adds one test function, so `scripts/readme-numbers.sh`
 moved from `97` to `98`; the README badge is updated in the same commit.
 
+## 2026-08-05, a stale gate citation
+
+CLAUDE.md's invariant 2 cited `TestTheOnlyLinkIsAConsoleView` as what holds
+"the mail carries a coordinate, never a control." `@measured` by grep,
+2026-08-05: no function of that name exists anywhere in this repository. It
+was renamed to `TestEveryLinkIsAConsoleView` (`internal/render/render_test.go`
+line 83) when the mail grew from one link to three; the rename itself was
+never a defect, only the cross-reference left behind by it. The invariant
+still holds functionally: the renamed test asserts the exact URL of all three
+links and that none carries a query string, the same property the old name
+described.
+
+This has no code path to break, so there is no red/green run against the
+binary. The equivalent here is grep: it found the old name nowhere and the new
+name in exactly the place CLAUDE.md now cites.
+
+While there, every OTHER test name CLAUDE.md cites was checked the same way,
+extracted programmatically (`grep -oE 'Test[A-Za-z]+' CLAUDE.md | sort -u`, 21
+names, including one outside the 13 numbered invariants:
+`TestTheCatalogDoesNotRepeatTheFourClaimsThatWereFalse` in "Decisions that
+have no gate yet"), each checked against `func <name>(` across the module.
+`@measured` 2026-08-05: `TestTheOnlyLinkIsAConsoleView` was the only miss. The
+other 20 all resolve to a real function.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of

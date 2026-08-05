@@ -10,7 +10,7 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.2-success.svg)
 
-<img src="assets/diagram.svg" alt="heraldyx architecture: four planes append to one shared NDJSON event log which idryx also reads, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
+<img src="assets/diagram.svg" alt="heraldyx architecture: the planes append to one shared NDJSON event log which idryx also reads, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
 
 </div>
 
@@ -43,14 +43,25 @@ flowchart LR
   WX["Wardryx: policy"] --> LOG
   VX["Verdryx: quality"] --> LOG
   MX["Mockryx: drills"] --> LOG
+  ENG["Engram: memory"] --> LOG
   LOG -->|"reads, never writes"| H["heraldyx"]
   LOG -->|"reads, never writes"| ID["Idryx: the identity graph"]
+  LOG -->|"reads, never writes"| QX["Qryx: the hash chains"]
   H -->|"SMTP"| M["your mailbox"]
   M -.->|"one link, a view and never an action"| C["Genaryx console<br/>sign in, then act"]
 ```
 
-Four planes write and two read. Idryx is the other reader: it loads the same
-log to build an identity graph, and like heraldyx it never writes to it.
+Five planes write and three read. Idryx and Qryx are the other readers: Idryx
+loads the same log to build an identity graph, Qryx walks it to check the
+`prev_hash` chains and the attestation on each passport, and like heraldyx
+neither of them writes to it.
+
+The census in this paragraph was two short until 2026-08-05: it said four and
+two, missing Engram among the writers and Qryx among the readers. Both were
+checked against the code rather than against the other diagrams, since a count
+copied between pictures is a count nobody measured: `engram/events.py` emits
+`memory_written`, `reflection_run`, `contradiction_found` and
+`memory_forgotten`, and `qryx agents` consumes agent-event NDJSON.
 
 Every plane already speaks one envelope
 ([agent-passport](https://github.com/TAIPANBOX/agent-passport) SPEC.md 6), so

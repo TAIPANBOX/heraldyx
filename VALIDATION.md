@@ -367,6 +367,252 @@ together: a record deliberately skipped for want of a subject, which is invarian
 because one number cannot tell them apart. Splitting the counter is a change to
 `internal/record`'s own shape and was left alone.
 
+## 2026-08-05, a swept name that was missed
+
+A read-only audit on 2026-08-05 found that `internal/fleet/fleet.go` still had
+`case "impossible_travel": return Odd, "used from two places at once"` in its
+`describe` switch, three lines below where PR #23 (commit 1d7c78e) had removed
+the adjacent `case "behavior_anomaly"` for the documented reason that idryx
+"has no event writer at all" and therefore cannot emit it. That reason applies
+identically to `impossible_travel`.
+
+`@measured` by grep against this repository, 2026-08-05, all four idryx-
+reserved names from `heraldyx-plan.md` section 1.3 (`impossible_travel`,
+`behavior_anomaly`, `excessive_privilege`, `blast_radius_change`):
+
+| name | where it still appeared | what it is |
+|---|---|---|
+| `impossible_travel` | `internal/fleet/fleet.go:110` (a live `case`) | the miss: removed below |
+| `behavior_anomaly` | `README.md:136`, `README.md:275`, `internal/render/render.go:214` (comment), `VALIDATION.md` (2026-08-03 entry) | honest past-tense history: "were listed here until 2026-08-03... removed because nothing raises them". Left alone. |
+| `excessive_privilege` | same four places as `behavior_anomaly` | same: honest past-tense history. Left alone. |
+| `blast_radius_change` | nowhere in this repository | never had code or docs here to begin with |
+
+`heraldyx-plan.md` itself (`~/Development/heraldyx-plan.md`) also names all
+four in its section 1.3 registry table, dated 2026-08-02. That file is not
+part of this git repository (it lives one directory up, and `git log` here has
+never touched it), so it is outside this sweep's scope; it is also a point in
+time record of the shared envelope's registry, not a claim about what heraldyx
+emits.
+
+`@measured` red before green, 2026-08-05. `TestIdryxReservedNamesFallToTheDefaultBranch`
+was run against the unfixed code first, a table test over all four reserved
+names asserting each falls to `describe`'s default branch (`what == ""`):
+
+```
+=== RUN   TestIdryxReservedNamesFallToTheDefaultBranch
+=== RUN   TestIdryxReservedNamesFallToTheDefaultBranch/impossible_travel
+    fleet_test.go:79: idryx cannot emit "impossible_travel"; describe() still has a branch for it: kind=2 what="used from two places at once"
+=== RUN   TestIdryxReservedNamesFallToTheDefaultBranch/behavior_anomaly
+=== RUN   TestIdryxReservedNamesFallToTheDefaultBranch/excessive_privilege
+=== RUN   TestIdryxReservedNamesFallToTheDefaultBranch/blast_radius_change
+--- FAIL: TestIdryxReservedNamesFallToTheDefaultBranch (0.00s)
+    --- FAIL: TestIdryxReservedNamesFallToTheDefaultBranch/impossible_travel (0.00s)
+    --- PASS: TestIdryxReservedNamesFallToTheDefaultBranch/behavior_anomaly (0.00s)
+    --- PASS: TestIdryxReservedNamesFallToTheDefaultBranch/excessive_privilege (0.00s)
+    --- PASS: TestIdryxReservedNamesFallToTheDefaultBranch/blast_radius_change (0.00s)
+FAIL
+```
+
+Only `impossible_travel` failed, which confirms the other three already had no
+branch in this switch before this change: the earlier sweep's miss was exactly
+the one case named in the audit, nothing more.
+
+**The fix.** The `impossible_travel` case is removed from `fleet.describe`,
+with a comment naming what was swept and what was left, the same shape as the
+comment PR #23 left in `internal/render/render.go`.
+
+`@measured` the same test against the fixed code, 2026-08-05: all four
+subtests pass.
+
+`@measured` gates after the change, 2026-08-05: `gofmt -l .` clean, `go vet`
+clean, `go build ./...` clean, `staticcheck ./...` clean,
+`go test -race ./...` all ten packages ok, `gosec -quiet ./...` clean,
+`govulncheck ./...` no vulnerabilities found, `./scripts/one-way-out.sh` OK.
+
+The new table test adds one test function, so `scripts/readme-numbers.sh`
+moved from `97` to `98`; the README badge is updated in the same commit.
+
+## 2026-08-05, a stale gate citation
+
+CLAUDE.md's invariant 2 cited `TestTheOnlyLinkIsAConsoleView` as what holds
+"the mail carries a coordinate, never a control." `@measured` by grep,
+2026-08-05: no function of that name exists anywhere in this repository. It
+was renamed to `TestEveryLinkIsAConsoleView` (`internal/render/render_test.go`
+line 83) when the mail grew from one link to three; the rename itself was
+never a defect, only the cross-reference left behind by it. The invariant
+still holds functionally: the renamed test asserts the exact URL of all three
+links and that none carries a query string, the same property the old name
+described.
+
+This has no code path to break, so there is no red/green run against the
+binary. The equivalent here is grep: it found the old name nowhere and the new
+name in exactly the place CLAUDE.md now cites.
+
+While there, every OTHER test name CLAUDE.md cites was checked the same way,
+extracted programmatically (`grep -oE 'Test[A-Za-z]+' CLAUDE.md | sort -u`, 21
+names, including one outside the 13 numbered invariants:
+`TestTheCatalogDoesNotRepeatTheFourClaimsThatWereFalse` in "Decisions that
+have no gate yet"), each checked against `func <name>(` across the module.
+`@measured` 2026-08-05: `TestTheOnlyLinkIsAConsoleView` was the only miss. The
+other 20 all resolve to a real function.
+
+## 2026-08-05, a gate claim wider than the gate
+
+README.md (around lines 30-32) and the aria-label of
+`docs/assets/one-way-out.svg` both say `scripts/one-way-out.sh` fails the
+build if any of three rules is broken, one of them being that
+`internal/rule`, `internal/render` **and** `internal/fleet` touch no I/O at
+all. `@measured` by reading the script, 2026-08-05: its case statement (then
+lines 42-51) named only `internal/render` and `internal/rule`.
+`internal/fleet` was never checked, so that third of the claim was held by
+inspection, not by CI.
+
+`@measured` red, 2026-08-05: a temporary `os` import (plus `var _ = os.Args`
+to keep the package compiling) was added to `internal/fleet/fleet.go`, and
+the UNCHANGED script run against it:
+
+```
+OK: SMTP lives in internal/deliver only, nothing speaks HTTP, the decision layer does no I/O.
+```
+
+Exit 0. The gate passed with an I/O import sitting in the exact package the
+published claim says it covers, which is the defect stated as a reproduction
+rather than an inference. (An earlier attempt used `net/http` for this and was
+the wrong choice: `net/http` is already banned repository-wide by a separate,
+unconditional rule, so it correctly failed even against the unfixed script and
+proved nothing about the `internal/fleet`-specific gap. `os` is the import
+CLAUDE.md's own invariant 3 and this file's first entry already use for the
+same kind of proof, and it is caught only by the per-package
+`banned_for_decision` rule.) The temporary import was reverted
+(`git diff` empty) before touching the script.
+
+**The fix.** `internal/fleet` is added to the script's case statement, the
+same branch `internal/render` and `internal/rule` are already in, plus the
+header comment and the two echoed messages, so the script's own words match
+what it checks. The package is genuinely pure today (it builds its "around it
+right now" phrases from an event's type and numeric fields only, the same
+constraint the mail body itself is under, per its own package doc comment),
+so this makes the claim true by extending the gate to match code that was
+already correct, rather than by narrowing the README's claim to match a
+weaker gate.
+
+`@measured` green, 2026-08-05: the same temporary `os` import, against the
+EXTENDED script:
+
+```
+FAIL: github.com/TAIPANBOX/heraldyx/internal/fleet imports os; rule, render and fleet do no I/O
+```
+
+Exit 1, naming `internal/fleet` by path. `@measured` immediately after,
+2026-08-05: the temporary import reverted, `git diff internal/fleet/fleet.go`
+empty, and the extended script run again on the clean tree:
+
+```
+OK: SMTP lives in internal/deliver only, nothing speaks HTTP, rule, render and fleet do no I/O.
+```
+
+`@measured` `git status` and `git diff --stat` immediately before staging this
+commit, 2026-08-05: only `scripts/one-way-out.sh` modified, confirming the
+temporary import left no trace in what was committed.
+
+`@measured` gates after the change, 2026-08-05: `gofmt -l .` clean, `go vet`
+clean, `go build ./...` clean, `go test -race ./...` all ten packages ok,
+`staticcheck ./...` clean, `gosec -quiet ./...` clean, `govulncheck ./...` no
+vulnerabilities found, `./scripts/one-way-out.sh` OK,
+`./scripts/readme-numbers.sh` unchanged at 98 (this defect added no test
+function, so the badge did not move).
+
+`@claude` what this does NOT do. `docs/assets/one-way-out.svg` also draws the
+same undercount visually ("FAIL if rule or render reach", without fleet) a
+few lines below its own aria-label, which already says all three. That is a
+second, narrower echo of the same defect, inside a diagram this task did not
+scope in and that a text edit alone cannot safely fix without touching the
+SVG's layout. Left alone and reported rather than fixed. `CLAUDE.md`'s
+invariant 3 has the identical gap in its own prose ("`internal/render` and
+`internal/rule` do no I/O of any kind", no `internal/fleet`), also outside
+what this defect named (README.md and the SVG aria-label) and also left
+alone.
+
+## 2026-08-05, the one unsurfaced write-adjacent failure
+
+`cmd/heraldyx/main.go` had `defer journal.Close()` at the end of `run()`, its
+return value discarded. `@claude`: this was the only write-adjacent failure
+mode in the codebase that was neither counted (unlike a per-dispatch write
+failure, which increments `record.Journal.Failures`) nor logged (unlike every
+other error path in `run()`: `record.Open` and `state.Load` both log and
+continue), in a repo whose invariant 13 is about surfacing exactly this class
+of gap.
+
+**The fix.** The close is wrapped in a small `closeJournal(journal, path)`
+helper, in the same spirit `cycle` was already split out of `run()` "so a
+test can drive it with a fixed clock." It logs a failed close with
+`log.Printf("record: close %s: %v", path, err)`, matching the voice of the
+`record.Open` error a few lines above it in the same function and of
+`state.Load`'s error a few lines below.
+
+`@claude` on NOT folding this into `Journal.Failures`, considered and
+rejected. `Failures` counts per-dispatch write failures, and its growth is
+reported by `sayUnrecorded` once per poll cycle, called from inside the loop
+in `run()`. The deferred close runs exactly once, after that loop has already
+returned (through `--once` or the stop signal), so an increment there would
+never reach `sayUnrecorded` and would be exactly the kind of counter this
+defect is about: real, and never read. A close failure is also a different
+fact from a per-message write failure: it is about the journal file as a
+whole, at the moment this process is shutting down, not about one dispatch.
+Logging it directly says the true thing without stretching a counter to cover
+a case its own reporting mechanism cannot reach.
+
+`@measured` red before green, 2026-08-05, in two steps because the seam did
+not exist on unfixed code. `TestAJournalCloseFailureIsLogged` opens a
+journal, closes it once (asserting that first close succeeds, as the
+premise), then calls `closeJournal` on the already-closed journal and asserts
+the log contains `record: close`. Run against the literally unfixed code (a
+bare `defer journal.Close()`, no helper), it fails to build:
+
+```
+cmd/heraldyx/main_test.go:547:2: undefined: closeJournal
+```
+
+A compile-time red, because `closeJournal` is the seam this fix adds; there
+is nothing running yet to assert against. Adding the helper WITHOUT the
+`log.Printf` call (an intermediate step, not committed on its own) makes it
+build and fail on the assertion instead:
+
+```
+=== RUN   TestAJournalCloseFailureIsLogged
+    main_test.go:550: a journal close failure must be logged, got:
+--- FAIL: TestAJournalCloseFailureIsLogged (0.00s)
+FAIL
+```
+
+`@measured` the same test against the finished fix, 2026-08-05: passes. The
+actual line it now asserts on, captured separately with a throwaway probe
+(not part of the committed suite):
+
+```
+record: close /.../sent.ndjson: close /.../sent.ndjson: file already closed
+```
+
+The path appears twice because `os.File.Close()`'s own error already reads
+"close <path>: <reason>", the same shape `record.Open`'s existing errors have
+("record: open %s: %w" wrapping an `*os.PathError` that already says "open
+<path>: ..."), so `log.Printf("record: %v", err)` a few lines above this
+change already double-prefixes "record:" for exactly the same reason. Not
+polished away, because it was not introduced by this change either.
+
+The double-close used to produce that error is a real, deterministic way to
+make `Close` fail without an interface seam or a platform-specific fd trick;
+forcing `record.Open`'s own file handle to fail on close from outside the
+package it wraps is not practical, which is why `closeJournal` is tested
+directly rather than through `run()`.
+
+`@measured` gates after the change, 2026-08-05: `gofmt -l .` clean, `go vet`
+clean, `go build ./...` clean, `go test -race ./...` all ten packages ok, zero
+failures, `staticcheck ./...` clean, `gosec -quiet ./...` clean,
+`govulncheck ./...` no vulnerabilities found, `./scripts/one-way-out.sh` OK.
+The new test function moved `scripts/readme-numbers.sh` from 98 to 99; the
+badge is updated in this commit.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of

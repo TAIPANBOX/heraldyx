@@ -101,7 +101,7 @@ func run(args []string) error {
 		// could not be opened is a failure happening right now.
 		log.Printf("record: %v", err)
 	}
-	defer journal.Close()
+	defer closeJournal(journal, cfg.SentPath)
 
 	snap, err := state.Load(cfg.StatePath)
 	if err != nil {
@@ -182,6 +182,26 @@ func run(args []string) error {
 			return nil
 		case <-tick.C:
 		}
+	}
+}
+
+// closeJournal closes the journal and logs a failure, in the same voice as
+// the record.Open and state.Load errors a few lines above and below it in
+// run(). Split out, the way cycle already is, so a test can drive it
+// directly: forcing record.Open's own file to fail closing from outside the
+// package is not practical, and a double close is.
+//
+// The error is logged rather than folded into journal.Failures. Failures
+// counts per-dispatch write failures, and its growth is reported by
+// sayUnrecorded once per poll cycle from inside the loop in run(); this
+// deferred close runs exactly once, after that loop has already returned, so
+// an increment here would never reach sayUnrecorded and would be exactly the
+// kind of silent counter this defect is about. A close failure is also a
+// different fact from a per-message write failure: it is about the journal
+// file as a whole, at the moment this process is shutting down.
+func closeJournal(journal *record.Journal, path string) {
+	if err := journal.Close(); err != nil {
+		log.Printf("record: close %s: %v", path, err)
 	}
 }
 

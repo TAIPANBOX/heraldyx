@@ -107,8 +107,13 @@ func describe(e event.Event) (Kind, string) {
 		return Odd, "burning far faster than it usually does"
 	case "mcp_drift":
 		return Odd, "its MCP tool changed under the pinned lock"
-	case "impossible_travel":
-		return Odd, "used from two places at once"
+	// `impossible_travel` was here until 2026-08-05, describing behaviour the
+	// identity plane (idryx) cannot emit: idryx has no event writer at all, the
+	// same reason `behavior_anomaly` was removed from this switch on
+	// 2026-08-03 (commit 1d7c78e). That sweep covered `behavior_anomaly` and
+	// the render catalog's `excessive_privilege`, but missed this one and
+	// `blast_radius_change`, which never had a case here. If idryx grows a
+	// writer, add these back by reading its code, not by copying this comment.
 	case "quality_drift":
 		return Odd, "output drifting from its baseline"
 	case "dlp_block", "taint_block":

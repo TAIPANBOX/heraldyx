@@ -61,7 +61,7 @@ an absent invariant.
    forwards the message, and mail security gateways PREFETCH links, which would
    fire the action before a human read the sentence next to it. Decided by the
    user 2026-07-21 and not open for re-litigation.
-   *(test: `TestTheOnlyLinkIsAConsoleView`; verified by appending
+   *(test: `TestEveryLinkIsAConsoleView`; verified by appending
    `?action=kill` to the link, which fails it)*
 3. **One way out.** `net/smtp` is imported by `internal/deliver` and nothing
    else, nothing here imports `net/http` at all, and `internal/render` and

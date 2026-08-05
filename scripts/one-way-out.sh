@@ -12,10 +12,13 @@
 #   - anything at all imports net/http (this process calls no API, ever: it
 #     reads a file and sends mail, and an HTTP client here would be the first
 #     step toward it becoming a client of the planes it watches);
-#   - internal/render or internal/rule reach for the network or the filesystem.
-#     Those two decide WHAT to say and WHETHER to say it. A decision layer that
-#     can also perform I/O is a decision layer that will eventually perform I/O
-#     from inside a branch nobody tested.
+#   - internal/render, internal/rule or internal/fleet reach for the network
+#     or the filesystem. The first two decide WHAT to say and WHETHER to say
+#     it; internal/fleet builds the "around it right now" context from the
+#     same event log, and README.md and docs/assets/one-way-out.svg have
+#     always described it as part of this same no-I/O tier. A layer that
+#     builds what goes in a message and can also perform I/O is a layer that
+#     will eventually perform it from inside a branch nobody tested.
 #
 # Imports of test files are not considered: a test may open whatever it needs.
 set -euo pipefail
@@ -40,10 +43,10 @@ while IFS= read -r line; do
       fail=1
     fi
     case "$pkg" in
-      github.com/TAIPANBOX/heraldyx/internal/render|github.com/TAIPANBOX/heraldyx/internal/rule)
+      github.com/TAIPANBOX/heraldyx/internal/render|github.com/TAIPANBOX/heraldyx/internal/rule|github.com/TAIPANBOX/heraldyx/internal/fleet)
         for b in "${banned_for_decision[@]}"; do
           if [ "$imp" = "$b" ]; then
-            echo "FAIL: $pkg imports $b; the decision layer does no I/O"
+            echo "FAIL: $pkg imports $b; rule, render and fleet do no I/O"
             fail=1
           fi
         done
@@ -56,4 +59,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "OK: SMTP lives in internal/deliver only, nothing speaks HTTP, the decision layer does no I/O."
+echo "OK: SMTP lives in internal/deliver only, nothing speaks HTTP, rule, render and fleet do no I/O."

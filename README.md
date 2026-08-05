@@ -225,6 +225,12 @@ is still at the keyboard, because a wrong SMTP setting that surfaces a week
 later, through an alert that never arrived, is the worst failure this component
 has.
 
+`--version` prints the tag this binary was built from and exits. It matters
+more here than it looks: heraldyx ships as a container image and the running
+one is whatever your deploy pinned, so when an alert arrives in a shape you did
+not expect, the first question is which build sent it. Asking the binary
+answers that without trusting a manifest to be current.
+
 ## What an alert actually says
 
 ```

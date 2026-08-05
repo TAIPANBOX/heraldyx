@@ -613,6 +613,153 @@ failures, `staticcheck ./...` clean, `gosec -quiet ./...` clean,
 The new test function moved `scripts/readme-numbers.sh` from 98 to 99; the
 badge is updated in this commit.
 
+## 2026-08-05, an owner from a passport file reached the mail with no shape check
+
+A read-only audit on 2026-08-05 found that `internal/passport/passport.go`
+(around lines 103-114) parses `id` and `owner` from each passport JSON file
+with no validation of the owner string's shape or length. That value then
+reached `internal/render/render.go` twice: the body line
+`fmt.Fprintf(&b, "\nAnswerable for it: %s\n", owner)` (around line 271) with
+no escaping at all, and `OwnerLink` (around line 438), which URL-path-escapes
+the value but never shape-filtered it first. Every other string this file
+renders passes a strict gate before that: the `data` allowlist plus
+`safeString`'s 64-character identifier-shaped regex, which is invariant 1.
+`owner` reached the mail through a separate parameter that mechanism never
+sees.
+
+`@claude` on severity, honestly, because the provenance is not the same for
+the two. `data` is written by producers that sit next to prompts, model
+output and matched secrets, invariant 1's own words; `owner` comes from a
+file the operator wrote or generated. That makes this a lower-severity defect
+than an unvalidated producer field, and it does not make it acceptable: a
+passport directory can be large, machine-generated, or synced from an
+inventory system, and this process has no way to tell a hand-checked file
+from a stale export. A multi-line owner value reached a plain-text mail body
+through an `Fprintf` call with no escaping.
+
+`@measured` red before green, 2026-08-05. Five tests were written first and
+run against the unfixed code:
+
+```
+$ go test ./internal/render/... -run 'TestAnOversizedOwnerDoesNotReachTheMail|TestAnOwnerWithAControlCharacterDoesNotReachTheMailOrTheLink|TestARealisticOwnerStillReachesTheMailUnchanged|TestOwnerLengthCapIsExact|TestOwnerLinkRefusesAnUnsafeOwnerOnItsOwn' -v
+```
+
+The one that matters most, verbatim, because it is the injection itself
+rather than an inference about it:
+
+```
+=== RUN   TestAnOwnerWithAControlCharacterDoesNotReachTheMailOrTheLink
+    render_test.go:309: owner "team\nBcc: attacker@example.com" injected a line into the mail body:
+        Run run-42 (agent agent://acme.example/biller) was killed.
+        
+        What this box already did: The run is stopped. Gateways refuse its calls.
+        
+        If nobody acts: Nothing. This is a final state until a new run is started.
+        
+        Answerable for it: team
+        Bcc: attacker@example.com
+        
+        Open in your console:
+          what happened   https://box.example.com/i/run_killed:run-42
+          this agent      https://box.example.com/a/agent://acme.example/biller   (freeze, kill)
+          its owner       https://box.example.com/o/team%0ABcc:%20attacker@example.com   (everything they run)
+        
+        Raised by tokenfuse at 2026-08-02 14:03:00 UTC. This mail carries identifiers and numbers only, never the content of a call.
+--- FAIL: TestAnOwnerWithAControlCharacterDoesNotReachTheMailOrTheLink (0.00s)
+```
+
+The owner value became a second line inside the body a human reads as plain
+text, immediately after "Answerable for it: team". The other four,
+summarized, full output reproducible with the command above:
+`TestAnOversizedOwnerDoesNotReachTheMail` failed with a 500-character owner
+rendered whole into the body and the console link; `TestOwnerLengthCapIsExact`
+failed on its over-cap half, "a 65-character owner was accepted";
+`TestOwnerLinkRefusesAnUnsafeOwnerOnItsOwn` failed with `OwnerLink` returning
+`https://box.example.com/o/team%0ABcc:%20attacker@example.com` for the same
+control-character owner, called directly rather than through `Event`;
+`TestARealisticOwnerStillReachesTheMailUnchanged` passed even against the
+unfixed code, which is expected and not a defect: nothing was ever wrong with
+the legitimate path, and that test exists to hold it unchanged by the fix
+rather than to catch a break in it.
+
+**The fix, and where it lives.** Validation runs in `internal/render`, at the
+point every other string this package renders is already held to a shape
+rule, rather than in `internal/passport` at parse time. `internal/render`'s
+own package doc comment already states its charter: it is the one gate for
+what may reach a mail, and the `data` allowlist and `safeString` live here for
+exactly that reason. Putting owner's rule anywhere else would leave that
+charter false for one of the five sources the anatomy diagram names. It also
+costs nothing in imports: `regexp` and `fmt` were already imported in this
+file, so `scripts/one-way-out.sh`, which forbids `internal/render` from doing
+any I/O, was never at risk. `@measured` immediately after the fix, 2026-08-05:
+`./scripts/one-way-out.sh` still reports `OK: SMTP lives in internal/deliver
+only, nothing speaks HTTP, rule, render and fleet do no I/O.`
+
+The alternative, refusing a bad owner at parse time in `internal/passport`,
+was considered and not chosen. Its one real advantage is visibility:
+`Directory.Malformed` already counts passport files that did not parse, and a
+shape violation could have joined that count, giving an operator an aggregate
+signal, "N passport files have unusable owners", that the render-time fix does
+not provide; a render-time refusal is silent per message, with nothing counted
+anywhere. That cost is real and is written down here rather than only in the
+PR body. What choosing it would also have cost: `Malformed` is documented and
+tested (`TestAMalformedPassportIsCountedNotFatal`) as counting files that did
+not PARSE, and a passport with a present but oversized or oddly-shaped owner
+does parse; folding a shape violation into that counter, or adding a second
+one, is a change to `passport.Directory`'s own contract that the render-time
+fix avoids entirely. `internal/passport` also stays exactly as narrow as its
+own package doc already describes it: a file reader that holds an opinion
+about nothing but presence.
+
+Two functions needed the check, not one, because the defect named both.
+`sanitizeOwner` is called once at the top of `Event`, which covers the body
+line directly and, since `Event`'s own `if owner != ""` guards are unchanged,
+the console-link line the same way `owner == ""` already worked. `OwnerLink`
+is exported and was not, before this fix, reachable only through `Event`, so
+it calls `sanitizeOwner` again on its own argument: it is the second of the
+two reach points the audit named, and it has to be safe to call directly, not
+merely safe because its one current caller happens to pre-check.
+
+`maxOwnerLength` is `64`, a named constant with its own comment in
+`internal/render/render.go`. It mirrors the cap `safeString` already holds
+every other short identifier-shaped string reaching this mail to, so this
+file has one number for "short enough for a mail line and a console link",
+not two that could drift apart. `ownerShape` is `^[A-Za-z0-9_:@./\- ]+$`,
+deliberately the same character class `safeString` uses: letters, digits,
+`_ : @ . / -` and space. A team name, an email address and a Slack handle all
+fit it, tested against `"platform-team"`, `"sre@example.com"`, `"@jane"`,
+`"w.zhang"` and `"team-finance@acme.example"`, all of which reach the mail
+unchanged both before and after the fix. A newline, a carriage return, a NUL
+byte and a tab do not, and each was tested individually reaching neither the
+body nor the link. A value that fails either check is treated exactly as
+`Event` already treats an agent with no passport: dropped, never truncated
+and never escaped into something that still reads like a real owner, which is
+the behaviour `TestNoOwnerMeansNoOwnerLine` already held before this change
+and, re-run, still holds after it.
+
+One pre-existing test collided with this fix and needed to move, not because
+it was wrong, but because what it was testing moved out from under it.
+`TestWhatIsInsideASegmentIsStillEscaped` (`internal/render/link_test.go`)
+called `OwnerLink(cfg, "team a/b?c#d")` to prove that `escapePath` still
+escapes `?`, `#` and a space inside a path segment. `@measured` by running it
+against this fix in isolation, 2026-08-05: it failed, `unexpected escaping:
+""`, because `"team a/b?c#d"` is not a realistic owner, it contains `?` and
+`#`, neither in `ownerShape`, so `OwnerLink` now refuses it before
+`escapePath` ever runs. `@measured` against the unmodified `main` branch,
+2026-08-05, confirming this is not a pre-existing failure: the same test, run
+alone via `git stash`, passes. The test now calls `AgentLink` instead, which
+carries no shape rule and was always the other function in this file built on
+`escapePath`; the assertion is otherwise unchanged, same probe string, same
+expected escaping, prefix `/a/` instead of `/o/`.
+
+`@measured` gates after the change, 2026-08-05: `gofmt -l .` clean,
+`go vet ./...` clean, `go build ./...` clean, `go test -race ./...` all ten
+packages ok, `staticcheck ./...` clean, `gosec -quiet ./...` clean,
+`govulncheck ./...` no vulnerabilities found, `./scripts/one-way-out.sh` OK,
+`make gates` clean end to end. Five new test functions moved
+`scripts/readme-numbers.sh` from `99` to `104`; the README badge is updated in
+the same commit.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of

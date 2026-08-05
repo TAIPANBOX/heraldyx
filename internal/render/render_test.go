@@ -270,3 +270,96 @@ func TestTheUnitCapDoesNotImplyAFleetWideStop(t *testing.T) {
 		t.Fatalf("does not say which gateway: %q", p.did)
 	}
 }
+
+// The defect: an owner read from an operator's passport file reached the mail
+// body and the console link with no length cap and no shape check at all,
+// unlike every other string this file renders. Found in a read-only audit,
+// 2026-08-05.
+//
+// An oversized owner is the direct case: a passport directory can be large,
+// machine-generated, or synced from an inventory system, so nothing here can
+// assume every file on disk was hand-written and short.
+func TestAnOversizedOwnerDoesNotReachTheMail(t *testing.T) {
+	long := strings.Repeat("a", 500)
+	m := Event(cfg(), ev("run_killed", nil), now, long, nil)
+	if strings.Contains(m.Body, long) {
+		t.Fatalf("an oversized owner reached the mail body:\n%s", m.Body)
+	}
+	if strings.Contains(m.Body, "Answerable for it") || strings.Contains(m.Body, "/o/") {
+		t.Fatalf("an oversized owner still produced an owner line or link:\n%s", m.Body)
+	}
+}
+
+// A newline is a line the plain-text body did not have before this value was
+// substituted in: `fmt.Fprintf(&b, "\nAnswerable for it: %s\n", owner)` puts
+// owner directly into the body with no escaping, so a multi-line owner value
+// injects whatever it wants after "Answerable for it: ". A control character
+// is the same problem in miniature. Neither may reach the body, and neither
+// may reach the deep link either, even URL-escaped: an owner shaped like this
+// is not a coordinate worth linking to.
+func TestAnOwnerWithAControlCharacterDoesNotReachTheMailOrTheLink(t *testing.T) {
+	for _, bad := range []string{
+		"team\nBcc: attacker@example.com",
+		"team\r\nSubject: hijacked",
+		"team\x00null",
+		"team\ttab",
+	} {
+		m := Event(cfg(), ev("run_killed", nil), now, bad, nil)
+		if strings.Contains(m.Body, "Bcc") || strings.Contains(m.Body, "hijacked") {
+			t.Fatalf("owner %q injected a line into the mail body:\n%s", bad, m.Body)
+		}
+		if strings.Contains(m.Body, "Answerable for it") || strings.Contains(m.Body, "/o/") {
+			t.Fatalf("owner %q still produced an owner line or link:\n%s", bad, m.Body)
+		}
+	}
+}
+
+// A fix that mangles a legitimate owner is worse than the defect it closes.
+// These are the shapes agent-passport SPEC.md and this README's own sample
+// mail expect: a team name, an email address, a Slack handle, and the
+// "w.zhang" shape the README's sample mail already shows.
+func TestARealisticOwnerStillReachesTheMailUnchanged(t *testing.T) {
+	for _, owner := range []string{"platform-team", "sre@example.com", "@jane", "w.zhang", "team-finance@acme.example"} {
+		m := Event(cfg(), ev("run_killed", nil), now, owner, nil)
+		if !strings.Contains(m.Body, "Answerable for it: "+owner) {
+			t.Errorf("owner %q did not reach the mail body unchanged:\n%s", owner, m.Body)
+		}
+		if !strings.Contains(m.Body, "/o/"+owner) {
+			t.Errorf("owner %q did not reach the console link unchanged:\n%s", owner, m.Body)
+		}
+	}
+}
+
+// The cap is exact: 64 characters is accepted, 65 is not. Off-by-one is the
+// kind of bug that only shows up the day somebody's owner value is exactly
+// the wrong length. Written against the literal number rather than a named
+// constant, so this test still means the same thing if that constant is ever
+// renamed.
+func TestOwnerLengthCapIsExact(t *testing.T) {
+	at := strings.Repeat("a", 64)
+	over := strings.Repeat("a", 65)
+	m1 := Event(cfg(), ev("run_killed", nil), now, at, nil)
+	if !strings.Contains(m1.Body, "Answerable for it: "+at) {
+		t.Errorf("a 64-character owner was rejected:\n%s", m1.Body)
+	}
+	m2 := Event(cfg(), ev("run_killed", nil), now, over, nil)
+	if strings.Contains(m2.Body, over) {
+		t.Errorf("a 65-character owner was accepted")
+	}
+}
+
+// OwnerLink is exported and callable on its own, not only through Event, so
+// the check has to live where the link is actually built rather than only at
+// Event's one call site: a caller that reaches OwnerLink directly must not
+// get an unsafe link either.
+func TestOwnerLinkRefusesAnUnsafeOwnerOnItsOwn(t *testing.T) {
+	if got := OwnerLink(cfg(), "team\nBcc: attacker@example.com"); got != "" {
+		t.Fatalf("OwnerLink built a link from a control character: %q", got)
+	}
+	if got := OwnerLink(cfg(), strings.Repeat("a", 500)); got != "" {
+		t.Fatalf("OwnerLink built a link from an oversized owner: %q", got)
+	}
+	if got := OwnerLink(cfg(), "platform-team"); got != "https://box.example.com/o/platform-team" {
+		t.Fatalf("OwnerLink refused a realistic owner: %q", got)
+	}
+}

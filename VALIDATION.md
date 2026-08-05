@@ -456,6 +456,83 @@ have no gate yet"), each checked against `func <name>(` across the module.
 `@measured` 2026-08-05: `TestTheOnlyLinkIsAConsoleView` was the only miss. The
 other 20 all resolve to a real function.
 
+## 2026-08-05, a gate claim wider than the gate
+
+README.md (around lines 30-32) and the aria-label of
+`docs/assets/one-way-out.svg` both say `scripts/one-way-out.sh` fails the
+build if any of three rules is broken, one of them being that
+`internal/rule`, `internal/render` **and** `internal/fleet` touch no I/O at
+all. `@measured` by reading the script, 2026-08-05: its case statement (then
+lines 42-51) named only `internal/render` and `internal/rule`.
+`internal/fleet` was never checked, so that third of the claim was held by
+inspection, not by CI.
+
+`@measured` red, 2026-08-05: a temporary `os` import (plus `var _ = os.Args`
+to keep the package compiling) was added to `internal/fleet/fleet.go`, and
+the UNCHANGED script run against it:
+
+```
+OK: SMTP lives in internal/deliver only, nothing speaks HTTP, the decision layer does no I/O.
+```
+
+Exit 0. The gate passed with an I/O import sitting in the exact package the
+published claim says it covers, which is the defect stated as a reproduction
+rather than an inference. (An earlier attempt used `net/http` for this and was
+the wrong choice: `net/http` is already banned repository-wide by a separate,
+unconditional rule, so it correctly failed even against the unfixed script and
+proved nothing about the `internal/fleet`-specific gap. `os` is the import
+CLAUDE.md's own invariant 3 and this file's first entry already use for the
+same kind of proof, and it is caught only by the per-package
+`banned_for_decision` rule.) The temporary import was reverted
+(`git diff` empty) before touching the script.
+
+**The fix.** `internal/fleet` is added to the script's case statement, the
+same branch `internal/render` and `internal/rule` are already in, plus the
+header comment and the two echoed messages, so the script's own words match
+what it checks. The package is genuinely pure today (it builds its "around it
+right now" phrases from an event's type and numeric fields only, the same
+constraint the mail body itself is under, per its own package doc comment),
+so this makes the claim true by extending the gate to match code that was
+already correct, rather than by narrowing the README's claim to match a
+weaker gate.
+
+`@measured` green, 2026-08-05: the same temporary `os` import, against the
+EXTENDED script:
+
+```
+FAIL: github.com/TAIPANBOX/heraldyx/internal/fleet imports os; rule, render and fleet do no I/O
+```
+
+Exit 1, naming `internal/fleet` by path. `@measured` immediately after,
+2026-08-05: the temporary import reverted, `git diff internal/fleet/fleet.go`
+empty, and the extended script run again on the clean tree:
+
+```
+OK: SMTP lives in internal/deliver only, nothing speaks HTTP, rule, render and fleet do no I/O.
+```
+
+`@measured` `git status` and `git diff --stat` immediately before staging this
+commit, 2026-08-05: only `scripts/one-way-out.sh` modified, confirming the
+temporary import left no trace in what was committed.
+
+`@measured` gates after the change, 2026-08-05: `gofmt -l .` clean, `go vet`
+clean, `go build ./...` clean, `go test -race ./...` all ten packages ok,
+`staticcheck ./...` clean, `gosec -quiet ./...` clean, `govulncheck ./...` no
+vulnerabilities found, `./scripts/one-way-out.sh` OK,
+`./scripts/readme-numbers.sh` unchanged at 98 (this defect added no test
+function, so the badge did not move).
+
+`@claude` what this does NOT do. `docs/assets/one-way-out.svg` also draws the
+same undercount visually ("FAIL if rule or render reach", without fleet) a
+few lines below its own aria-label, which already says all three. That is a
+second, narrower echo of the same defect, inside a diagram this task did not
+scope in and that a text edit alone cannot safely fix without touching the
+SVG's layout. Left alone and reported rather than fixed. `CLAUDE.md`'s
+invariant 3 has the identical gap in its own prose ("`internal/render` and
+`internal/rule` do no I/O of any kind", no `internal/fleet`), also outside
+what this defect named (README.md and the SVG aria-label) and also left
+alone.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of

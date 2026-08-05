@@ -57,6 +57,31 @@ func TestOddBehaviourIsDescribedFromTheTypeNotFromText(t *testing.T) {
 	}
 }
 
+// idryx-reserved names: per heraldyx-plan.md section 1.3, these four belong
+// to the identity plane, which has no event writer at all (see CLAUDE.md and
+// the catalog comment in internal/render/render.go). A branch in this
+// package's switch for any of them describes behaviour nothing can produce,
+// the same defect `behavior_anomaly` was removed for here on 2026-08-03
+// (commit 1d7c78e). That commit swept `behavior_anomaly` but left
+// `impossible_travel` in place; `excessive_privilege` and
+// `blast_radius_change` never had a case here.
+func TestIdryxReservedNamesFallToTheDefaultBranch(t *testing.T) {
+	reserved := []string{
+		"impossible_travel",
+		"behavior_anomaly",
+		"excessive_privilege",
+		"blast_radius_change",
+	}
+	for _, name := range reserved {
+		t.Run(name, func(t *testing.T) {
+			kind, what := describe(ev(name, "agent-x", nil))
+			if what != "" {
+				t.Fatalf("idryx cannot emit %q; describe() still has a branch for it: kind=%v what=%q", name, kind, what)
+			}
+		})
+	}
+}
+
 func TestAnEventTypeItCannotDescribeIsNotGuessedAt(t *testing.T) {
 	p := New()
 	p.Note(ev("invented_by_a_future_plane", "x", nil), t0)

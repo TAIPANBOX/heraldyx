@@ -367,6 +367,71 @@ together: a record deliberately skipped for want of a subject, which is invarian
 because one number cannot tell them apart. Splitting the counter is a change to
 `internal/record`'s own shape and was left alone.
 
+## 2026-08-05, a swept name that was missed
+
+A read-only audit on 2026-08-05 found that `internal/fleet/fleet.go` still had
+`case "impossible_travel": return Odd, "used from two places at once"` in its
+`describe` switch, three lines below where PR #23 (commit 1d7c78e) had removed
+the adjacent `case "behavior_anomaly"` for the documented reason that idryx
+"has no event writer at all" and therefore cannot emit it. That reason applies
+identically to `impossible_travel`.
+
+`@measured` by grep against this repository, 2026-08-05, all four idryx-
+reserved names from `heraldyx-plan.md` section 1.3 (`impossible_travel`,
+`behavior_anomaly`, `excessive_privilege`, `blast_radius_change`):
+
+| name | where it still appeared | what it is |
+|---|---|---|
+| `impossible_travel` | `internal/fleet/fleet.go:110` (a live `case`) | the miss: removed below |
+| `behavior_anomaly` | `README.md:136`, `README.md:275`, `internal/render/render.go:214` (comment), `VALIDATION.md` (2026-08-03 entry) | honest past-tense history: "were listed here until 2026-08-03... removed because nothing raises them". Left alone. |
+| `excessive_privilege` | same four places as `behavior_anomaly` | same: honest past-tense history. Left alone. |
+| `blast_radius_change` | nowhere in this repository | never had code or docs here to begin with |
+
+`heraldyx-plan.md` itself (`~/Development/heraldyx-plan.md`) also names all
+four in its section 1.3 registry table, dated 2026-08-02. That file is not
+part of this git repository (it lives one directory up, and `git log` here has
+never touched it), so it is outside this sweep's scope; it is also a point in
+time record of the shared envelope's registry, not a claim about what heraldyx
+emits.
+
+`@measured` red before green, 2026-08-05. `TestIdryxReservedNamesFallToTheDefaultBranch`
+was run against the unfixed code first, a table test over all four reserved
+names asserting each falls to `describe`'s default branch (`what == ""`):
+
+```
+=== RUN   TestIdryxReservedNamesFallToTheDefaultBranch
+=== RUN   TestIdryxReservedNamesFallToTheDefaultBranch/impossible_travel
+    fleet_test.go:79: idryx cannot emit "impossible_travel"; describe() still has a branch for it: kind=2 what="used from two places at once"
+=== RUN   TestIdryxReservedNamesFallToTheDefaultBranch/behavior_anomaly
+=== RUN   TestIdryxReservedNamesFallToTheDefaultBranch/excessive_privilege
+=== RUN   TestIdryxReservedNamesFallToTheDefaultBranch/blast_radius_change
+--- FAIL: TestIdryxReservedNamesFallToTheDefaultBranch (0.00s)
+    --- FAIL: TestIdryxReservedNamesFallToTheDefaultBranch/impossible_travel (0.00s)
+    --- PASS: TestIdryxReservedNamesFallToTheDefaultBranch/behavior_anomaly (0.00s)
+    --- PASS: TestIdryxReservedNamesFallToTheDefaultBranch/excessive_privilege (0.00s)
+    --- PASS: TestIdryxReservedNamesFallToTheDefaultBranch/blast_radius_change (0.00s)
+FAIL
+```
+
+Only `impossible_travel` failed, which confirms the other three already had no
+branch in this switch before this change: the earlier sweep's miss was exactly
+the one case named in the audit, nothing more.
+
+**The fix.** The `impossible_travel` case is removed from `fleet.describe`,
+with a comment naming what was swept and what was left, the same shape as the
+comment PR #23 left in `internal/render/render.go`.
+
+`@measured` the same test against the fixed code, 2026-08-05: all four
+subtests pass.
+
+`@measured` gates after the change, 2026-08-05: `gofmt -l .` clean, `go vet`
+clean, `go build ./...` clean, `staticcheck ./...` clean,
+`go test -race ./...` all ten packages ok, `gosec -quiet ./...` clean,
+`govulncheck ./...` no vulnerabilities found, `./scripts/one-way-out.sh` OK.
+
+The new table test adds one test function, so `scripts/readme-numbers.sh`
+moved from `97` to `98`; the README badge is updated in the same commit.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of

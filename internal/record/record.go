@@ -18,14 +18,35 @@
 // format, written by the same library, verifiable by the same verifier, and
 // it is somewhere a compromise of this process cannot reach anything else.
 //
-// # Why this is not sent to trailryx directly
+// # How this reaches trailryx, and why nothing here sends it
 //
-// The record plane's network ingest is OTLP over HTTP with a protobuf body.
-// Speaking it would mean an HTTP client and a protobuf encoder inside the one
-// process in the box that has a way out, which is exactly the thing
-// `scripts/one-way-out.sh` exists to prevent. So this process produces the
-// record and a component that is allowed to make that hop ships it. What is
-// written here is already sealed and already verifiable; the hop is transport.
+// It is read, not sent. The record plane grew a door for this envelope on
+// 2026-08-06: `trailryx-node events --file` reads a file of shared-envelope
+// NDJSON through the `trailryx-agentevent` mapper, which is the format this
+// package already writes. So the seam is the file plus a read-only mount, and
+// this process gains no client, no encoder, no import and no second binary.
+// Measured the same day: the reader takes a journal at mode 0444 and leaves it
+// byte for byte identical.
+//
+// That is a change of fact rather than a change of mind. Until that door
+// existed the only way in was OTLP over HTTP with a protobuf body, which would
+// have meant an HTTP client inside the one process in the box with a way out,
+// which is what `scripts/one-way-out.sh` exists to prevent. The conclusion held
+// and the reason for it has expired; a shipper process would now be a third
+// component, a cursor and a second mapping to keep, for a hop a mount performs.
+//
+// # What this package therefore owes the door
+//
+// Four of the mapper's refusals are decided entirely by bytes written here: the
+// schema stamped, the timestamp formatted, the agent identifier carried, and
+// the run identifier carried. An edit that broke one of them would leave a
+// journal that still reads, still chains and still passes every other test in
+// this package, and would surface as a count of zero records in a different
+// repository. `seam_test.go` holds those four, and holds them without copying
+// the mapper's table of event types, which belongs to trailryx and moves.
+//
+// What is NOT owed, and must not be paid: a run identifier for a dispatch that
+// has none. See [Journal.Sent].
 //
 // # What goes in, and what does not
 //
@@ -153,6 +174,13 @@ type Dispatch struct {
 // message. Whether it reached a mailbox, a spam folder or a silently
 // discarding filter is not knowable from here, and an audit trail that claims
 // the stronger fact is worse than one that admits the weaker one.
+//
+// The run identifier is copied and never synthesised, which is the same rule as
+// the agent id one paragraph down and has a visible cost: the record plane
+// refuses a line with no run, by name, and counts it. That cost is the correct
+// one to pay. A synthesised run would put this dispatch in a run it had nothing
+// to do with, or invent a run that never executed, and either is a false answer
+// to "what happened in run R" for as long as the store keeps the record.
 func (j *Journal) Sent(d Dispatch, now time.Time) {
 	if !j.Enabled() {
 		return

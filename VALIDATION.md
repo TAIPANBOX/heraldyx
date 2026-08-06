@@ -760,6 +760,229 @@ packages ok, `staticcheck ./...` clean, `gosec -quiet ./...` clean,
 `scripts/readme-numbers.sh` from `99` to `104`; the README badge is updated in
 the same commit.
 
+## 2026-08-05, an agent could mute its own alerts by choosing its own name
+
+The same read-only audit found the mirror image of the owner defect above, on
+the field that cannot be dropped. `agent_id` and `run_id` come off the wire and
+reach `shortID`, `describe`, `Link` and `AgentLink` in
+`internal/render/render.go` with no independent check, and `rule.Subject` puts
+one of them straight into the mail SUBJECT.
+
+The header injection itself was already stopped, and correctly:
+`internal/deliver/deliver.go`'s `Compose` calls `checkHeaderSafe("subject", ...)`
+and refuses any value containing a carriage return or a line feed. The
+CONSEQUENCE is what the audit found. `Compose` returns an error, `deliver_`
+never sends, and the alert is gone. In tokenfuse `agent_id` is taken from the
+caller-written `x-fuse-agent-id` header, so the agent an alert is ABOUT chooses
+the value that decides whether the alert can be built at all. An agent that
+puts a line break in its own name makes itself invisible to the notification
+plane.
+
+That is worse than the injection it was refusing. Every other limit in this
+repo is a limit on MESSAGES chosen by the operator (invariant 6), and this was
+a limit on messages chosen by the thing being watched.
+
+To be exact about what "silent" means here, because the file it is written in
+is about evidence: the loss is not silent INSIDE the process. `run` logs
+`delivery failed (smtp): ...` and the dispatch journal files an
+`"outcome":"refused"` record carrying the error, which is invariant 7 working
+as designed. It is silent in the only place that matters at three in the
+morning, the operator's mailbox, and both of the traces it does leave are read
+after an incident rather than during one.
+
+`@measured` red before green, 2026-08-06 (the audit that found it is dated
+2026-08-05, the day before). Ten test functions were written first and run
+against the unfixed code. The headline one, verbatim:
+
+```
+$ go test ./internal/render/ -run TestAnAgentIDWithALineBreakStillReachesTheOperator -v
+=== RUN   TestAnAgentIDWithALineBreakStillReachesTheOperator
+    render_test.go:388: the subject carries a line break, so deliver.Compose refuses the whole message and nothing is sent: "[prod-box] agent://x/y\nBcc: attacker@example.com was refused by the breaker"
+--- FAIL: TestAnAgentIDWithALineBreakStillReachesTheOperator (0.00s)
+```
+
+And the one that states the property rather than the symptom, from the side
+that refuses, verbatim:
+
+```
+$ go test ./internal/deliver/ -run TestNoProducerSuppliedFieldCanStopDelivery
+    --- FAIL: TestNoProducerSuppliedFieldCanStopDelivery/with_no_run_id,_agent_id_with_a_line_feed (0.00s)
+        deliver_test.go:179: a producer stopped its own alert by writing a line feed into agent_id: deliver: subject contains a line break, refusing to build a message from it
+    --- FAIL: TestNoProducerSuppliedFieldCanStopDelivery/with_no_run_id,_agent_id_with_a_crlf (0.00s)
+        deliver_test.go:179: a producer stopped its own alert by writing a crlf into agent_id: deliver: subject contains a line break, refusing to build a message from it
+    --- FAIL: TestNoProducerSuppliedFieldCanStopDelivery/with_a_run_id,_run_id_with_a_line_feed (0.00s)
+        deliver_test.go:179: a producer stopped its own alert by writing a line feed into run_id: deliver: subject contains a line break, refusing to build a message from it
+    --- FAIL: TestNoProducerSuppliedFieldCanStopDelivery/with_a_run_id,_type_with_a_line_feed (0.00s)
+        deliver_test.go:179: a producer stopped its own alert by writing a line feed into type: deliver: subject contains a line break, refusing to build a message from it
+```
+
+That test runs each hostile value through an event with a run id and through
+one without, on purpose: `rule.Subject` prefers the run id, so an event that
+has one never puts the agent id in the subject. Written without that split,
+the agent id case passes against the unfixed code and the whole test is
+theatre. The event that carries the defect is the ordinary one about an agent
+rather than a run, which is exactly what an agent-scoped alert is.
+
+`@measured` end to end, 2026-08-06, because a unit test asserting on a struct
+is not the claim being made. The binary was built twice, once from `main` and
+once from this branch, pointed at a one-line event log whose `agent_id` is
+`agent://x/y\nBcc: attacker@example.com`, and sent through a loopback SMTP sink
+(a 45-line Python script on 127.0.0.1, no credentials, nothing metered, nothing
+leaving the machine). From `main`:
+
+```
+2026/08/06 16:13:36 sending via smtp to 1 recipient(s)
+2026/08/06 16:13:36 delivery failed (smtp): deliver: subject contains a line break, refusing to build a message from it
+SINK: nothing ever connected
+--- what the mail server received: ---
+[       0 bytes]
+```
+
+From this branch, same log, same sink:
+
+```
+Subject: [prod-box] "agent://x/y\nBcc: attacker@example.com" was refused by the breaker
+
+Agent "agent://x/y\nBcc: attacker@example.com" was refused by the breaker.
+
+An identifier in this event is not the shape this box can render as written: identifier-like characters only, at most 255 bytes, the cap agent-passport SPEC 3.1 puts on an agent:// URI. It is shown above escaped, and no console link is built from it, because a mangled id addresses nothing. The alert was sent anyway: an id nobody can parse is a reason to look, not a reason to say nothing.
+
+What this box already did: The call was refused with a hard 402 before it reached the provider.
+
+If nobody acts: The agent sees an error. Whether it retries or stops is up to the agent.
+
+Nothing here can be opened in your console: the identifiers this event carries are not ones a link can be built from.
+
+Raised by tokenfuse at 2026-08-05 09:00:00 UTC. This mail carries identifiers and numbers only, never the content of a call.
+[    1176 bytes]
+```
+
+The mail server received nothing before and 1176 bytes after, and `Compose`'s
+guard is untouched in both: what changed is that nothing rendered can reach it
+any more.
+
+**The fix, and where it lives.** In `internal/render`, for the reason the owner
+fix is there and one more. `internal/render`'s package doc states its charter
+as the one gate for what may reach a mail, and the `data` allowlist,
+`safeString` and `sanitizeOwner` are all here already; a fourth rule for the
+same question belongs beside them rather than in a fourth place. The one more
+is that `internal/deliver` is the wrong layer by construction: it sees a
+`render.Message`, two opaque strings, with no way to tell an id from a
+sentence, so the only thing it can do about a bad value is refuse the whole
+message, which IS the defect. A guard that can only say no cannot be the layer
+that decides. `Compose`'s check stays exactly as it was and is now the last
+line rather than the only one, which is what
+`TestNoProducerSuppliedFieldCanStopDelivery` pins.
+
+**The consequence is escape and bound, never drop and never refuse.** An owner
+that fails its check is dropped, because the mail is still about something
+without it. An identifier IS what the mail is about, so the same treatment
+would produce an alert naming nothing, and refusing the message is how this
+defect worked in the first place. `safeID` returns the id as written when it is
+written in a shape this file can render, and otherwise returns
+`strconv.Quote(id[:255])`. `Quote` was chosen for one property above
+readability: whatever the input, its output contains no line break, no control
+character and no invalid byte, so a value that reaches `Compose` through it
+cannot make `Compose` refuse. It also keeps bytes a human still recognises,
+which a placeholder would not: the mail above still names `agent://x/y`.
+
+**The agent-passport URI grammar was considered as the rule here and is not
+it.** `^agent://[a-z0-9.-]+/[a-z0-9._/-]+$` (agent-stack-go's
+`passport.ValidateAgentURI`) is the right rule for whether an id is
+well-formed and the wrong rule for whether a mail can carry it, on three
+counts. It is agent-specific, and `run_id`, `type` and `source` reach the same
+subject line with no grammar of their own, so a grammar-shaped gate would have
+left the identical hole open one field over; `run_id` is the one the subject
+usually carries. It rejects ids this box renders correctly today, uppercase
+among them, and a mail that mangles a working id to satisfy a grammar is a
+worse mail than the one it replaces. And a grammar violation is not what breaks
+anything: a line break and an unbounded length are, and those are what the rule
+checks. What the grammar contributes instead is its length cap, 255 bytes from
+agent-passport SPEC 3.1, reused here as `maxIDBytes` so that nothing
+well-formed is anywhere near the bound.
+
+**A link is refused where a sentence is escaped.** `Link` and `AgentLink` now
+return "" for an id that is not renderable as written, which is the answer
+`OwnerLink` already gives for an owner: `escapePath` percent-encodes a line
+break into a well-formed URL that addresses nothing, and a coordinate that
+addresses nothing is worse than an absent one. Refusing a link never costs the
+message. When a console IS configured and no link can be built, the body says
+that in its own words rather than reusing the "no console address is
+configured" sentence, because telling an operator the wrong one of those two
+sends them to change a setting that is already right.
+
+**Three more fields went through the same sweep**, found while fixing the
+first and each a reachable path to the same outcome:
+
+- `type` reaches the subject verbatim in the branch for a type the catalog does
+  not know (`head = ... e.Type`), which is a second way to a refused `Compose`.
+- `source` is rendered into the BODY, where it cannot break a header and can
+  add LINES. `TestTheSourceCannotAddLinesToTheBody` failed against the unfixed
+  code with a body carrying two "Open in your console:" blocks, the second one
+  the producer's own, with the producer's own address under it. That is
+  phishing through the notification plane, from a value nothing checked.
+- the digest's rows and the context rows are `type:subject` and an agent id
+  from the same log, printed into the body with the same absence of a check.
+
+**And the size of the message is no longer the producer's to choose.** An id
+was bounded in the subject by `shortID` and bounded nowhere in the links, so
+`TestAnOversizedIdentifierCannotSetTheSizeOfTheMail` failed with
+`one identifier grew the message to 200668 bytes` from a single 100 kB agent
+id. A message a mail server refuses on size is the same silence reached the
+long way round, which is why that test is in this fix rather than filed as a
+separate nicety.
+
+**One pre-existing test collided with the fix and moved, for the second time
+and the same reason.** `TestWhatIsInsideASegmentIsStillEscaped`
+(`internal/render/link_test.go`) proves `escapePath` still escapes `?`, `#`
+and a space inside a path segment. It ran through `OwnerLink` until the owner
+fix on 2026-08-05, when `sanitizeOwner` began refusing its probe, and moved to
+`AgentLink`, which then had no shape rule. `AgentLink` has one now, and
+`@measured` against this fix, 2026-08-06, it failed with
+`link_test.go:56: unexpected escaping: ""`. The three properties now sit where
+each one lives: a space, which an id may be written with and which still has to
+be escaped, exercises `AgentLink`; the `?#` probe exercises the refusal; and
+`escapePath` is called directly for what it does inside a segment, asserting
+the same expected output as before, `team%20a/b%3Fc%23d`. `@measured` against
+the unfixed `render.go` by stashing it, 2026-08-06, confirming the revised test
+is red before the fix and not merely rewritten to agree with it:
+`link_test.go:68: an id shaped nothing like an id was still turned into a link: "https://box/a/team%20a/b%3Fc%23d"`.
+
+`@measured` gates after the change, 2026-08-06: `gofmt -l .` clean,
+`go vet ./...` clean, `go test -race ./...` all ten packages ok, `staticcheck
+./...` clean, `gosec -quiet ./...` clean, `govulncheck ./...` no vulnerabilities
+found, `./scripts/one-way-out.sh` OK (`strconv` is neither I/O nor network, so
+the no-I/O tier is untouched), `make gates` clean end to end. Ten new test
+functions moved `scripts/readme-numbers.sh` from `104` to `114`; the README
+badge is updated in the same commit.
+
+## 2026-08-05, two artifacts still describing a gate as it was before it was widened
+
+`scripts/one-way-out.sh` was extended on 2026-08-05 (commit 809b18d) to hold
+the no-I/O rule over `internal/fleet` as well as `internal/render` and
+`internal/rule`, which is what README.md and `docs/assets/one-way-out.svg` had
+described all along. Two artifacts went on describing the old two-package
+version:
+
+- the drawn text inside `docs/assets/one-way-out.svg` read `FAIL if rule or
+  render reach` / `os, net, io or exec`, in the third of the three gate boxes.
+  The same file's `aria-label` and the README's `alt` text already said three,
+  so the picture disagreed with its own description.
+- CLAUDE.md invariant 3's prose named `internal/render` and `internal/rule`
+  only.
+
+Both now say what the script does. `@measured` against the script itself rather
+than against memory, 2026-08-06: `scripts/one-way-out.sh` line 46 matches
+`internal/render|internal/rule|internal/fleet`, and running it prints
+`OK: SMTP lives in internal/deliver only, nothing speaks HTTP, rule, render and
+fleet do no I/O.`
+
+This is the low-severity half of the pair, and it is the half that decays
+quietly. A gate that checks less than its description claims fails safe; a
+description that names less than the gate is what somebody reads INSTEAD of the
+script, which is exactly how a contributor concludes that a package is outside
+a rule it is inside.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of

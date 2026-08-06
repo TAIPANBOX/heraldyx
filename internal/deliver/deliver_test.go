@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TAIPANBOX/agent-stack-go/event"
 	"github.com/TAIPANBOX/heraldyx/internal/render"
 )
 
@@ -116,4 +117,72 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// The other half of the same defect, from the side that refuses.
+//
+// `Compose` is right to refuse a subject with a line break: that is what stops
+// a producer writing headers of its own, and TestHeaderInjectionIsRefused above
+// holds it. What was wrong until 2026-08-05 is that a producer could REACH that
+// refusal with a value it chose. `agent_id` in tokenfuse comes from the
+// caller's own `x-fuse-agent-id` header, so an agent could put a newline in its
+// own name and every alert about it died here instead of arriving. Silence is
+// the worst failure this component has, and an agent able to cause it is worse
+// than the injection that was already closed.
+//
+// So this is the reachability test, not another injection test: nothing
+// `internal/render` produces may make Compose refuse. The guard stays; it is
+// now the last line rather than the only one.
+func TestNoProducerSuppliedFieldCanStopDelivery(t *testing.T) {
+	hostile := map[string]string{
+		"a line feed":       "x\nBcc: attacker@example.com",
+		"a crlf":            "x\r\nReply-To: attacker@example.com",
+		"a nul":             "x\x00y",
+		"a hundred k of it": strings.Repeat("a", 100_000),
+	}
+	fields := map[string]func(*event.Event, string){
+		"type":     func(e *event.Event, v string) { e.Type = v },
+		"agent_id": func(e *event.Event, v string) { e.AgentID = v },
+		"run_id":   func(e *event.Event, v string) { e.RunID = v },
+		"source":   func(e *event.Event, v string) { e.Source = v },
+	}
+
+	// Both shapes of event, because `rule.Subject` prefers the run id: an event
+	// with a run id never puts the agent id in the subject, and most of the
+	// money plane's events have one. The event that carries the defect is the
+	// ordinary one about an agent rather than a run, which is exactly the event
+	// an agent-scoped alert is.
+	for _, withRun := range []bool{true, false} {
+		shape := "with a run id"
+		if !withRun {
+			shape = "with no run id"
+		}
+		for field, set := range fields {
+			for name, value := range hostile {
+				t.Run(shape+", "+field+" with "+name, func(t *testing.T) {
+					e := event.Event{
+						Schema:   event.SchemaV02,
+						TS:       "2026-08-02T14:03:00Z",
+						Source:   "tokenfuse",
+						Type:     "breaker_tripped",
+						AgentID:  "agent://acme.example/biller",
+						Severity: event.SeverityHigh,
+					}
+					if withRun {
+						e.RunID = "run-42"
+					}
+					set(&e, value)
+					m := render.Event(render.Config{Box: "prod-box", ConsoleURL: "https://box.example.com"},
+						e, now, "", nil)
+					raw, err := Compose("box@example.com", []string{"ops@example.com"}, m, now)
+					if err != nil {
+						t.Fatalf("a producer stopped its own alert by writing %s into %s: %v", name, field, err)
+					}
+					if !strings.Contains(string(raw), "Subject: ") {
+						t.Fatalf("composed no subject at all:\n%s", raw)
+					}
+				})
+			}
+		}
+	}
 }

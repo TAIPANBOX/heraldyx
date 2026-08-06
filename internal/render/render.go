@@ -15,6 +15,13 @@
 //     acts is an unauthenticated capability held by anyone who sees or
 //     forwards the mail, and mail security gateways prefetch links, which
 //     would fire the action before a human read the sentence next to it.
+//  3. An identifier a producer wrote is rendered safely, or not at all, and
+//     NEVER stops the message. `agent_id`, `run_id`, `type` and `source` come
+//     off the wire, and in tokenfuse `agent_id` is whatever the caller put in
+//     its own `x-fuse-agent-id` header. A line break in one of them used to
+//     reach the subject, where `deliver.Compose` correctly refused to build a
+//     message from it, and the alert was then never sent: an agent could mute
+//     itself by choosing its own name. See [safeID].
 package render
 
 import (
@@ -22,6 +29,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,6 +133,80 @@ func sanitizeOwner(owner string) string {
 		return ""
 	}
 	return owner
+}
+
+// maxIDBytes bounds an identifier out of the envelope before it is rendered.
+// 255 is agent-passport SPEC 3.1's own cap on an agent:// URI, the number
+// `agent-stack-go/passport` enforces, so nothing well-formed is anywhere near
+// it. The bound is not decoration: an id is rendered in the subject, in the
+// first sentence and in up to two links, and until 2026-08-05 only the first
+// two were bounded, which left a producer able to set the SIZE of the message
+// and push it past a mail server's limit. That is the same outcome as the line
+// break, reached the long way round.
+const maxIDBytes = 255
+
+// idShape is the character set an identifier must be made of to be rendered as
+// it was written. Deliberately the same class as [safeString] and [ownerShape],
+// so this file has one definition of "safe to put in a mail" rather than three
+// that can drift, minus their 64-byte cap, which an agent URI legitimately
+// exceeds (`shortID` exists for exactly that).
+var idShape = regexp.MustCompile(`^[A-Za-z0-9_:@./\- ]+$`)
+
+// unusableID stands in for an identifier that carries nothing at all. The
+// envelope requires `agent_id` (agent-passport SPEC 6.1), so an event with none
+// is a producer breaking the contract, and "Agent " followed by nothing reads
+// like this box lost it.
+const unusableID = "(no id)"
+
+// safeID returns an identifier as it may appear in a message, and reports
+// whether it was already safe to render as written.
+//
+// The consequence of failing is deliberately NOT the one [sanitizeOwner] has.
+// An owner that fails its check is dropped, because the mail is still about
+// something without it. An identifier IS what the mail is about, so dropping it
+// would leave an alert naming nothing, and refusing to build the message at all
+// is how this defect worked in the first place. So an unusable id is escaped
+// and bounded, never dropped and never fatal: fidelity in the id is what may be
+// lost here, and the alert is not.
+//
+// `strconv.Quote` is the escape because of the one property this needs above
+// readability: its output can contain no line break, no control character and
+// no invalid byte, whatever the input was, so a value that reaches
+// `deliver.Compose` through this function cannot make it refuse. It also keeps
+// the bytes a human can still recognise, which a placeholder would not.
+//
+// The agent-passport URI grammar (`^agent://[a-z0-9.-]+/[a-z0-9._/-]+$`) was
+// considered as the rule here and is not it, for three reasons. It is
+// agent-specific, and `run_id`, `type` and `source` reach the same subject line
+// with no grammar of their own, so a grammar-shaped gate would leave the
+// identical hole open one field over. It rejects ids this box renders correctly
+// today, uppercase among them, and a mail that mangles a working id to satisfy
+// a grammar is a worse mail. And a grammar violation is not what breaks
+// anything: a line break and an unbounded length are.
+func safeID(id string) (string, bool) {
+	if id == "" {
+		return unusableID, false
+	}
+	if len(id) <= maxIDBytes && idShape.MatchString(id) {
+		return id, true
+	}
+	cut := id
+	if len(cut) > maxIDBytes {
+		cut = cut[:maxIDBytes]
+	}
+	return strconv.Quote(cut), false
+}
+
+// addressable reports whether an id can be turned into a console link.
+//
+// A link is a coordinate, and a mangled id is not a coordinate: `escapePath`
+// would percent-encode a line break into a well-formed URL that addresses
+// nothing, which is exactly the reasoning already written down for
+// [OwnerLink]. The mail says the link is missing and why, rather than leaving a
+// gap an operator reads as a bug in this box.
+func addressable(id string) bool {
+	_, ok := safeID(id)
+	return ok
 }
 
 // phrasing is what a type MEANS, in the three sentences a human needs: what
@@ -304,13 +386,20 @@ func Event(cfg Config, e event.Event, now time.Time, owner string, around []Arou
 
 	head := fmt.Sprintf("[%s] %s %s", boxName(cfg), shortID(subject), p.what)
 	if !known {
-		head = fmt.Sprintf("[%s] %s: %s", boxName(cfg), shortID(subject), e.Type)
+		// The TYPE is producer-written too, and this is the one branch that
+		// puts it in the subject line, so it needs the same treatment as the
+		// ids beside it. A known type never reaches a header: what is rendered
+		// then is this file's own sentence for it.
+		head = fmt.Sprintf("[%s] %s: %s", boxName(cfg), shortID(subject), shortID(e.Type))
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s.\n", describe(e), p.what)
 	if facts := factLine(e); facts != "" {
 		fmt.Fprintf(&b, "%s\n", facts)
+	}
+	if !identifiersAreSafe(e) {
+		b.WriteString(unusableIDNote)
 	}
 	fmt.Fprintf(&b, "\nWhat this box already did: %s\n", p.did)
 	fmt.Fprintf(&b, "\nIf nobody acts: %s\n", p.next)
@@ -322,7 +411,13 @@ func Event(cfg Config, e event.Event, now time.Time, owner string, around []Arou
 	if len(around) > 0 {
 		b.WriteString("\nAround it right now:\n")
 		for _, a := range around {
-			fmt.Fprintf(&b, "  %-14s  %-40s  %s\n", a.Label, a.AgentID, a.What)
+			// The agent id of a context row comes off the same log as the one
+			// the alert is about, so it gets the same treatment. `Label` and
+			// `What` do not: `internal/fleet` builds both from its own
+			// constants and from allowlisted numbers, never from anything a
+			// producer wrote, which its package doc states as its own rule.
+			agentID, _ := safeID(a.AgentID)
+			fmt.Fprintf(&b, "  %-14s  %-40s  %s\n", a.Label, agentID, a.What)
 		}
 	}
 
@@ -331,13 +426,28 @@ func Event(cfg Config, e event.Event, now time.Time, owner string, around []Arou
 	// A link that acted would be an unauthenticated capability held by whoever
 	// forwards the message, and mail gateways prefetch links.
 	if base := consoleBase(cfg); base != "" {
-		b.WriteString("\nOpen in your console:\n")
-		fmt.Fprintf(&b, "  what happened   %s\n", Link(cfg, e))
-		if e.AgentID != "" {
-			fmt.Fprintf(&b, "  this agent      %s   (freeze, kill)\n", AgentLink(cfg, e.AgentID))
-		}
+		incident, agent := Link(cfg, e), AgentLink(cfg, e.AgentID)
+		ownerLink := ""
 		if owner != "" {
-			fmt.Fprintf(&b, "  its owner       %s   (everything they run)\n", OwnerLink(cfg, owner))
+			ownerLink = OwnerLink(cfg, owner)
+		}
+		if incident == "" && agent == "" && ownerLink == "" {
+			// A console is configured and nothing in this event can be
+			// addressed in it. Saying so is not the same sentence as "no
+			// console is configured", and telling an operator the wrong one of
+			// those two sends them to change a setting that is already right.
+			b.WriteString("\nNothing here can be opened in your console: the identifiers this event carries are not ones a link can be built from.\n")
+		} else {
+			b.WriteString("\nOpen in your console:\n")
+			if incident != "" {
+				fmt.Fprintf(&b, "  what happened   %s\n", incident)
+			}
+			if agent != "" {
+				fmt.Fprintf(&b, "  this agent      %s   (freeze, kill)\n", agent)
+			}
+			if ownerLink != "" {
+				fmt.Fprintf(&b, "  its owner       %s   (everything they run)\n", ownerLink)
+			}
 		}
 	} else {
 		b.WriteString("\nNo console address is configured for this box, so this mail carries no link.\n")
@@ -405,7 +515,11 @@ func Digest(cfg Config, entries []rule.DigestEntry, since time.Time, now time.Ti
 	var b strings.Builder
 	fmt.Fprintf(&b, "Everything this box saw below its alert threshold since %s.\n\n", stampTime(since))
 	for _, e := range entries {
-		fmt.Fprintf(&b, "  %6d  %s\n", e.Count, e.Key)
+		// Every row is `type:subject`, both halves off the wire, so a digest
+		// row can inject a line into this body exactly as an alert's subject
+		// could inject a header. Same check, same reason.
+		key, _ := safeID(e.Key)
+		fmt.Fprintf(&b, "  %6d  %s\n", e.Count, key)
 	}
 	b.WriteString("\nNone of these were judged worth waking anyone for. They are here so that\n")
 	b.WriteString("a pattern nobody alerted on is still something you can see.\n")
@@ -427,10 +541,11 @@ func Digest(cfg Config, entries []rule.DigestEntry, since time.Time, now time.Ti
 // a GET at a view. There is no action in it, and there is no token in it.
 func Link(cfg Config, e event.Event) string {
 	base := consoleBase(cfg)
-	if base == "" {
+	key := rule.Key(e)
+	if base == "" || !addressable(key) {
 		return ""
 	}
-	return base + "/i/" + escapePath(rule.Key(e))
+	return base + "/i/" + escapePath(key)
 }
 
 // escapePath escapes an id for a URL path WITHOUT escaping the separators it is
@@ -468,9 +583,14 @@ func escapePath(id string) string {
 }
 
 // AgentLink opens the agent's own card, which is where freeze and kill are.
+//
+// It refuses an id that is not [addressable] for the same reason [OwnerLink]
+// refuses an owner: percent-encoding a line break produces a well-formed URL
+// pointing at nothing. Refusing the link never costs the message, which is
+// built and sent either way.
 func AgentLink(cfg Config, agentID string) string {
 	base := consoleBase(cfg)
-	if base == "" || agentID == "" {
+	if base == "" || !addressable(agentID) {
 		return ""
 	}
 	return base + "/a/" + escapePath(agentID)
@@ -597,14 +717,50 @@ func usd(micro int64) string {
 	return fmt.Sprintf("$%.2f", float64(micro)/1_000_000)
 }
 
-// shortID keeps a long agent URI readable in a subject line without losing the
-// part a human recognises.
+// shortID renders one identifier for a human: safe first, then short. Every
+// path in this file that puts an id into a sentence goes through here, so no
+// caller can forget the first half.
 func shortID(id string) string {
+	text, _ := safeID(id)
+	return shorten(text)
+}
+
+// shorten keeps a long agent URI readable in a subject line without losing the
+// part a human recognises.
+func shorten(id string) string {
 	if len(id) <= 48 {
 		return id
 	}
 	return id[:20] + "..." + id[len(id)-24:]
 }
+
+// identifiersAreSafe reports whether every identifier this file will render out
+// of e was written in a shape it can render as-is.
+func identifiersAreSafe(e event.Event) bool {
+	for _, id := range []string{e.Type, e.AgentID, e.Source} {
+		if _, ok := safeID(id); !ok {
+			return false
+		}
+	}
+	// The run id is optional, and an event about an agent rather than a run has
+	// none. Absent is not unusable.
+	if e.RunID != "" {
+		if _, ok := safeID(e.RunID); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// unusableIDNote is what the mail says about its own rendering when an
+// identifier had to be escaped. It is said out loud rather than left to be
+// noticed, because the operator is looking at a mangled id and the two
+// explanations they would reach for, this box is broken or somebody renamed an
+// agent, are both wrong and both send them somewhere useless.
+const unusableIDNote = "\nAn identifier in this event is not the shape this box can render as written: " +
+	"identifier-like characters only, at most 255 bytes, the cap agent-passport SPEC 3.1 puts on an agent:// URI. " +
+	"It is shown above escaped, and no console link is built from it, because a mangled id addresses nothing. " +
+	"The alert was sent anyway: an id nobody can parse is a reason to look, not a reason to say nothing.\n"
 
 func boxName(cfg Config) string {
 	if cfg.Box == "" {
@@ -613,11 +769,17 @@ func boxName(cfg Config) string {
 	return cfg.Box
 }
 
+// sourceName names the plane that raised the event. Producer-written like the
+// ids, and rendered into the body rather than a header, so it cannot break a
+// message and it CAN add lines: an "Open in your console" block of its own,
+// with an address of its own, under a sentence the operator trusts. It goes
+// through the same check for that reason.
 func sourceName(e event.Event) string {
 	if e.Source == "" {
 		return "an unnamed plane"
 	}
-	return e.Source
+	name, _ := safeID(e.Source)
+	return name
 }
 
 // stamp prefers the event's own timestamp and falls back to now, so a producer

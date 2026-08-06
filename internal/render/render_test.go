@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/heraldyx/internal/rule"
 )
 
 var now = time.Date(2026, 8, 2, 14, 3, 0, 0, time.UTC)
@@ -361,5 +362,184 @@ func TestOwnerLinkRefusesAnUnsafeOwnerOnItsOwn(t *testing.T) {
 	}
 	if got := OwnerLink(cfg(), "platform-team"); got != "https://box.example.com/o/platform-team" {
 		t.Fatalf("OwnerLink refused a realistic owner: %q", got)
+	}
+}
+
+// The defect, found 2026-08-05: an identifier out of the envelope reached the
+// mail SUBJECT with no shape check of its own.
+//
+// `deliver.Compose` refuses any subject containing a line break, which is
+// correct and is what stops the header injection. The CONSEQUENCE was silence:
+// Compose returns an error, the alert is never sent, and in tokenfuse
+// `agent_id` comes from the caller-written `x-fuse-agent-id` header, so an
+// agent could mute its own alerts by putting a newline in its own name. An
+// agent that can silence the notification plane is a worse defect than the
+// header injection that was already closed.
+//
+// The property is not "the id is safe". It is "the operator is still told",
+// with the id rendered in some form they can read.
+func TestAnAgentIDWithALineBreakStillReachesTheOperator(t *testing.T) {
+	e := ev("breaker_tripped", nil)
+	e.AgentID = "agent://x/y\nBcc: attacker@example.com"
+	e.RunID = ""
+	m := Event(cfg(), e, now, "", nil)
+
+	if strings.ContainsAny(m.Subject, "\r\n") {
+		t.Fatalf("the subject carries a line break, so deliver.Compose refuses the whole message and nothing is sent: %q", m.Subject)
+	}
+	if strings.Contains(m.Body, "\nBcc:") {
+		t.Fatalf("the id injected a line into the body:\n%s", m.Body)
+	}
+	// Fidelity is what may be lost, not the alert: the operator still has to be
+	// able to see which id this was about.
+	if !strings.Contains(m.Subject, "agent://x/y") {
+		t.Fatalf("the subject no longer names the agent at all: %q", m.Subject)
+	}
+	if !strings.Contains(m.Body, "was refused by the breaker") {
+		t.Fatalf("the mail no longer says what happened:\n%s", m.Body)
+	}
+}
+
+// `run_id` is the same field family and reaches the same places: `rule.Subject`
+// prefers it over the agent id, so it is usually the subject line, and
+// `describe` renders it into the first sentence. A rule that covered only
+// `agent_id` would leave the identical hole open one field over.
+func TestARunIDWithALineBreakStillReachesTheOperator(t *testing.T) {
+	e := ev("budget_exhausted", nil)
+	e.RunID = "run-42\r\nBcc: attacker@example.com"
+	m := Event(cfg(), e, now, "", nil)
+
+	if strings.ContainsAny(m.Subject, "\r\n") {
+		t.Fatalf("the subject carries a line break, so nothing is sent: %q", m.Subject)
+	}
+	if strings.Contains(m.Body, "\nBcc:") {
+		t.Fatalf("the run id injected a line into the body:\n%s", m.Body)
+	}
+	if !strings.Contains(m.Subject, "run-42") {
+		t.Fatalf("the subject no longer names the run at all: %q", m.Subject)
+	}
+}
+
+// The event TYPE is producer-supplied too, and for a type no catalog entry
+// describes it goes into the subject line verbatim. Same field family, same
+// consequence.
+func TestAnEventTypeWithALineBreakStillReachesTheOperator(t *testing.T) {
+	e := ev("invented\nBcc: attacker@example.com", nil)
+	m := Event(cfg(), e, now, "", nil)
+
+	if strings.ContainsAny(m.Subject, "\r\n") {
+		t.Fatalf("the subject carries a line break, so nothing is sent: %q", m.Subject)
+	}
+	if !strings.Contains(m.Body, "does not have a description for") {
+		t.Fatalf("the mail no longer says it does not know the type:\n%s", m.Body)
+	}
+}
+
+// A fix that mangles a well-formed id is worse than the defect it closes. These
+// are the shapes the stack actually produces: the agent-passport URI grammar
+// (`^agent://[a-z0-9.-]+/[a-z0-9._/-]+$`) and the money plane's run ids.
+func TestAWellFormedIdentifierIsRenderedUnchanged(t *testing.T) {
+	m := Event(cfg(), ev("breaker_tripped", nil), now, "", nil)
+	for _, want := range []string{
+		"[prod-box] run-42 was refused by the breaker",
+		"Run run-42 (agent agent://acme.example/biller)",
+		"https://box.example.com/i/breaker_tripped:run-42",
+		"https://box.example.com/a/agent://acme.example/biller",
+	} {
+		if !strings.Contains(m.Subject+"\n"+m.Body, want) {
+			t.Errorf("a well-formed id was not rendered unchanged, missing %q:\n%s\n%s", want, m.Subject, m.Body)
+		}
+	}
+	if strings.Contains(m.Body, "not the shape") {
+		t.Errorf("a well-formed id was flagged as unusable:\n%s", m.Body)
+	}
+}
+
+// A link is a coordinate, and a mangled id is not a coordinate. `OwnerLink`
+// already refuses an owner that fails its shape check rather than
+// percent-encoding it into a well-formed URL that addresses nothing; the same
+// answer belongs here, and the mail has to say why the link is missing rather
+// than leaving a gap the operator reads as a bug.
+func TestAnUnusableIdentifierIsNotTurnedIntoAConsoleLink(t *testing.T) {
+	e := ev("breaker_tripped", nil)
+	e.AgentID = "agent://x/y\nBcc: attacker@example.com"
+	e.RunID = ""
+	m := Event(cfg(), e, now, "", nil)
+
+	for _, u := range urlRe.FindAllString(m.Body, -1) {
+		if strings.Contains(u, "%0A") || strings.Contains(u, "%0D") {
+			t.Errorf("a control character was percent-encoded into a console link instead of refused: %s", u)
+		}
+	}
+	if !strings.Contains(m.Body, "not the shape") {
+		t.Errorf("the mail does not say why it carries no link for this event:\n%s", m.Body)
+	}
+}
+
+// The other way silence happens: a mail nobody's server will accept. An
+// identifier is bounded in the subject by `shortID`, and was not bounded
+// anywhere in the console links, so a producer could set the SIZE of the
+// message and push it past a mail server's limit. agent-passport SPEC 3.1 caps
+// an agent:// URI at 255 bytes, so nothing well-formed is near this.
+func TestAnOversizedIdentifierCannotSetTheSizeOfTheMail(t *testing.T) {
+	e := ev("breaker_tripped", nil)
+	e.AgentID = "agent://acme.example/" + strings.Repeat("a", 100_000)
+	e.RunID = ""
+	m := Event(cfg(), e, now, "", nil)
+
+	if n := len(m.Subject) + len(m.Body); n > 4096 {
+		t.Fatalf("one identifier grew the message to %d bytes, which is a mail server's size limit away from silence", n)
+	}
+}
+
+// `source` is the same kind of value: written by a producer, rendered into the
+// body with no check. It cannot break a header, and it can add LINES, which is
+// how a compromised producer would put its own "Open in your console" block,
+// with its own address, under a sentence the operator trusts.
+func TestTheSourceCannotAddLinesToTheBody(t *testing.T) {
+	e := ev("breaker_tripped", nil)
+	e.Source = "tokenfuse\n\nOpen in your console:\n  https://evil.example/steal"
+	m := Event(cfg(), e, now, "", nil)
+
+	// Counted as LINES, not as occurrences of the string. Once the value is
+	// escaped it still contains those characters, on the one line it belongs
+	// to, and that is not the defect: a header the operator reads as this
+	// box's own is.
+	blocks := 0
+	for _, line := range strings.Split(m.Body, "\n") {
+		if strings.TrimSpace(line) == "Open in your console:" {
+			blocks++
+		}
+		if strings.HasPrefix(strings.TrimSpace(line), "https://evil.example") {
+			t.Errorf("the source put a link of its own on a line of its own:\n%s", m.Body)
+		}
+	}
+	if blocks != 1 {
+		t.Errorf("the body has %d console blocks, so the source wrote one of its own:\n%s", blocks, m.Body)
+	}
+}
+
+// The context rows carry agent ids too, from the same log and the same
+// producers, and they are printed straight into the body.
+func TestAContextRowCannotInjectALine(t *testing.T) {
+	m := Event(cfg(), ev("budget_exhausted", nil), now, "", []Around{
+		{Label: "near the line", AgentID: "pricing\nAnswerable for it: attacker@example.com", What: "82% of budget"},
+	})
+	if strings.Contains(m.Body, "\nAnswerable for it:") {
+		t.Fatalf("a context row injected a line into the body:\n%s", m.Body)
+	}
+}
+
+// And the digest, whose every row is `type:subject` for events this box chose
+// not to send one by one.
+func TestADigestRowCannotInjectALine(t *testing.T) {
+	m := Digest(cfg(), []rule.DigestEntry{
+		{Key: "quality_drift:agent://x/y\nOpen in your console:\n  https://evil.example/steal", Count: 3},
+	}, now.Add(-24*time.Hour), now)
+
+	for _, line := range strings.Split(m.Body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "https://evil.example") {
+			t.Fatalf("a digest row put a link of its own on a line of its own:\n%s", m.Body)
+		}
 	}
 }

@@ -40,19 +40,35 @@ func TestAnAgentIdInALinkKeepsItsSlashes(t *testing.T) {
 // Anything inside a segment that would change the shape of the URL is still
 // escaped. Only the separators are left alone.
 //
-// Exercised through AgentLink rather than OwnerLink. Until 2026-08-05 either
-// would do, but OwnerLink now also shape-validates its argument before
-// escapePath ever sees it (see sanitizeOwner), and "team a/b?c#d" is not a
-// realistic owner, so OwnerLink would refuse it outright and this test would
-// be asserting on an empty string rather than on escapePath's behaviour.
-// AgentLink applies no such rule, which is what this test is actually about.
+// The probe moved twice, and for the same reason both times: this test is about
+// `escapePath`, and the exported functions built on it have each grown a shape
+// check in front of it. It ran through OwnerLink until 2026-08-05, when
+// `sanitizeOwner` began refusing "team a/b?c#d" (not a realistic owner), and
+// through AgentLink until [addressable] began refusing the same string for the
+// same reason: `?` and `#` are not characters an identifier may be made of, so
+// an id carrying either is not addressable at all now.
+//
+// So the three properties are asserted where each one lives. A space is the one
+// character an id may be written with that still has to be escaped before it
+// can sit in a URL, and it exercises the public function; the `?#` probe
+// exercises the refusal; `escapePath` is called directly for what it does with
+// a segment, which is unchanged.
 func TestWhatIsInsideASegmentIsStillEscaped(t *testing.T) {
 	cfg := Config{ConsoleURL: "https://box"}
-	got := AgentLink(cfg, "team a/b?c#d")
-	if strings.ContainsAny(strings.TrimPrefix(got, "https://box/a/"), "?# ") {
+
+	got := AgentLink(cfg, "team a/b")
+	if strings.ContainsAny(strings.TrimPrefix(got, "https://box/a/"), " ") {
 		t.Fatalf("a segment reached the URL unescaped: %q", got)
 	}
-	if !strings.Contains(got, "/a/team%20a/b%3Fc%23d") {
+	if !strings.Contains(got, "/a/team%20a/b") {
 		t.Fatalf("unexpected escaping: %q", got)
+	}
+
+	if got := AgentLink(cfg, "team a/b?c#d"); got != "" {
+		t.Fatalf("an id shaped nothing like an id was still turned into a link: %q", got)
+	}
+
+	if got := escapePath("team a/b?c#d"); got != "team%20a/b%3Fc%23d" {
+		t.Fatalf("escapePath changed what it does inside a segment: %q", got)
 	}
 }

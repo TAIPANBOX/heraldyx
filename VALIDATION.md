@@ -956,6 +956,33 @@ the no-I/O tier is untouched), `make gates` clean end to end. Ten new test
 functions moved `scripts/readme-numbers.sh` from `104` to `114`; the README
 badge is updated in the same commit.
 
+## 2026-08-05, two artifacts still describing a gate as it was before it was widened
+
+`scripts/one-way-out.sh` was extended on 2026-08-05 (commit 809b18d) to hold
+the no-I/O rule over `internal/fleet` as well as `internal/render` and
+`internal/rule`, which is what README.md and `docs/assets/one-way-out.svg` had
+described all along. Two artifacts went on describing the old two-package
+version:
+
+- the drawn text inside `docs/assets/one-way-out.svg` read `FAIL if rule or
+  render reach` / `os, net, io or exec`, in the third of the three gate boxes.
+  The same file's `aria-label` and the README's `alt` text already said three,
+  so the picture disagreed with its own description.
+- CLAUDE.md invariant 3's prose named `internal/render` and `internal/rule`
+  only.
+
+Both now say what the script does. `@measured` against the script itself rather
+than against memory, 2026-08-06: `scripts/one-way-out.sh` line 46 matches
+`internal/render|internal/rule|internal/fleet`, and running it prints
+`OK: SMTP lives in internal/deliver only, nothing speaks HTTP, rule, render and
+fleet do no I/O.`
+
+This is the low-severity half of the pair, and it is the half that decays
+quietly. A gate that checks less than its description claims fails safe; a
+description that names less than the gate is what somebody reads INSTEAD of the
+script, which is exactly how a contributor concludes that a package is outside
+a rule it is inside.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of

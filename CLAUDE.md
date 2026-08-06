@@ -64,10 +64,20 @@ an absent invariant.
    *(test: `TestEveryLinkIsAConsoleView`; verified by appending
    `?action=kill` to the link, which fails it)*
 3. **One way out.** `net/smtp` is imported by `internal/deliver` and nothing
-   else, nothing here imports `net/http` at all, and `internal/render` and
-   `internal/rule` do no I/O of any kind. The decision layer that can also
-   perform I/O is the one that eventually performs it from inside a branch
-   nobody tested.
+   else, nothing here imports `net/http` at all, and `internal/render`,
+   `internal/rule` and `internal/fleet` do no I/O of any kind. The decision
+   layer that can also perform I/O is the one that eventually performs it from
+   inside a branch nobody tested.
+
+   Three packages, not two. `internal/fleet` builds the "around it right now"
+   lines from the same event log the rest of this process reads, so it is the
+   same tier as the two that decide what to say and whether to say it, and
+   README.md and `docs/assets/one-way-out.svg` had always drawn it that way.
+   The gate checked only two until `scripts/one-way-out.sh` was extended on
+   2026-08-05 (commit 809b18d), and this sentence went on naming two after it.
+   That half is the worse one to leave: a gate that checks less than it says
+   still fails safe, while a description that names less than the gate is what
+   somebody reads instead of the script.
    *(gate: `scripts/one-way-out.sh`; verified by adding an `os` import to
    `internal/rule`, which fails it)*
 4. **A box with no address configured runs, stays healthy, and sends nothing.**

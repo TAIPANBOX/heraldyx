@@ -113,8 +113,8 @@
     <text x="600" y="344" fill="#8A97A6" font-size="9">no plane is ever called from here</text>
 
     <rect x="724" y="298" width="220" height="52" rx="8" fill="#141C27" stroke="#F0544C"/>
-    <text x="834" y="316" fill="#F0544C" font-size="9.5" font-weight="700">FAIL if rule or render reach</text>
-    <text x="834" y="329" fill="#F0544C" font-size="9.5" font-weight="700">os, net, io or exec</text>
+    <text x="834" y="316" fill="#F0544C" font-size="9.5" font-weight="700">FAIL if rule, render or fleet</text>
+    <text x="834" y="329" fill="#F0544C" font-size="9.5" font-weight="700">reach os, net, io or exec</text>
     <text x="834" y="344" fill="#8A97A6" font-size="9">an os import in rule fails it today</text>
   </g>
 </svg>

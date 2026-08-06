@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-114-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-118-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.2-success.svg)
 
@@ -407,11 +407,14 @@ log is mounted read-only here on purpose, and it stays that way.
   built; the ceiling and the digest are the only volume controls.
 - **It does not talk to any plane.** No polling of an API, no credential, no
   client. If a fact is not in the event log, heraldyx does not know it.
-- **It does not ship the journal to the record plane.** Trailryx's ingest is
-  OTLP over HTTP with a protobuf body, and this is the one process in the box
-  with a way out: an HTTP client and a protobuf encoder do not belong in it.
-  What is written here is already sealed and already verifiable, so shipping it
-  is transport, and transport belongs to something else.
+- **It does not ship the journal anywhere.** The record plane comes and reads
+  it. This file is in the estate's shared event envelope, so trailryx takes it
+  with `trailryx-node events --file` across a read-only mount, and nothing here
+  grows a client, an encoder or a second binary to push it. Two things on the
+  trailryx side stop that being wired up today: it does not yet map this
+  journal's event type to a record type, and its file import keeps no cursor, so
+  running it twice imports the file twice. Both were measured on 2026-08-06 and
+  are written up in `VALIDATION.md`.
 - **It does not report anything about an organisation as a whole.** See the
   boundary above: no `agent_id`, no subject, no mail. This is the one class of
   signal the stack raises that this process cannot see, and the fix is not here.

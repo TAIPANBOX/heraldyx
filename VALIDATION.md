@@ -983,6 +983,118 @@ description that names less than the gate is what somebody reads INSTEAD of the
 script, which is exactly how a contributor concludes that a package is outside
 a rule it is inside.
 
+## 2026-08-06, the journal against the record plane's actual door
+
+The reason this journal was not shipped to trailryx had been written down twice,
+in CLAUDE.md and in `internal/record`'s own package comment: trailryx's ingest is
+OTLP over HTTP with a protobuf body, and an HTTP client does not belong in the
+one process with a way out. That was true when it was written. On 2026-08-06
+trailryx merged a file door, so the recorded blocker was re-checked against the
+binary instead of against the sentence.
+
+**What was run.** heraldyx built from this branch; trailryx built from
+`637fccc` (`feat/an-assembled-record-plane`, PR #26), `cargo build -p
+trailryx-node --release`. Three agent-events in, one per producing plane, two
+carrying a `run_id` and one not, at `--min-severity high`:
+
+```
+./bin/heraldyx --once --from-now=false      # HERALDYX_SENT=<scratch>/sent.ndjson
+./target/release/trailryx-node events \
+    --file <scratch>/sent.ndjson --data <scratch>/plane \
+    --tenant acme --trust-domain acme-bank.example
+```
+
+**Result: zero records.** Verbatim:
+
+```
+sent.ndjson: 0 mapped, 0 record(s) written into seg-0000000000000001 (was seg-0000000000000001), 0 payload part(s) declined
+  refused: not_an_envelope 0 unknown_schema 0 no_agent 0 foreign_trust_domain 0 unknown_type 3 no_run_id 0 bad_time 0
+nothing durable to seal
+3 line(s) produced no record.
+```
+
+`unknown_type 3`. Every line refused, and none of them for a reason this
+repository controls.
+
+**The probe: the same bytes with only `"type":"alert_sent"` replaced by
+`"type":"tool_call"`, nothing else touched.**
+
+```
+probe.ndjson: 2 mapped, 2 record(s) written into seg-0000000000000002 (was seg-0000000000000001), 2 payload part(s) declined
+  refused: not_an_envelope 0 unknown_schema 0 no_agent 0 foreign_trust_domain 0 unknown_type 0 no_run_id 1 bad_time 0
+sealed seg-0000000000000001 with 4 record(s); manifest <scratch>/probe-plane/s0-000001.mf
+```
+
+So the envelope this package writes already satisfies that door on every axis it
+decides: schema, timestamp, strict `agent://` identifier, trust domain. The
+single `no_run_id` is the third line, whose source event carried no run, and it
+is the refusal that must NOT be fixed here: a synthesised run identifier would
+put a dispatch in a run it had nothing to do with. Counted by name is the honest
+outcome, and `TestNoRunToNameIsRecordedAsNoRunRatherThanAnInventedOne` now stops
+somebody from paying that price to make a number go to zero.
+
+**The transport blocker is gone; two others are real.** Both are trailryx's,
+neither is worked around from here:
+
+1. `alert_sent` is not in `trailryx-agentevent`'s table. Adding it is either a
+   new record `EventType`, which is a format version under trailryx invariant 7,
+   or a mapping onto one of the ten existing decisions, which that crate's own
+   documentation refuses. **Owner's decision, not taken here.**
+2. `trailryx-node events` keeps no cursor. Measured by importing one file three
+   times into one data directory: `2 mapped, 2 record(s) written` on each of the
+   three runs, into `seg-...002`, `seg-...003` and `seg-...004`, the
+   `duplicates` counter never firing. A scheduled ship would therefore duplicate
+   the whole journal every run.
+
+**The seam needs no write access.** The journal was set to mode `0444` and
+imported again: `2 mapped, 2 record(s) written`, exit 0, and `shasum -a 256` of
+the file before and after is identical
+(`758f89d088c3a9c8999a21070c6f2af650a449c1d5ff44b381b773fcbf5628c8`). So the
+mount that carries this file to the record plane can be read-only, in the same
+direction and by the same mechanism as the event-log mount that holds invariants
+6 and 9.
+
+**The four new tests were verified by breaking the code**, since they gate
+behaviour that already existed rather than changing it. Five breaks, five
+catches, each reverted:
+
+| what was broken in `internal/record/record.go` | what failed |
+|---|---|
+| `Schema` stamped as `taipanbox.dev/agent-event/v0.3` | `schema "...v0.3" is not one the record plane accepts, so every line of this journal would be refused as unknown_schema`, three times |
+| `TS` formatted with `time.RFC1123` | `ts "Sun, 02 Aug 2026 03:14:00 UTC" is not an RFC 3339 instant, refused as bad_time`, three times |
+| `AgentID` put through `truncate(d.AgentID, 24)`, the way the mail shortens it | `want "agent://acme-bank.example/support/tier1-bot/instance-7" / got "agent://acme-bank.exampl..."` |
+| an empty `RunID` filled with `run-unattributed` | `a run identifier was invented for a dispatch that had none: "run-unattributed"` |
+| `OnBehalfOf: d.To` added to the event | `this record has an on_behalf_of member, which the record plane reads into the metadata plane` |
+
+The third break is worth reading twice. It failed
+`TestTheRecordCarriesTheIdentifiersWholeAndNotShortened` and did NOT fail the
+shape check in `TestEveryRecordIsReadableAtTheRecordPlanesDoor`, because
+`agent://acme.example/bil...` is still a well-formed identifier. That is the
+case worth catching and the one a shape check passes: an identifier cut above
+the first path separator is refused at the door, and one cut below it is stored,
+naming an agent that does not exist.
+
+**`scripts/one-way-out.sh` still bites, and was made to prove it** by adding the
+exact import this design forecloses:
+
+```
+$ ./scripts/one-way-out.sh
+OK: SMTP lives in internal/deliver only, nothing speaks HTTP, rule, render and fleet do no I/O.
+
+# with `_ "net/http"` added to internal/record
+FAIL: github.com/TAIPANBOX/heraldyx/internal/record imports net/http; this process is not a client of anything
+exit=1
+
+# with `_ "net/smtp"` added to internal/record
+FAIL: github.com/TAIPANBOX/heraldyx/internal/record imports net/smtp; only internal/deliver may speak SMTP
+exit=1
+
+# reverted
+OK: SMTP lives in internal/deliver only, nothing speaks HTTP, rule, render and fleet do no I/O.
+exit=0
+$ git diff        # empty
+```
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of
@@ -1011,10 +1123,13 @@ a rule it is inside.
   all could receive a High incident titled "budget exhausted", and did. It was
   narrowed at the source. Finding one wrong is not evidence the others are
   right.
-- **The journal has never been shipped into trailryx.** heraldyx produces the
-  record and stops there, deliberately (see CLAUDE.md). Nothing has yet carried
-  one of these files into the record plane, so "the notification is in the
-  operator's audit store" is not a claim this repository can make today.
+- **No record from this journal exists in a trailryx store.** The door was found
+  and measured on 2026-08-06 (section above), and it refused all three lines,
+  because trailryx does not map this journal's event type. Two lines DID become
+  records with only the type substituted, which establishes that the envelope
+  fits and nothing more. "The notification is in the operator's audit store" is
+  still not a claim this repository can make, and the thing standing between it
+  and true is a decision in trailryx.
 - **Volume under a real fleet is unmeasured.** The dedup window, the ceiling
   and the digest period are reasoned defaults carried over from the money
   plane's own alert pipeline, not numbers anyone has watched an operator live

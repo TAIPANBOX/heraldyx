@@ -219,18 +219,76 @@ an absent invariant.
    report below `--once`'s return, which fails the first, and by reporting the
    standing count in place of the growth, which fails the second)*
 
+14. **The record plane READS this journal; nothing here sends it.** The seam to
+   trailryx is the file and a read-only mount, in the same direction and by the
+   same mechanism as invariants 6 and 9: heraldyx writes its own volume, another
+   process reads it. `trailryx-node events --file` maps this envelope into
+   records, and measured 2026-08-06 it reads a journal at mode 0444 and leaves
+   it byte for byte identical, so the mount can be read-only on both sides of
+   this process.
+
+   The alternative shapes were weighed and both lose to a mount. A shipper
+   inside this repository puts `net/http` into `go list ./...`, so it either
+   fails invariant 3's gate or forces the gate to grow an exception, and an
+   exception in the check that guards this component's one privilege is the
+   whole argument traded for a hop. A shipper in another repository has nothing
+   better to speak: trailryx's door for THIS envelope is a file, and its only
+   network door is OTLP, so a shipper would map agent-event to span to record,
+   two mappings where one exists, with the agent identity rebuilt from a span
+   attribute on the way.
+
+   What this process therefore owes the door is bytes, and four of the mapper's
+   refusals are decided entirely here: the schema stamped, the timestamp
+   formatted, the agent identifier carried whole, and the run identifier never
+   invented. Breaking any of them leaves a journal that still reads, still
+   chains and still passes every other test in this package, and surfaces as a
+   count of zero records in a different repository.
+   *(gate: `scripts/one-way-out.sh` for the half about not speaking, verified by
+   adding `net/http` to `internal/record`, which fails it; test:
+   `TestEveryRecordIsReadableAtTheRecordPlanesDoor`,
+   `TestTheRecordCarriesTheIdentifiersWholeAndNotShortened`,
+   `TestNoRunToNameIsRecordedAsNoRunRatherThanAnInventedOne`,
+   `TestARecipientNeverReachesTheMetadataPlane`, each verified by breaking the
+   implementation: a v0.3 schema, an RFC 1123 timestamp, the agent id put
+   through `truncate` the way the mail shortens it, a synthesised run id, and
+   the recipients written into `on_behalf_of`)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
 
 **Held by this file alone: invariant 6.**
 
-Shipping the journal INTO the record plane (trailryx) is not done here and is
-not an oversight. Its network ingest is OTLP over HTTP with a protobuf body,
-and speaking it would mean an HTTP client and a protobuf encoder inside the one
-process in the box with a way out, which is what invariant 3's gate exists to
-prevent. This process produces a sealed, verifiable record; a component allowed
-to make that hop ships it.
+The journal has still not been ingested by the record plane, and what blocks it
+has changed. It is no longer transport. Until 2026-08-06 the recorded reason was
+that trailryx's ingest is OTLP over HTTP with a protobuf body; that day trailryx
+grew `trailryx-node events --file`, which reads this exact envelope from a file,
+and invariant 14 is the seam that follows from it. Two things block it now, both
+of them decisions in trailryx rather than work here, and both measured against
+the real binary on 2026-08-06 (see `VALIDATION.md`):
+
+- **`alert_sent` is not in `trailryx-agentevent`'s table.** Three journal lines
+  in, three refused as `unknown_type`, zero records. The same three lines with
+  only the `type` value substituted for a mapped one produce two records and one
+  honest `no_run_id` refusal, so everything else about this envelope already
+  passes that door. Widening the table is not a small edit: that crate refuses a
+  type where the record vocabulary has no true home for it, on the ground that a
+  wrong event type is worse than a missing record because it is believed, and
+  "a notification was dispatched" is not one of the ten decisions an agent
+  takes. The two ways out are a new `EventType`, which is a format version under
+  trailryx invariant 7, or a mapping onto an existing one, which is the thing
+  that crate's own paragraph refuses. **Neither is ours to take. Ask the user.**
+- **`trailryx-node events` keeps no cursor.** Measured: the same file imported
+  three times into one data directory produced three copies, its `duplicates`
+  counter never firing. So the seam is a one-shot import today, and a scheduled
+  one would duplicate the whole trail on every run, which is worse than not
+  shipping it: a duplicated audit trail is one whose counts are wrong. A cursor
+  belongs to the reader.
+
+Do not work around either one from this side. Renaming `alert_sent` to a type
+the table happens to accept would put a false statement in the trail, and
+trimming the journal so a re-import stays small would make this process the
+thing that edits its own evidence.
 
 - Invariant 6's holder is a deployment fact rather than anything in this
   repository: the event volume is mounted read-only in the cluster manifest and

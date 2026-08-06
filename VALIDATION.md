@@ -1046,6 +1046,18 @@ neither is worked around from here:
    `duplicates` counter never firing. A scheduled ship would therefore duplicate
    the whole journal every run.
 
+**Followed up the same day, trailryx PR #27.** Item 1 is closed and its stated
+reasoning turned out to be wrong in one respect worth recording, because it was
+a claim about another repository's invariant. `alert_sent` now maps to
+`EventType::NotificationDispatched`, appended at wire code 11, and it was NOT a
+format version: trailryx invariant 7 forbids redefining a field in place, and an
+appended discriminant redefines nothing. That repo had already taken the same
+reading, with `SigAlg::Es384` at code 4 appended after `SlhDsa` at 3 and the
+format version unchanged. Re-measured after the change, same journal file and
+flags: `2 mapped, 2 record(s) written`, sealed, read back by a separate process
+with proof Full, and no recipient address in any sealed file or in the pack.
+Item 2, the missing cursor, is unchanged and still real.
+
 **The seam needs no write access.** The journal was set to mode `0444` and
 imported again: `2 mapped, 2 record(s) written`, exit 0, and `shasum -a 256` of
 the file before and after is identical

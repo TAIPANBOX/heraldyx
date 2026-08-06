@@ -263,21 +263,22 @@ The journal has still not been ingested by the record plane, and what blocks it
 has changed. It is no longer transport. Until 2026-08-06 the recorded reason was
 that trailryx's ingest is OTLP over HTTP with a protobuf body; that day trailryx
 grew `trailryx-node events --file`, which reads this exact envelope from a file,
-and invariant 14 is the seam that follows from it. Two things block it now, both
-of them decisions in trailryx rather than work here, and both measured against
-the real binary on 2026-08-06 (see `VALIDATION.md`):
+and invariant 14 is the seam that follows from it. ONE thing blocks it now, a
+decision in trailryx rather than work here, measured against the real binary on
+2026-08-06 (see `VALIDATION.md`).
 
-- **`alert_sent` is not in `trailryx-agentevent`'s table.** Three journal lines
-  in, three refused as `unknown_type`, zero records. The same three lines with
-  only the `type` value substituted for a mapped one produce two records and one
-  honest `no_run_id` refusal, so everything else about this envelope already
-  passes that door. Widening the table is not a small edit: that crate refuses a
-  type where the record vocabulary has no true home for it, on the ground that a
-  wrong event type is worse than a missing record because it is believed, and
-  "a notification was dispatched" is not one of the ten decisions an agent
-  takes. The two ways out are a new `EventType`, which is a format version under
-  trailryx invariant 7, or a mapping onto an existing one, which is the thing
-  that crate's own paragraph refuses. **Neither is ours to take. Ask the user.**
+RESOLVED 2026-08-06, trailryx PR #27: `alert_sent` now maps to
+`EventType::NotificationDispatched`, an eleventh type appended at wire code 11.
+It was NOT a format version under trailryx invariant 7: that invariant forbids
+redefining a field in place, and an appended discriminant redefines nothing.
+The same reading was already in that repo, where `SigAlg::Es384` sits at code 4,
+appended after `SlhDsa` at 3, with the format version unchanged. Measured after
+the change: two journal lines in, two `notification_dispatched` records written
+and sealed, read back by a separate process with proof Full, and no recipient
+address in any sealed file.
+
+What remains:
+
 - **`trailryx-node events` keeps no cursor.** Measured: the same file imported
   three times into one data directory produced three copies, its `duplicates`
   counter never firing. So the seam is a one-shot import today, and a scheduled
@@ -285,10 +286,8 @@ the real binary on 2026-08-06 (see `VALIDATION.md`):
   shipping it: a duplicated audit trail is one whose counts are wrong. A cursor
   belongs to the reader.
 
-Do not work around either one from this side. Renaming `alert_sent` to a type
-the table happens to accept would put a false statement in the trail, and
-trimming the journal so a re-import stays small would make this process the
-thing that edits its own evidence.
+Do not work around it from this side. Trimming the journal so a re-import stays
+small would make this process the thing that edits its own evidence.
 
 - Invariant 6's holder is a deployment fact rather than anything in this
   repository: the event volume is mounted read-only in the cluster manifest and

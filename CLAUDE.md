@@ -35,7 +35,13 @@ gofmt -l .
 go vet ./...
 go test -race ./...
 ./scripts/one-way-out.sh
+./scripts/readme-numbers.sh
+./scripts/gates-have-teeth.sh   # invariant 15; needs a clean tree
 ```
+
+`readme-numbers.sh` was missing from this list until 2026-08-09 while CI ran
+it, so this instruction was strictly smaller than CI's, and anybody following
+it ran one gate of two believing they had run both.
 
 CI runs these plus `staticcheck`, `govulncheck` and `gosec`.
 
@@ -252,6 +258,28 @@ an absent invariant.
    implementation: a v0.3 schema, an RFC 1123 timestamp, the agent id put
    through `truncate` the way the mail shortens it, a synthesised run id, and
    the recipients written into `on_behalf_of`)*
+
+15. **A check must be able to tell "did not fail" from "did not run", and both
+    gates here have been made to fail on purpose to prove they can.**
+    `readme-numbers.sh` already refuses when its subject is absent, in two
+    distinct ways: no test functions at all, and no badge to compare against.
+    Both sentences were true, both were established by hand once in the session
+    that wrote it, and nothing re-ran them.
+
+    `one-way-out.sh` is the shape that makes this an invariant rather than a
+    chore. It reads `go list` output through a `case` statement, and a case
+    that stops matching does not fail: it falls through, the loop finds nothing
+    to complain about, and the script prints OK. A green result and an absent
+    check are the same output.
+    *(gate: `scripts/gates-have-teeth.sh`, 7 cases: four real faults, two
+    non-faults, and one subject taken away. The non-faults are the ones worth
+    keeping: `internal/deliver` speaking SMTP is the design this gate protects,
+    and a decision package may still use the standard library for pure work. A
+    gate that flagged either would be deleted by whoever is unblocking CI.)*
+
+    **What it does not cover.** It cannot test itself. It proves each gate
+    catches the faults named in it, not every fault of that kind. It found no
+    hole in either.
 
 ## Decisions that have no gate yet
 

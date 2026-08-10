@@ -1,1 +1,6 @@
 bin/
+
+# macOS Finder metadata. Two of these reached this repository on
+# 2026-08-10 through a `git add -A`, which is why the rule is a file rather
+# than a habit.
+.DS_Store

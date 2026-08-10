@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/passport"
 	"github.com/TAIPANBOX/heraldyx/internal/rule"
 )
 
@@ -80,6 +81,13 @@ var dataAllowlist = map[string]bool{
 	"count":         true,
 	"window":        true,
 	"upstream":      true,
+	// Which identity detector fired. Approved by the user 2026-08-10, and the
+	// question the escalation rule asks was answered before it went in: idryx
+	// writes this from a detector's own Name() method, a compile-time constant
+	// in that repository, never from anything a model produced. Without it an
+	// identity finding mails as "raised an event this build does not have a
+	// description for", which names no fault at all.
+	"detector": true,
 }
 
 // safeString is the shape a string value must have to be rendered: short, one
@@ -220,6 +228,22 @@ type phrasing struct {
 }
 
 var catalog = map[string]phrasing{
+	// Read from idryx's own detectors rather than from its README, per this
+	// repo's own catalog rule. The wording is deliberately about the GRAPH and
+	// not about the agent's intent: every one of those detectors reports a
+	// discrepancy between two of the operator's own records, and several of
+	// them say in their own doc comments that the likeliest cause is an
+	// inventory gap.
+	//
+	// One entry covers all of them because the bus carries one type and the
+	// detector name travels in `data.detector`, which is the decision recorded
+	// in agent-passport SPEC 6.2. The detector is now allowlisted, so the mail
+	// names which one fired.
+	"identity_finding": {
+		what: "matched an identity rule",
+		did:  "Nothing. The identity plane reads; it never changes a directory, a permission or an agent.",
+		next: "Nothing automatic. The finding stays in the identity graph until somebody looks at it.",
+	},
 	"budget_threshold": {
 		what: "is approaching its budget",
 		did:  "Nothing yet. The run is still inside its budget and is running normally.",
@@ -623,7 +647,26 @@ func consoleBase(cfg Config) string { return strings.TrimRight(cfg.ConsoleURL, "
 
 // describe names the actor in the first sentence: the run when there is one,
 // with its agent, else the agent alone.
+// describe names the subject in the sentence that opens the mail.
+//
+// A CLAIMED subject gets a different sentence, and this is the only place that
+// distinction can be made once for every event type. agent-passport SPEC 3.3
+// says an identity read out of a process's own AGENT_PASSPORT_ID is a
+// self-declaration and that an observer reporting it must make the distinction
+// visible in what it reports. "Agent X did something" would be this process
+// making exactly the claim the spec forbids, in the one place a human reads at
+// three in the morning.
+//
+// Both readings stay open in the wording, because both are worth acting on: an
+// agent may be doing this, or something may be using its name.
 func describe(e event.Event) string {
+	if passport.IsClaimedSubject(e.AgentID) {
+		inner, _ := passport.ClaimedInner(e.AgentID)
+		if e.RunID != "" {
+			return fmt.Sprintf("Run %s (a process claiming to be agent %s)", shortID(e.RunID), shortID(inner))
+		}
+		return fmt.Sprintf("A process claiming to be agent %s", shortID(inner))
+	}
 	if e.RunID != "" {
 		return fmt.Sprintf("Run %s (agent %s)", shortID(e.RunID), shortID(e.AgentID))
 	}

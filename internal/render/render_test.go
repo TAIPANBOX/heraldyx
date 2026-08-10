@@ -543,3 +543,81 @@ func TestADigestRowCannotInjectALine(t *testing.T) {
 		}
 	}
 }
+
+// A claimed subject is never mailed as though the estate knows who did it.
+//
+// agent-passport SPEC 3.3: an identity read out of a process's own
+// AGENT_PASSPORT_ID is a self-declaration, and an observer reporting it must
+// make the distinction visible in what it reports. The mail is where a human
+// meets that distinction or never meets it at all.
+func TestAClaimedSubjectIsNeverMailedAsAnEstablishedOne(t *testing.T) {
+	e := event.Event{
+		Schema:   "taipanbox.dev/agent-event/v0.3",
+		TS:       "2026-08-10T09:30:00.000Z",
+		Source:   "idryx",
+		Type:     "identity_finding",
+		Severity: "high",
+		AgentID:  "claimed:agent://acme.example/support/tier1-bot",
+		Data:     map[string]any{"detector": "unrouted_egress"},
+	}
+	m := Event(Config{Box: "acme-box", ConsoleURL: "https://console.acme.example"}, e, now, "", nil)
+
+	if !strings.Contains(m.Body, "claiming to be") {
+		t.Errorf("the body states a self-declaration as fact:\n%s", m.Body)
+	}
+	// The one sentence that would be wrong: the established form, with no
+	// qualifier in front of it.
+	if strings.Contains(m.Body, "Agent agent://acme.example/support/tier1-bot") {
+		t.Errorf("the body names the claim as an established agent:\n%s", m.Body)
+	}
+	// And the marker survives wherever the id is shown, because it is part of
+	// the id rather than a field beside it.
+	if !strings.Contains(m.Subject, "claimed:") && !strings.Contains(m.Body, "claimed:") {
+		t.Errorf("the claimed marker reached neither the subject nor the body:\nsubject: %s\n%s", m.Subject, m.Body)
+	}
+}
+
+// An established subject is untouched by any of that. The claimed wording is a
+// branch, not a new default, and a regression here would put a hedge on every
+// finding the estate is certain about.
+func TestAnEstablishedSubjectIsStillNamedPlainly(t *testing.T) {
+	e := event.Event{
+		Schema:   "taipanbox.dev/agent-event/v0.2",
+		TS:       "2026-08-10T09:30:00.000Z",
+		Source:   "idryx",
+		Type:     "identity_finding",
+		Severity: "high",
+		AgentID:  "agent://acme.example/support/tier1-bot",
+		Data:     map[string]any{"detector": "attestation_missing"},
+	}
+	m := Event(Config{Box: "acme-box", ConsoleURL: "https://console.acme.example"}, e, now, "", nil)
+
+	if strings.Contains(m.Body, "claiming to be") {
+		t.Errorf("an established identity was hedged:\n%s", m.Body)
+	}
+	if !strings.Contains(m.Body, "Agent agent://acme.example/support/tier1-bot") {
+		t.Errorf("the body does not name the agent plainly:\n%s", m.Body)
+	}
+}
+
+// The detector name reaches the mail, which is the whole reason the key was
+// added to the allowlist. Without it an identity finding says only that
+// something matched, which names no fault an operator can act on.
+func TestTheDetectorNameReachesTheMail(t *testing.T) {
+	e := event.Event{
+		Schema:   "taipanbox.dev/agent-event/v0.2",
+		TS:       "2026-08-10T09:30:00.000Z",
+		Source:   "idryx",
+		Type:     "identity_finding",
+		Severity: "high",
+		AgentID:  "agent://acme.example/planner",
+		Data:     map[string]any{"detector": "unrouted_egress"},
+	}
+	m := Event(Config{Box: "acme-box"}, e, now, "", nil)
+	if !strings.Contains(m.Body, "unrouted_egress") {
+		t.Errorf("the mail does not say which detector fired:\n%s", m.Body)
+	}
+	if strings.Contains(m.Body, "does not have a description for") {
+		t.Errorf("identity_finding fell through to the fallback phrasing:\n%s", m.Body)
+	}
+}

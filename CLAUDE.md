@@ -36,7 +36,7 @@ go vet ./...
 go test -race ./...
 ./scripts/one-way-out.sh
 ./scripts/readme-numbers.sh
-./scripts/gates-have-teeth.sh   # invariant 15; needs a clean tree
+./scripts/gates-have-teeth.sh   # invariant 16; needs a clean tree
 ```
 
 `readme-numbers.sh` was missing from this list until 2026-08-09 while CI ran
@@ -255,11 +255,29 @@ an absent invariant.
    `TestTheRecordCarriesTheIdentifiersWholeAndNotShortened`,
    `TestNoRunToNameIsRecordedAsNoRunRatherThanAnInventedOne`,
    `TestARecipientNeverReachesTheMetadataPlane`, each verified by breaking the
-   implementation: a v0.3 schema, an RFC 1123 timestamp, the agent id put
+   implementation: a schema string trailryx does not accept, an RFC 1123
+   timestamp, the agent id put
    through `truncate` the way the mail shortens it, a synthesised run id, and
    the recipients written into `on_behalf_of`)*
 
-15. **A check must be able to tell "did not fail" from "did not run", and both
+15. **heraldyx's OWN journal stays v0.2, and the reason is now more than a
+    default.** agent-event v0.3 exists as of 2026-08-10 and is the version an
+    observer stamps when `agent_id` carries a subject a PROCESS asserted about
+    itself (agent-passport SPEC 3.3, 6.4). heraldyx asserts nothing of the kind:
+    every `alert_sent` it writes is about a dispatch it performed itself, under
+    the subject it read off an event somebody else established. Stamping v0.3
+    would tell every reader a claim is possible in a stream where it is not, and
+    trailryx refuses an unknown version, so the record plane would stop
+    receiving this journal entirely.
+
+    The break test in invariant 14 above used to plant "a v0.3 schema" as its
+    example of a version nothing accepts. That example stopped being imaginary,
+    so it now plants a string trailryx genuinely does not accept, which is what
+    the case was always testing.
+    *(test: `TestEveryRecordIsReadableAtTheRecordPlanesDoor`, which pins the
+    schema heraldyx stamps)*
+
+16. **A check must be able to tell "did not fail" from "did not run", and both
     gates here have been made to fail on purpose to prove they can.**
     `readme-numbers.sh` already refuses when its subject is absent, in two
     distinct ways: no test functions at all, and no badge to compare against.

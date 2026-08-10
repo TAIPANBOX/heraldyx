@@ -44,24 +44,39 @@ flowchart LR
   VX["Verdryx: quality"] --> LOG
   MX["Mockryx: drills"] --> LOG
   ENG["Engram: memory"] --> LOG
+  GX["Genaryx: the console"] --> LOG
+  ID["Idryx: the identity graph"] --> LOG
+  QX["Qryx: the hash chains"] --> LOG
   LOG -->|"reads, never writes"| H["heraldyx"]
-  LOG -->|"reads, never writes"| ID["Idryx: the identity graph"]
-  LOG -->|"reads, never writes"| QX["Qryx: the hash chains"]
+  LOG -->|"reads it too"| ID
+  LOG -->|"reads it too"| QX
+  SC["scopyx: web egress"] -->|"its own journal, not this log"| SJ[("scopyx's journal")]
   H -->|"SMTP"| M["your mailbox"]
   M -.->|"one link, a view and never an action"| C["Genaryx console<br/>sign in, then act"]
 ```
 
-Five planes write and three read. Idryx and Qryx are the other readers: Idryx
-loads the same log to build an identity graph, Qryx walks it to check the
-`prev_hash` chains and the attestation on each passport, and like heraldyx
-neither of them writes to it.
+**Eight planes write this log and heraldyx is the only pure reader.** Idryx and
+Qryx read it as well as write it: Idryx loads it to build an identity graph and
+Qryx walks it to check the `prev_hash` chains and the attestation on each
+passport, and both also emit findings of their own. Two more planes, heraldyx
+and scopyx, write a journal on their own volume rather than this log, which is
+the same decision twice: a component that can write the shared log can, once
+compromised, corrupt the trail it was adding to, and those two hold the two
+dangerous privileges in the box, mail out and web out.
 
-The census in this paragraph was two short until 2026-08-05: it said four and
-two, missing Engram among the writers and Qryx among the readers. Both were
-checked against the code rather than against the other diagrams, since a count
-copied between pictures is a count nobody measured: `engram/events.py` emits
-`memory_written`, `reflection_run`, `contradiction_found` and
-`memory_forgotten`, and `qryx agents` consumes agent-event NDJSON.
+**This census has now been wrong twice, in opposite directions, and both are
+worth keeping.** Until 2026-08-05 it was two short, saying four wrote and two
+read, missing Engram among the writers and Qryx among the readers. Until
+2026-08-10 it said Idryx and Qryx "never write", which was false about Qryx the
+whole time (`qryx --events` appends agent-event NDJSON, `internal/exporter`)
+and became false about Idryx the day it gained an event sink.
+
+The lesson is the one the earlier correction already named and did not apply
+far enough: a count copied between pictures is a count nobody measured. This
+one is now taken from `agent-passport/SPEC.md` §6.2, the registry of who emits
+what, which is the only place in the estate that is gated on being true
+(`@measured` 2026-08-10, ten sources, of which eight write here and two keep
+their own journal).
 
 Every plane already speaks one envelope
 ([agent-passport](https://github.com/TAIPANBOX/agent-passport) SPEC.md 6), so

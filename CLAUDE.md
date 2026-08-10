@@ -69,6 +69,21 @@ an absent invariant.
    user 2026-07-21 and not open for re-litigation.
    *(test: `TestEveryLinkIsAConsoleView`; verified by appending
    `?action=kill` to the link, which fails it)*
+
+   **And a coordinate that names an action nobody can take is the same defect
+   one step softer.** `@yurii 2026-08-10`, "прибери підпис". A CLAIMED subject
+   (`claimed:agent://...`, agent-passport SPEC 3.3) gets no agent link at all,
+   and the mail says why instead of leaving a gap.
+
+   The harm was never a route to the wrong agent: the marker is part of the
+   subject, so the link addressed the claim and not the established agent's
+   card. What it did was offer "(freeze, kill)" beside a card that does not
+   exist, to somebody at three in the morning deciding whether to click. There
+   is nothing under that name to freeze; the incident link is the move.
+   *(test: `TestAClaimGetsNoFreezeOrKillCoordinate`,
+   `TestAnEstablishedSubjectKeepsItsCoordinate`; verified by a mutation that
+   compiles, `claimedSubject := false && ...`, which puts the line back and
+   fails the first)*
 3. **One way out.** `net/smtp` is imported by `internal/deliver` and nothing
    else, nothing here imports `net/http` at all, and `internal/render`,
    `internal/rule` and `internal/fleet` do no I/O of any kind. The decision

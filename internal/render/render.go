@@ -451,6 +451,24 @@ func Event(cfg Config, e event.Event, now time.Time, owner string, around []Arou
 	// forwards the message, and mail gateways prefetch links.
 	if base := consoleBase(cfg); base != "" {
 		incident, agent := Link(cfg, e), AgentLink(cfg, e.AgentID)
+		// A CLAIMED subject gets no agent coordinate at all.
+		//
+		// The link would be well formed and would address `claimed:agent://...`,
+		// which is NOT the established agent's card, so nothing here was ever
+		// going to send a woken operator to the wrong agent's kill button: the
+		// marker is part of the subject and the console addresses what it is
+		// given. What it WOULD do is offer "(freeze, kill)" beside a card that
+		// does not exist, and a coordinate that names an action nobody can take
+		// is worse than no coordinate, because it is read at three in the
+		// morning by somebody deciding whether to click.
+		//
+		// There is nothing to freeze under that name yet. Whoever the process
+		// is, the operator's next move is to find out, which is what the
+		// incident link above is for.
+		claimedSubject := passport.IsClaimedSubject(e.AgentID)
+		if claimedSubject {
+			agent = ""
+		}
 		ownerLink := ""
 		if owner != "" {
 			ownerLink = OwnerLink(cfg, owner)
@@ -468,6 +486,9 @@ func Event(cfg Config, e event.Event, now time.Time, owner string, around []Arou
 			}
 			if agent != "" {
 				fmt.Fprintf(&b, "  this agent      %s   (freeze, kill)\n", agent)
+			}
+			if claimedSubject {
+				b.WriteString("  this agent      no card: the identity here is one the process asserted about itself, not one your estate issued\n")
 			}
 			if ownerLink != "" {
 				fmt.Fprintf(&b, "  its owner       %s   (everything they run)\n", ownerLink)

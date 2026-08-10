@@ -621,3 +621,60 @@ func TestTheDetectorNameReachesTheMail(t *testing.T) {
 		t.Errorf("identity_finding fell through to the fallback phrasing:\n%s", m.Body)
 	}
 }
+
+// A claim gets no freeze or kill coordinate, because there is nothing under
+// that name to freeze.
+//
+// The link would have been well formed and would have addressed
+// `claimed:agent://...`, which is not the established agent's card, so this was
+// never a route to the wrong agent's kill button: the marker is part of the
+// subject. What it offered was an action beside a card that does not exist, and
+// invariant 2's reasoning applies to a coordinate that names an action nobody
+// can take as much as to one that performs it.
+func TestAClaimGetsNoFreezeOrKillCoordinate(t *testing.T) {
+	e := event.Event{
+		Schema:   "taipanbox.dev/agent-event/v0.3",
+		TS:       "2026-08-10T09:30:00.000Z",
+		Source:   "idryx",
+		Type:     "identity_finding",
+		Severity: "high",
+		AgentID:  "claimed:agent://acme.example/support/tier1-bot",
+		Data:     map[string]any{"detector": "unrouted_egress"},
+	}
+	m := Event(Config{Box: "acme-box", ConsoleURL: "https://console.acme.example"}, e, now, "", nil)
+
+	if strings.Contains(m.Body, "(freeze, kill)") {
+		t.Errorf("a claim was offered a freeze or kill coordinate:\n%s", m.Body)
+	}
+	if strings.Contains(m.Body, "/a/claimed:") {
+		t.Errorf("a claim was given an agent card link:\n%s", m.Body)
+	}
+	// And the absence is explained rather than left as a gap the reader has to
+	// notice: a missing line reads as a rendering bug.
+	if !strings.Contains(m.Body, "no card") {
+		t.Errorf("the missing coordinate is not explained:\n%s", m.Body)
+	}
+}
+
+// An established subject keeps its coordinate. The suppression is a branch, not
+// a new default, and losing the freeze link for every finding would take away
+// the one thing an operator can act on.
+func TestAnEstablishedSubjectKeepsItsCoordinate(t *testing.T) {
+	e := event.Event{
+		Schema:   "taipanbox.dev/agent-event/v0.2",
+		TS:       "2026-08-10T09:30:00.000Z",
+		Source:   "idryx",
+		Type:     "identity_finding",
+		Severity: "high",
+		AgentID:  "agent://acme.example/support/tier1-bot",
+		Data:     map[string]any{"detector": "attestation_missing"},
+	}
+	m := Event(Config{Box: "acme-box", ConsoleURL: "https://console.acme.example"}, e, now, "", nil)
+
+	if !strings.Contains(m.Body, "(freeze, kill)") {
+		t.Errorf("an established agent lost its coordinate:\n%s", m.Body)
+	}
+	if strings.Contains(m.Body, "no card") {
+		t.Errorf("an established agent was told it has no card:\n%s", m.Body)
+	}
+}

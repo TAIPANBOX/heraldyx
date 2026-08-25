@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-140-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-151-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.2-success.svg)
 
@@ -101,7 +101,7 @@ and what it is not.
 
 | You get mail | Examples |
 |---|---|
-| immediately | `budget_exhausted`, `run_killed`, `policy_deny`, `dlp_block`, `sustained_loop`, `taint_block`, `quality_drift`, `sim_finding`, `dependency_failed` |
+| immediately | `budget_exhausted`, `run_killed`, `policy_deny`, `dlp_block`, `sustained_loop`, `taint_block`, `quality_drift`, `sim_finding`, `dependency_failed`, `slo_burn` |
 | in the daily summary | `budget_threshold` and everything else below the floor, including levels this build has never heard of |
 | never | anything you did not configure a recipient for, and anything about a whole organisation rather than one agent |
 
@@ -118,7 +118,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 20 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 21 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -149,6 +149,7 @@ for, and the link still opens the console at it.
 | `quality_drift` | is producing worse output than its baseline |
 | `sim_finding` | failed a rehearsal |
 | `dependency_failed` | was affected by a failure in one of this box's own dependencies (the sentence changes with what actually happened: see below) |
+| `slo_burn` | has spent, or is fast spending, the error budget on one of its objectives (which objective, and which of the two, are both in the mail: see below) |
 
 `identity_finding` was in the catalog from 2026-08-10 and missing from this
 table until 2026-08-25, so the count above read 18 while the build described 19.
@@ -175,6 +176,42 @@ The transport error the event carries is deliberately not in any of them. It is
 text from outside the perimeter arriving under a human-readable key, so it is
 read to pick a sentence and never rendered, and which dependency failed reaches
 you as this build's own words rather than as the producer's.
+
+**`slo_burn` reports a measurement, and nothing else happened.** The quality
+plane counts the eligible runs in a window, compares the share of good ones to
+the objective, and works out how much of the error budget is left. It writes no
+policy, demotes nothing and stops no traffic, and neither does anything else in
+this box: nothing here reads a budget when it decides whether to allow a call,
+and there is no autonomy tier anywhere in this stack to lower. The mail says so
+plainly, because an operator told an agent has already been reined in is an
+operator who does not do the thing the alert exists to prompt.
+
+**It arrives on two triggers only**, and the mail is written from
+`data.trigger` rather than from the type alone. The two are a statement about
+the past and a forecast, and only one of them still has time in it:
+
+| what happened | what the mail says |
+|---|---|
+| the objective is already missed over the window | the budget is spent, this is about runs that have already happened, and it does not improve on its own: it stops being true when enough good runs push the bad ones out of the window |
+| the budget is going far faster than the window allows | it is not gone yet and at this rate it will be, well before the window ends, so this is the part there is still time to act on, and the runs spending it are running now |
+
+**A slow burn never reaches this bus, and that is deliberate.** Severity in this
+stack is fixed per event type rather than chosen wherever an event is raised, so
+one type is one band of urgency, and "your budget will be gone by Friday" does
+not belong in the same band as "your budget is gone". The slow figure is
+computed, and it lives in verdryx's own report and JSON output where a dashboard
+reads it. It is not an alert. That is the money plane's lesson from 2026-08-03
+generalised, when `breaker_tripped` was lowered from critical: a type that pages
+for the design working teaches its operator to filter the sender, and after that
+the type that should have woken them does not.
+
+Which objective the budget belongs to reaches you as this build's own words, the
+same way the failed dependency above does. The numbers do not. The target, the
+observed ratio, its confidence interval, the burn rate and how much budget is
+left are all outside the `data` allowlist, so what the mail carries from the
+payload is the window, and the link is where the rest of it is. Adding a key to
+that allowlist is a decision for the operator of this box rather than something
+a rendering change makes on its way past (see `CLAUDE.md`).
 
 `behavior_anomaly` and `excessive_privilege` were listed here until 2026-08-03.
 They were removed because nothing raises them: both are concepts of the identity

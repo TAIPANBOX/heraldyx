@@ -56,6 +56,58 @@ fi
 [ "$stated" = "$actual" ] ||
 	note "the badge says $stated test functions and \`go test -list\` counts $actual"
 
+# THE SECOND NUMBER: how many event types this build has a sentence for.
+#
+# It went stale the same way the badge does and nobody noticed for fifteen
+# days. `identity_finding` was added to the catalog on 2026-08-10, in the
+# commit that allowlisted `data.detector`, and the README's own list was not
+# opened: the summary went on saying 18 while `internal/render` described 19.
+#
+# It is worth checking for the same reason the badge is, and for one more. The
+# badge is a size. This is a claim about what an operator will be TOLD, and a
+# type in the catalog that nobody documented is one they only meet at three in
+# the morning, in a mail about a thing the README says this build does not know.
+#
+# Three quantities, not two: what the code describes, what the table lists, and
+# what the sentence claims. Comparing only the first and the last would pass a
+# README whose prose was updated and whose table was not, which is the shape
+# this drift actually had.
+described=$(awk '/^var catalog = map\[string\]phrasing\{/,/^\}$/' internal/render/render.go |
+	grep -cE '^	"[a-z_]+": \{')
+if [ "${described:-0}" -eq 0 ]; then
+	note "internal/render's catalog reported no entries at all, so this check measured nothing"
+	exit 1
+fi
+
+claimed=$(grep -oE '^<summary><b>The [0-9]+ event types' "$readme" | grep -oE '[0-9]+' | head -1)
+if [ -z "$claimed" ]; then
+	note "the README no longer says how many event types have a sentence, so this check has nothing to compare against"
+	exit 1
+fi
+
+# Anchored on the catalog table's own header and stopped at the blank line
+# after it, rather than counting every table row between <summary> and
+# </details>. There is a second table in that block explaining what the mail
+# says for each effect of `dependency_failed`, and a `grep` over the whole
+# section would count a row of it the day one begins with a backticked word.
+# A miscount here is worse than no count: it fails a correct README and gets
+# the check deleted by whoever is unblocking CI.
+listed=$(awk '
+	/^\| type \| the mail/ { t = 1; next }
+	t && /^\|---/ { next }
+	t && /^\|/ { n++; next }
+	t { exit }
+	END { print n + 0 }' "$readme")
+if [ "$listed" -eq 0 ]; then
+	note "the README's table of event types has no rows this check can find, so it measured nothing"
+	exit 1
+fi
+
+[ "$claimed" = "$described" ] ||
+	note "the README says $claimed event types have a sentence and internal/render's catalog holds $described"
+[ "$listed" = "$described" ] ||
+	note "the README's table lists $listed event types and internal/render's catalog holds $described"
+
 if [ "$problems" -gt 0 ]; then
 	printf '\n%d number(s) the README states that this repository does not support.\n' "$problems"
 	printf 'Update the badge in the same commit as the tests. That is the whole point:\n'
@@ -65,3 +117,4 @@ if [ "$problems" -gt 0 ]; then
 fi
 
 printf '%s test functions, and the badge says so.\n' "$actual"
+printf '%s event types with a sentence, listed and counted in the README.\n' "$described"

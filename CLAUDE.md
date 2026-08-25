@@ -294,21 +294,25 @@ an absent invariant.
 
 16. **A check must be able to tell "did not fail" from "did not run", and both
     gates here have been made to fail on purpose to prove they can.**
-    `readme-numbers.sh` already refuses when its subject is absent, in two
-    distinct ways: no test functions at all, and no badge to compare against.
-    Both sentences were true, both were established by hand once in the session
-    that wrote it, and nothing re-ran them.
+    `readme-numbers.sh` already refuses when its subject is absent, in four
+    distinct ways: no test functions at all, no badge to compare against, no
+    catalog it can count, and no table of event types it can find. The first
+    two were true, were established by hand once in the session that wrote it,
+    and nothing re-ran them. The other two arrived with that script's second
+    number on 2026-08-25 and had a case each from the day they were written.
 
     `one-way-out.sh` is the shape that makes this an invariant rather than a
     chore. It reads `go list` output through a `case` statement, and a case
     that stops matching does not fail: it falls through, the loop finds nothing
     to complain about, and the script prints OK. A green result and an absent
     check are the same output.
-    *(gate: `scripts/gates-have-teeth.sh`, 7 cases: four real faults, two
-    non-faults, and one subject taken away. The non-faults are the ones worth
-    keeping: `internal/deliver` speaking SMTP is the design this gate protects,
-    and a decision package may still use the standard library for pure work. A
-    gate that flagged either would be deleted by whoever is unblocking CI.)*
+    *(gate: `scripts/gates-have-teeth.sh`, 12 cases: six real faults, three
+    non-faults, and three subjects taken away. The non-faults are the ones
+    worth keeping: `internal/deliver` speaking SMTP is the design this gate
+    protects, a decision package may still use the standard library for pure
+    work, and rewording a catalog sentence changes what a mail SAYS and changes
+    no number. A gate that flagged any of them would be deleted by whoever is
+    unblocking CI.)*
 
     **What it does not cover.** It cannot test itself. It proves each gate
     catches the faults named in it, not every fault of that kind. It found no
@@ -380,6 +384,19 @@ small would make this process the thing that edits its own evidence.
   own CODE, not its README, and prefer the fallback to a guess: "this build
   does not know" is honest, and a confident falsehood about somebody's own
   system is not.
+
+  Since 2026-08-25 the catalog's SIZE is gated even though its TRUTH is not:
+  `readme-numbers.sh` fails when the number of entries, the number the README
+  claims and the number its table lists stop agreeing. That closes a smaller
+  hole than it sounds like, and the distinction is worth keeping straight.
+  `identity_finding` had been described in the code and documented nowhere
+  since 2026-08-10, so an operator meeting it in a mail could read in the
+  README that this build had no sentence for it. A gate can catch an entry
+  nobody wrote down. Nothing can catch one that is written down and wrong.
+  (`@claude`, the reading. `@measured` 2026-08-25: `./scripts/readme-numbers.sh`
+  run with `README.md` and `internal/render/render.go` checked out at
+  `origin/main` printed "the README says 18 event types have a sentence and
+  internal/render's catalog holds 19" and exited 1.)
 - Quiet hours are designed (see `heraldyx-plan.md` section 5) and not built.
   Do not half-build them: a quiet window that silences a `critical` is a bug
   with a friendly name.

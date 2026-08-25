@@ -371,6 +371,34 @@ var catalog = map[string]phrasing{
 	// file already carries tests against, only quieter: nobody ever sees it be
 	// wrong. If the identity plane grows a writer, add them back by reading its
 	// code, not by copying these sentences out of git history.
+	// ------------------------------------------- the box's own dependencies
+	//
+	// Every other entry in this catalog is about the agent: something it did,
+	// or something this stack refused it. This one is about the BOX. A
+	// dependency it needs died underneath a run that was behaving perfectly,
+	// and the subject of the mail is a run that did nothing wrong.
+	//
+	// It exists because the failure had no event at all. `@yurii 2026-08-25`:
+	// "коли лягає апстрім, шлюз чисто вертає 502, і жоден план цього не
+	// записує; у конверті подій немає типу для того, що зламалась власна
+	// залежність коробки".
+	//
+	// The sentences below are the NEUTRAL ones, for an event that does not say
+	// which of three very different things happened. The type alone does not
+	// carry enough to say anything more: it covers a call that never happened,
+	// a call that went through with nothing governing it, and a call refused by
+	// nobody's decision, and those want opposite moves from an operator.
+	// [qualify] is what says which, off `data.effect`.
+	//
+	// They are written out in full here rather than left empty for qualify to
+	// fill, because an entry that is only correct when another function also
+	// runs is one that renders "What this box already did:" followed by nothing
+	// the day somebody reorders two lines in [Event].
+	"dependency_failed": {
+		what: "was affected by a failure in one of this box's own dependencies",
+		did:  "The failure is in something this box depends on, underneath a call this run made. Whether the call still went through, and what it cost, is what an operator needs next, and this event does not say.",
+		next: "Nothing automatic. Open the console at this incident to see what the gateway returned for the call: that answer is what decides whether this cost anything and whether any policy saw it.",
+	},
 	"sim_finding": {
 		what: "failed a rehearsal",
 		// "Production was not touched" was a claim about the operator's setup
@@ -380,6 +408,110 @@ var catalog = map[string]phrasing{
 		did:  "The drill recorded a guardrail that did not hold, against the gateway it was pointed at.",
 		next: "A guardrail that failed a drill will fail the same way in production.",
 	},
+}
+
+// qualify adjusts a phrasing where the EVENT carries something that changes
+// what it means, rather than letting the type alone decide.
+//
+// One type needs it today. `dependency_failed` is a single type over three
+// outcomes that an operator must not confuse, and the catalog is keyed on type
+// alone, so without this the mail would have to pick one of the three and be
+// wrong about the other two. The worst of those confusions is the middle one:
+// told "a call failed" when the truth is "the call went through and no policy
+// examined it", an operator goes looking for a broken agent and never learns
+// their estate spent an interval ungoverned.
+//
+// It reads `data` and renders NONE of it. Every sentence below is this file's
+// own prose, selected by matching a closed set of values, so nothing a producer
+// wrote reaches a mailbox and `dataAllowlist` is untouched. That is not a
+// stylistic preference: `data.detail` on this type is a transport error string,
+// which is exactly the "text somebody else wrote" the allowlist exists to keep
+// out, and adding any key to that list is a decision CLAUDE.md sends to the
+// user rather than a thing a change like this may do on its way past.
+func qualify(e event.Event, p phrasing) phrasing {
+	if e.Type != "dependency_failed" {
+		return p
+	}
+	dep := dependencyName(e)
+
+	// The three the contract names, plus the honest neutral for anything else.
+	// A `default` that guessed at one of the three would be the fallback
+	// problem in miniature: a confident sentence about somebody else's system,
+	// with nothing behind it.
+	switch effect, _ := e.Data["effect"].(string); effect {
+	case "allowed_ungoverned":
+		p.what = "was let through with no policy applied to it"
+		p.did = "It let the call through: " + dep + " could not be reached, this gateway is configured to fail open, and it synthesized an allow in place of a decision. Nothing examined this call, and no policy of yours said yes to it."
+		p.next = "While that plane stays unreachable every further call is let through the same way, and nothing goes back afterwards to mark which ones they were. A gateway failing open reports exactly what a governed one reports, which is why this arrives as mail rather than as a number on a dashboard."
+	case "denied_unasked":
+		p.what = "was refused because no policy plane could be asked about it"
+		p.did = "It refused the call: " + dep + " could not be reached, this gateway is configured to fail closed, and it synthesized a deny in place of a decision. No policy refused this call. Nothing examined it, and the same call may well be allowed the moment that plane answers again."
+		p.next = "Every call that needs a decision is refused the same way until it answers. This is an outage in the box's own dependency and not an agent doing something it should not, so freezing the agent is the wrong move here."
+	case "call_failed":
+		p = callFailed(e, p, dep)
+	default:
+		p.did = "The failure is in " + dep + ", underneath a call this run made. Whether the call still went through, and what it cost, is what an operator needs next, and this event does not say."
+	}
+	return p
+}
+
+// callFailed splits one effect on the STAGE it happened at, because the money
+// answer is opposite at two of them and the money answer is what an operator
+// reads first.
+//
+// At the buffered stages the gateway settles `Microusd::ZERO` against both the
+// run's budget and the unit ledger, under its own comment "Failed call cost us
+// nothing" (tokenfuse `crates/gateway/src/proxy.rs`, read 2026-08-25). So the
+// outage genuinely cost nothing and the mail may say so.
+//
+// Mid-stream it is the reverse, and saying "nothing was charged" there would be
+// the same class of falsehood as the four this catalog was audited for on
+// 2026-08-03. The response has already gone out with its own status and part of
+// the answer has already reached the agent; `SettleGuard`'s `Drop` then settles
+// whatever usage was parsed, and a stream that started 2xx and reported no
+// usage settles the RESERVED ESTIMATE rather than zero. The agent is also left
+// holding a truncated answer instead of an error, which is the part it is least
+// likely to notice.
+//
+// The stage is read as one value against a constant, not parsed: a stage this
+// build does not know takes the buffered wording only if it is not the streamed
+// one, which is the safe direction, since the streamed sentence claims a
+// delivery that a non-streamed failure did not make.
+func callFailed(e event.Event, p phrasing, dep string) phrasing {
+	if stage, _ := e.Data["stage"].(string); stage == "stream" {
+		p.what = "had its answer cut off part way through"
+		p.did = "Part of the answer had already reached the agent when " + dep + " broke, so this is not a call that never happened, and it was not free either: what the provider reported as used is charged to the run, and a stream that started successfully and then reported no usage at all is charged the estimate that was reserved for it."
+		p.next = "Nothing automatic. The agent is holding a truncated answer rather than an error, which is the part worth looking at: a run that reads it as a whole one carries on from half a result."
+		return p
+	}
+	p.what = "could not be served, because a dependency of this box failed"
+	p.did = "The call did not complete: " + dep + " could not be reached or did not finish, so the agent was given an error from this gateway rather than an answer. Nothing was charged for it, and the money reserved against the run was released in full."
+	p.next = "Nothing automatic. The agent has an error rather than an answer, and whether it retries or stops is up to the agent."
+	return p
+}
+
+// dependencyName is which of the box's own dependencies died, in this file's
+// words rather than the producer's.
+//
+// An operator's first question on this type is who to call, and provider and
+// policy plane are two different people. The value is matched against a closed
+// set and a NAME OF OUR OWN is returned, which is why `dependency` is not in
+// `dataAllowlist`: nothing a producer wrote is rendered, so there is no value
+// here to shape-check, cap or escape.
+//
+// A dependency this build has not heard of is described as one rather than
+// named. The producer may grow a third before this file learns of it, and a
+// guessed name is worse than a general one, while dropping the sentence
+// altogether would leave the operator with no idea what broke.
+func dependencyName(e event.Event) string {
+	switch d, _ := e.Data["dependency"].(string); d {
+	case "provider":
+		return "the provider"
+	case "policy_plane":
+		return "the policy plane"
+	default:
+		return "a dependency of this box"
+	}
 }
 
 var fallback = phrasing{
@@ -407,6 +539,12 @@ func Event(cfg Config, e event.Event, now time.Time, owner string, around []Arou
 	if !known {
 		p = fallback
 	}
+	// Before `head`, deliberately: [qualify] may change `what`, and on this
+	// type it is the SUBJECT LINE that has to be right first. A mailbox is read
+	// as a list of subjects before any one of them is opened, and "was let
+	// through with no policy applied to it" and "could not be served" are read
+	// differently at three in the morning.
+	p = qualify(e, p)
 
 	head := fmt.Sprintf("[%s] %s %s", boxName(cfg), shortID(subject), p.what)
 	if !known {

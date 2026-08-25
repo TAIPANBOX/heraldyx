@@ -198,6 +198,44 @@ assert m, "no test badge in README.md"
 open("README.md","w").write(s.replace(m.group(0), "badge/tests-%d-" % (int(m.group(1))+7), 1))')" \
 	"badge"
 
+# The second number that README states about this repository, checked since
+# 2026-08-25 after it was found stale: `identity_finding` went into the catalog
+# on 2026-08-10 and into the README never, so the summary said 18 while the
+# build described 19.
+run_case "readme-numbers: a stale count of described event types" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'import re
+s = open("README.md").read()
+m = re.search(r"The (\d+) event types", s)
+assert m, "no event-type count in README.md"
+open("README.md","w").write(s.replace(m.group(0), "The %d event types" % (int(m.group(1))+3), 1))')" \
+	"event types have a sentence"
+
+# The drift as it actually happened: an entry described in the code and
+# documented nowhere. The count and the table both disagree with the catalog,
+# and this pins the TABLE half, because a README whose prose was corrected and
+# whose table was not is the shape that got past a human reader.
+#
+# `chr(123)` and `chr(125)` rather than the braces they stand for, and this is
+# not squeamishness. Planting a Go struct literal means writing `{what: "w",
+# did: "d"}` into a shell word, and bash BRACE-EXPANDS that into one word per
+# comma even inside the quotes here: written the obvious way this case reached
+# `run_case` as eight arguments instead of five, so the mutation applied a
+# fragment, the gate failed for its own reason, and the needle it was checked
+# against was a piece of the python program. The harness caught it, which is
+# what it is for, and this is the shape that does not need catching. Do not
+# tidy the `chr` calls back into braces.
+run_case "readme-numbers: a catalog entry with no README row" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'ob, cb = chr(123), chr(125)
+p = "internal/render/render.go"
+anchor = "\t\"sim_finding\": " + ob
+planted = "\t\"planted_by_the_teeth_gate\": " + ob + "what: \"w\"" + cb + ",\n"
+s = open(p).read()
+assert anchor in s, "anchor not found in " + p
+open(p, "w").write(s.replace(anchor, planted + anchor, 1))')" \
+	"the README's table lists"
+
 echo
 echo "=== and what they must NOT catch ==="
 
@@ -221,6 +259,13 @@ run_case "one-way-out: a decision package adds a pure stdlib import" pass \
 	'./scripts/one-way-out.sh' \
 	"$(py 'edit("internal/rule/rule.go", "import (", "import (\n\t_ \"sort\"")')"
 
+# The event-type count is a count, not a proofread. Rewriting a described
+# sentence changes what the mail SAYS and changes no number, and a gate that
+# went red on prose would be one nobody could edit a catalog entry past.
+run_case "readme-numbers: a described sentence is reworded" pass \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'edit("internal/render/render.go", "what: \"failed a rehearsal\",", "what: \"did not survive a rehearsal\",")')"
+
 echo
 echo "=== and the one this estate learned the hard way ==="
 echo "    a gate whose subject is gone must SAY so, not report OK on nothing"
@@ -233,6 +278,21 @@ m = re.search(r"badge/tests-\d+-", s)
 assert m, "no test badge in README.md"
 open("README.md","w").write(s.replace(m.group(0), "badge/nothing-", 1))')" \
 	"nothing to compare against"
+
+# The catalog half of the same property. This mutation still COMPILES and still
+# holds every entry: it only stops the declaration matching what the gate reads
+# for, which is exactly how a text parser goes blind without going red.
+run_case "readme-numbers: nothing left that counts as the catalog" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'edit("internal/render/render.go", "var catalog = map[string]phrasing{", "var catalog map[string]phrasing = map[string]phrasing{")')" \
+	"measured nothing"
+
+# And the README half. The table is still there and still correct; only the
+# header the gate anchors on has been reworded.
+run_case "readme-numbers: no table of event types to count" fail \
+	'./scripts/readme-numbers.sh' \
+	"$(py 'edit("README.md", "| type | the mail", "| event type | the mail")')" \
+	"measured nothing"
 
 echo
 if [ -n "$(git status --porcelain)" ]; then

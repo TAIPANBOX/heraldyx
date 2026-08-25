@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-130-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-140-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.2-success.svg)
 
@@ -101,7 +101,7 @@ and what it is not.
 
 | You get mail | Examples |
 |---|---|
-| immediately | `budget_exhausted`, `run_killed`, `policy_deny`, `dlp_block`, `sustained_loop`, `taint_block`, `quality_drift`, `sim_finding` |
+| immediately | `budget_exhausted`, `run_killed`, `policy_deny`, `dlp_block`, `sustained_loop`, `taint_block`, `quality_drift`, `sim_finding`, `dependency_failed` |
 | in the daily summary | `budget_threshold` and everything else below the floor, including levels this build has never heard of |
 | never | anything you did not configure a recipient for, and anything about a whole organisation rather than one agent |
 
@@ -118,7 +118,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 18 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 20 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -144,9 +144,37 @@ for, and the link still opens the console at it.
 | `approval_unanswered` | is still waiting for a human decision nobody has made |
 | `approval_timeout` | presented an approval that had already expired |
 | `identity_mismatch` | presented a credential that may not speak as the agent it claimed |
+| `identity_finding` | matched an identity rule (the mail names which detector fired) |
 | `mcp_drift` | is talking to an MCP tool that changed under its pinned lock |
 | `quality_drift` | is producing worse output than its baseline |
 | `sim_finding` | failed a rehearsal |
+| `dependency_failed` | was affected by a failure in one of this box's own dependencies (the sentence changes with what actually happened: see below) |
+
+`identity_finding` was in the catalog from 2026-08-10 and missing from this
+table until 2026-08-25, so the count above read 18 while the build described 19.
+Exactly the drift `scripts/readme-numbers.sh` exists to stop, in the one number
+it was not yet checking. It checks this one now.
+
+**`dependency_failed` is the only entry here that is not about the agent.**
+Every other row describes something the subject did, or something this stack
+refused it. This one says a dependency the box itself needs has failed
+underneath a run that was behaving perfectly, so the freeze and kill link
+beside it is almost certainly the wrong move, and the mail says so where that
+is true.
+
+One type covers three outcomes that want opposite responses, and the mail is
+written from `data.effect` rather than from the type alone:
+
+| what happened | what the mail says |
+|---|---|
+| the call could not be made or completed | it did not complete, nothing was charged, and the agent has an error rather than an answer. A call cut off part way through a STREAM is the exception and says so: part of the answer had already arrived and it was not free |
+| the policy plane was unreachable and this gateway fails open | the call **went through with no policy applied to it**. Not a failed call: a governed estate that was briefly not one |
+| the policy plane was unreachable and this gateway fails closed | the call was refused, and no policy refused it. The plane could not be asked, so the same call may well be allowed once it answers |
+
+The transport error the event carries is deliberately not in any of them. It is
+text from outside the perimeter arriving under a human-readable key, so it is
+read to pick a sentence and never rendered, and which dependency failed reaches
+you as this build's own words rather than as the producer's.
 
 `behavior_anomaly` and `excessive_privilege` were listed here until 2026-08-03.
 They were removed because nothing raises them: both are concepts of the identity

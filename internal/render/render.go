@@ -408,30 +408,102 @@ var catalog = map[string]phrasing{
 		did:  "The drill recorded a guardrail that did not hold, against the gateway it was pointed at.",
 		next: "A guardrail that failed a drill will fail the same way in production.",
 	},
+	// ---------------------------------------- an error budget nobody enforces
+	//
+	// The quality plane's error budget, and the entry where the honest `did`
+	// line is the uncomfortable one. Every other type in this catalog reports
+	// something that HAPPENED to the agent: a call refused, a budget cut off, a
+	// hold placed. This one reports a MEASUREMENT. verdryx counted the eligible
+	// runs in a window, compared the ratio of good ones to the objective, and
+	// wrote down how much of the error budget is left. Nothing else occurred.
+	//
+	// That is not a gap somebody forgot to fill, and the sentences below must
+	// not read as though it were. Read against the other planes on 2026-08-26:
+	//
+	//   - wardryx's decision-path packages, `internal/pdp` and
+	//     `internal/policy`, directly import no clock, no randomness, no
+	//     network and no database, which `scripts/decision-path-purity.sh` in
+	//     that repository enforces, so a number computed somewhere else is not
+	//     one they can consult. Take the limit of that as wardryx's own
+	//     CLAUDE.md states it: the gate checks DIRECT imports, there is a
+	//     transitive path to a database through the approval branch, and the
+	//     honest claim is about the decision code's own determinism rather than
+	//     about every decision ever made.
+	//   - verdryx writes no policy. Grepped there the same day: not one of the
+	//     four indicators this type names appears in that repository's code
+	//     yet, let alone anything that acts on them.
+	//   - and there is no autonomy tier anywhere in this stack to lower.
+	//
+	// An entry implying the agent had been restrained would be the 2026-08-03
+	// defect again, where four entries described a consequence the producing
+	// plane does not have, and it would be worse than any of those four: an
+	// operator told the estate has already reined an agent in has been given a
+	// reason not to do the thing this mail exists to prompt.
+	//
+	// It arrives on two triggers only, "exhausted" and "fast_burn", and
+	// [sloBurn] is what tells them apart. A SLOW burn is computed and never
+	// reaches this bus. Severity in this estate is fixed per type rather than
+	// chosen at the emission site, so one type is one paging band, and "your
+	// budget will be gone by Friday" does not belong in the band of "your budget
+	// is gone": the slow figure lives in verdryx's report and its JSON output,
+	// where a dashboard reads it, and it is deliberately not an alert. That is
+	// the generalisation of tokenfuse's own lesson from 2026-08-03, when
+	// `breaker_tripped` was lowered from critical, because a type that pages for
+	// the design working teaches an operator to filter the sender.
+	//
+	// The sentences here are the NEUTRAL ones, for an event that does not say
+	// which trigger fired. They are written out in full rather than left for
+	// [sloBurn] to fill, for the reason `dependency_failed` above gives: an
+	// entry that is only correct when another function also runs is one that
+	// renders "What this box already did:" followed by nothing the day somebody
+	// reorders two lines in [Event].
+	"slo_burn": {
+		what: "has an error budget this box was told about",
+		did:  "Nothing. The quality plane measured the objective over its window and worked out how much of the error budget is left. That measurement is the whole of what happened: no traffic was stopped, no policy was written or changed, and nothing about this agent was lowered, because there is no control in this stack that a budget feeds into. What to do about it is a decision nobody has made yet.",
+		next: "Nothing automatic. This event does not say whether the budget is already gone or is only being spent too fast, and those are a statement about the past and a forecast, so open the console at this incident rather than reading one of them into it.",
+	},
 }
 
 // qualify adjusts a phrasing where the EVENT carries something that changes
 // what it means, rather than letting the type alone decide.
 //
-// One type needs it today. `dependency_failed` is a single type over three
-// outcomes that an operator must not confuse, and the catalog is keyed on type
-// alone, so without this the mail would have to pick one of the three and be
-// wrong about the other two. The worst of those confusions is the middle one:
-// told "a call failed" when the truth is "the call went through and no policy
-// examined it", an operator goes looking for a broken agent and never learns
-// their estate spent an interval ungoverned.
+// Two types need it today, and they need it for the same reason: one type over
+// several outcomes an operator must not confuse, with the catalog keyed on type
+// alone, so without this the mail would have to pick one of them and be wrong
+// about the rest.
+//
+// `dependency_failed` covers three, and the worst of those confusions is the
+// middle one: told "a call failed" when the truth is "the call went through and
+// no policy examined it", an operator goes looking for a broken agent and never
+// learns their estate spent an interval ungoverned. `slo_burn` covers two, an
+// objective already missed against one being missed faster than its window
+// allows, which are a statement about the past and a forecast: they want
+// different moves and only one of them still has time in it.
 //
 // It reads `data` and renders NONE of it. Every sentence below is this file's
 // own prose, selected by matching a closed set of values, so nothing a producer
 // wrote reaches a mailbox and `dataAllowlist` is untouched. That is not a
-// stylistic preference: `data.detail` on this type is a transport error string,
-// which is exactly the "text somebody else wrote" the allowlist exists to keep
-// out, and adding any key to that list is a decision CLAUDE.md sends to the
-// user rather than a thing a change like this may do on its way past.
+// stylistic preference: `data.detail` on `dependency_failed` is a transport
+// error string, which is exactly the "text somebody else wrote" the allowlist
+// exists to keep out, and adding any key to that list is a decision CLAUDE.md
+// sends to the user rather than a thing a change like this may do on its way
+// past. The same answer covers `slo_burn`'s eleven fields, nine of which are
+// numbers an operator would quite like to see, which is what makes that type
+// the tempting one.
 func qualify(e event.Event, p phrasing) phrasing {
-	if e.Type != "dependency_failed" {
+	switch e.Type {
+	case "dependency_failed":
+		return dependencyFailed(e, p)
+	case "slo_burn":
+		return sloBurn(e, p)
+	default:
 		return p
 	}
+}
+
+// dependencyFailed says which of three outcomes a failed dependency produced,
+// off `data.effect`.
+func dependencyFailed(e event.Event, p phrasing) phrasing {
 	dep := dependencyName(e)
 
 	// The three the contract names, plus the honest neutral for anything else.
@@ -511,6 +583,84 @@ func dependencyName(e event.Event) string {
 		return "the policy plane"
 	default:
 		return "a dependency of this box"
+	}
+}
+
+// sloBurn says WHICH objective and WHICH of the two triggers, because those are
+// the two questions an operator asks on this type: which one, and is it already
+// missed or about to be.
+//
+// The `did` line is deliberately untouched by either branch. The trigger changes
+// what is TRUE about the budget and changes nothing about what was done, which
+// on this type is nothing at all, and a `did` that varied with the trigger would
+// be this file inventing a consequence for the louder of the two.
+//
+// Neither answer is the producer's bytes. The objective's name comes from
+// [objectiveName], a closed set matched to this file's own words in the same way
+// [dependencyName] works, and the trigger picks between two sentences written
+// here. So `sli` and `trigger` are controls for the phrasing and not values for
+// the operator to read, and neither belongs in `dataAllowlist`: there is nothing
+// here to shape-check, cap or escape.
+//
+// A trigger this build does not know keeps the neutral sentences rather than
+// picking one of the two, for the reason [dependencyFailed]'s default gives.
+// "Already missed" and "on course to be missed" are a fact and a forecast, and
+// guessing which a future producer meant is the fallback problem in miniature.
+// A SLOW burn lands there too, and that is correct rather than a gap: the
+// contract emits this type on "exhausted" and "fast_burn" only, so an event
+// carrying a slow burn is a producer that has broken it, and this build must not
+// grow a confident description for a case it has agreed never to be paged about.
+func sloBurn(e event.Event, p phrasing) phrasing {
+	obj := objectiveName(e)
+
+	switch trigger, _ := e.Data["trigger"].(string); trigger {
+	case "exhausted":
+		p.what = "has spent its whole error budget on " + obj
+		p.next = "Nothing automatic, here or anywhere else. This is a statement about runs that have already happened, so it does not improve on its own: the objective stays missed until enough good runs push the bad ones out of the window it was measured over. What to do about that is a decision for a person, and the console at this incident is where the runs behind the number are."
+	case "fast_burn":
+		p.what = "is spending its error budget on " + obj + " far faster than the window allows"
+		p.next = "Nothing automatic. The budget is not gone yet and at this rate it will be, well before the window ends, which is the part of this there is still time to act on. The runs spending it are running now, so the console at this incident is where to see which of them are failing and whether this is one bad change or something spread across the fleet."
+	default:
+		p.what = "raised an error budget signal about " + obj
+	}
+	return p
+}
+
+// objectiveName is which service level objective the budget belongs to, in this
+// file's words rather than the producer's.
+//
+// "Which objective" is the first question this type raises, and the four are
+// read by different people: a containment budget and a cost budget say very
+// different things about the same agent on the same day. The value is matched
+// against a closed set and a NAME OF OUR OWN is returned, which is why `sli` is
+// not in `dataAllowlist`, exactly as [dependencyName] is the reason `dependency`
+// is not. One mechanism for turning a control value into prose, not two.
+//
+// The names are the indicator said in English and nothing more. Each one could
+// carry its formula ("the share of runs that finished the job"), and that would
+// be this file making a claim about verdryx's arithmetic: grepped there on
+// 2026-08-26, none of the four indicators exists in that repository's code yet,
+// so a definition written here would be a guess dressed as a description, which
+// is what this catalog's own rule forbids. What the ratio counts is verdryx's to
+// state, in its report and in the console; what the mail owes the reader is
+// which of the four this one is.
+//
+// An objective this build has not heard of is described as one rather than
+// named, for [dependencyName]'s reason: a guessed name is worse than a general
+// one, and dropping the phrase would leave the operator holding a budget with no
+// idea what it was a budget for.
+func objectiveName(e event.Event) string {
+	switch sli, _ := e.Data["sli"].(string); sli {
+	case "task_success":
+		return "task success"
+	case "quality_floor":
+		return "the quality floor"
+	case "containment":
+		return "containment"
+	case "cost_discipline":
+		return "cost discipline"
+	default:
+		return "an objective this build does not have a name for"
 	}
 }
 

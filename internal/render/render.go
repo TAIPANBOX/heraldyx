@@ -399,6 +399,88 @@ var catalog = map[string]phrasing{
 		did:  "The failure is in something this box depends on, underneath a call this run made. Whether the call still went through, and what it cost, is what an operator needs next, and this event does not say.",
 		next: "Nothing automatic. Open the console at this incident to see what the gateway returned for the call: that answer is what decides whether this cost anything and whether any policy saw it.",
 	},
+
+	// ---------------------------------------------------------- costcrew
+	//
+	// The FinOps console. Read against its own code on 2026-08-23, which is
+	// what this file requires of a catalog entry, and the one fact that shapes
+	// every sentence below is that COSTCREW ENFORCES NOTHING. It records. It
+	// has no gateway, no interceptor and no refusal path: `internal/enforce` is
+	// a separate binary the console never calls, and everything here is a
+	// statement about the console's own record, never about traffic.
+	//
+	// So no `did` says anything was stopped, and no `next` promises anything
+	// will be. The one exception is a suspension, which does stop that agent
+	// being given further work by this console, and says so in those words.
+	"anomaly_triaged": {
+		what: "was given a spend anomaly to investigate",
+		did:  "The console assigned it. The money was already spent: an anomaly is found in the bill, after the fact.",
+		next: "Nothing expires it. The finding stays open until somebody explains, accepts or dismisses it.",
+	},
+	"anomaly_explained": {
+		what: "wrote up what caused a spend anomaly",
+		did:  "The explanation was recorded against the finding. Nothing was refunded and nothing was stopped.",
+		next: "The finding stays open until a person accepts or dismisses the explanation.",
+	},
+	"anomaly_accepted": {
+		what: "had its explanation of a spend anomaly accepted",
+		did:  "A person closed the finding. The spend stands as explained.",
+		next: "Nothing further. The finding is closed and stays in the record.",
+	},
+	"anomaly_dismissed": {
+		what: "had a spend anomaly dismissed",
+		did:  "A person closed the finding without accepting the explanation. The spend stands either way.",
+		next: "Nothing further. Dismissal closes the finding; it does not undo the charge.",
+	},
+	// The five that change the roster. An operator reads these to answer "who
+	// changed what and does it still add up", so each says who acted where the
+	// event carries it.
+	"agent_hired": {
+		what: "was added to the roster",
+		did:  "The console recorded the hire, its guards and its rights. Nothing was provisioned anywhere else.",
+		next: "It will be given work on the next sprint plan. Its identity is a name this console chose unless something attested it.",
+	},
+	"agent_removed": {
+		what: "was taken off the roster",
+		did:  "The console removed it and no longer publishes its passport. What it did stays on the board and in the journal.",
+		next: "Nothing further. Removal does not touch anything it already spent or produced.",
+	},
+	"agent_transferred": {
+		what: "changed hands",
+		did:  "The console moved the agent and the work still open on it to the new owner. Work already closed stays charged to whoever authorised it.",
+		next: "From here the new owner answers for what it spends. Nothing about the agent's behaviour changed.",
+	},
+	"agent_rebriefed": {
+		what: "had its brief rewritten",
+		did:  "The console recorded a new mission, rights or budget guard for it. Only its owner or an admin can do this.",
+		next: "The new guard applies from now. A guard is a record, not a limit: this console does not refuse anything when one is passed.",
+	},
+	"agent_state_changed": {
+		what: "was moved on or off the rota",
+		did:  "The console recorded the new state with a reason. A suspended agent is given no further work by this console.",
+		next: "It stays in that state until somebody changes it back. Suspension is a pause and undoes nothing already done.",
+	},
+	// The three an operator reads as governance rather than as an incident.
+	"budgets_set": {
+		what: "had team budgets written against it",
+		did:  "The console recorded the budgets. Nothing was pushed to any gateway and no spend was capped.",
+		next: "Variance is measured against these from now. Nothing enforces them.",
+	},
+	"forecast_frozen": {
+		what: "had a forecast frozen for the period",
+		did:  "The console pinned the forecast so later accuracy is measured against what was actually claimed at the time.",
+		next: "Nothing further. The freeze is a record, and the period's accuracy is scored against it when it closes.",
+	},
+	"sprint_planned": {
+		what: "had a sprint approved",
+		did:  "The console created the tasks and assigned them. Each carries the guard its analyst was hired with.",
+		next: "The work starts against those guards. Passing one is recorded, never refused.",
+	},
+	"explainer_published": {
+		what: "published a written explanation to a team",
+		did:  "A person stamped it. Only a stamp publishes: nothing an agent writes leaves the console unreviewed.",
+		next: "Nothing further. A stamp is not taken back.",
+	},
 	"sim_finding": {
 		what: "failed a rehearsal",
 		// "Production was not touched" was a claim about the operator's setup
@@ -496,6 +578,8 @@ func qualify(e event.Event, p phrasing) phrasing {
 		return dependencyFailed(e, p)
 	case "slo_burn":
 		return sloBurn(e, p)
+	case "budget_threshold":
+		return budgetThreshold(e, p)
 	default:
 		return p
 	}
@@ -662,6 +746,30 @@ func objectiveName(e event.Event) string {
 	default:
 		return "an objective this build does not have a name for"
 	}
+}
+
+// qualify adjusts a phrasing where the EVENT carries something that changes
+// what it means, rather than letting the type alone decide.
+//
+// One case today, and it was a live falsehood reaching a mailbox.
+// budget_threshold's sentence promises "further calls are refused with a hard
+// 402", which is true of the gateway that raises it and false of costcrew,
+// which maps its own guard_passed onto the same shared word. That console has
+// no refusal path at all: it records that an agent went past its guard and
+// does not stop it, and it stamps `enforced: false` on the event to say so.
+// The field exists precisely so a reader does not have to know which producer
+// sent it.
+//
+// This reads the field and never renders it: what may reach a mailbox is
+// governed by dataAllowlist, and nothing here adds to that.
+func budgetThreshold(e event.Event, p phrasing) phrasing {
+	enforced, present := e.Data["enforced"].(bool)
+	if !present || enforced {
+		return p
+	}
+	p.did = "Nothing. The plane that raised this records budgets and does not enforce them."
+	p.next = "Nothing is refused when the budget is gone. This is a record that a guard was passed, not a limit that will bite."
+	return p
 }
 
 var fallback = phrasing{

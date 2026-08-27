@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-151-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-155-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.2-success.svg)
 
@@ -118,7 +118,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 21 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 34 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -150,6 +150,29 @@ for, and the link still opens the console at it.
 | `sim_finding` | failed a rehearsal |
 | `dependency_failed` | was affected by a failure in one of this box's own dependencies (the sentence changes with what actually happened: see below) |
 | `slo_burn` | has spent, or is fast spending, the error budget on one of its objectives (which objective, and which of the two, are both in the mail: see below) |
+| `anomaly_triaged` | was given a spend anomaly to investigate |
+| `anomaly_explained` | wrote up what caused a spend anomaly |
+| `anomaly_accepted` | had its explanation of a spend anomaly accepted |
+| `anomaly_dismissed` | had a spend anomaly dismissed |
+| `agent_hired` | was added to the roster |
+| `agent_removed` | was taken off the roster |
+| `agent_transferred` | changed hands |
+| `agent_rebriefed` | had its brief rewritten |
+| `agent_state_changed` | was moved on or off the rota |
+| `budgets_set` | had team budgets written against it |
+| `forecast_frozen` | had a forecast frozen for the period |
+| `sprint_planned` | had a sprint approved |
+| `explainer_published` | published a written explanation to a team |
+
+**The last thirteen rows come from costcrew, and none of them describes an
+enforcement.** That console records: it has no gateway, no interceptor and no
+refusal path, so no `did` above says anything was stopped and no `next`
+promises anything will be. The one exception is a suspension, which does stop
+that console giving an agent further work, and says so in those words. The
+sentences were written by reading costcrew's own code, which is what this file
+requires of a catalog entry, and `internal/render/costcrew_test.go` holds them
+to it.
+
 
 `identity_finding` was in the catalog from 2026-08-10 and missing from this
 table until 2026-08-25, so the count above read 18 while the build described 19.

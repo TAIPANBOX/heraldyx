@@ -20,9 +20,32 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// os/exec copies a process's output on its own goroutine, so reading what it
+// has written while the process is still running is a data race and `-race`
+// says so. This test deliberately never waits for the process, because the
+// claim under test is that it does NOT exit, so the buffer has to be the thing
+// that is safe rather than the timing.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
 
 type envVar struct {
 	Required bool   `json:"required"`
@@ -279,7 +302,7 @@ func TestItStartsWithNothingConfiguredAndStaysUp(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "events"), 0o755); err != nil {
 		t.Fatalf("preparing the event directory: %v", err)
 	}
-	var out strings.Builder
+	var out syncBuffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if err := cmd.Start(); err != nil {

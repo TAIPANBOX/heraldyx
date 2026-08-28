@@ -1,0 +1,104 @@
+{
+  "$comment": [
+    "What this repository contributes to a running stack, and what a check may",
+    "believe about it. Same two buckets as vouchryx and costcrew: `checked` is",
+    "proved against this repository by internal/manifest/manifest_test.go in this",
+    "repository's own CI, `declared` is a statement nobody can verify and carries",
+    "its own `why`.",
+    "",
+    "THE CLASS HERE IS `daemon`, AND IT IS THE THIRD SHAPE THIS SCHEMA HAS NEEDED.",
+    "`service` means a socket somebody can probe; `tool` runs and exits. heraldyx",
+    "does neither: it runs forever, polls files and sends mail, and opens no",
+    "listener at all. So it declares no listen_default and no health_path, which",
+    "is why stack-up registers it without a wait_health and stack-single gives it",
+    "no ports. A manifest that invented a health path for it would be a lie that",
+    "reads as more assurance than the truth.",
+    "",
+    "AND ITS RUN-PROOF IS THE OPPOSITE OF VOUCHRYX'S. vouchryx must REFUSE without",
+    "each of six variables. heraldyx has no required variable at all: every one",
+    "either has a default or is genuinely optional, and the thing worth proving is",
+    "that it comes up with an EMPTY environment and stays up. stack-single says",
+    "why that matters in its own comment: a box that never configured mail must",
+    "still come up. Two services, opposite correct behaviour, and no check that",
+    "reads source could tell you which is which."
+  ],
+  "schema": "taipanbox.dev/components/v1",
+  "repo": "TAIPANBOX/heraldyx",
+  "components": [
+    {
+      "name": "heraldyx",
+      "class": "daemon",
+      "checked": {
+        "package": "github.com/TAIPANBOX/heraldyx/cmd/heraldyx",
+        "env": {
+          "HERALDYX_BOX": {
+            "required": false,
+            "default": "agent stack"
+          },
+          "HERALDYX_CONSOLE_URL": {
+            "required": false
+          },
+          "HERALDYX_DEDUP_SECONDS": {
+            "required": false
+          },
+          "HERALDYX_DIGEST_HOURS": {
+            "required": false
+          },
+          "HERALDYX_EVENTS": {
+            "required": false,
+            "default": "/var/lib/stack/events"
+          },
+          "HERALDYX_MAIL_FILE": {
+            "required": false
+          },
+          "HERALDYX_MAX_PER_HOUR": {
+            "required": false
+          },
+          "HERALDYX_MIN_SEVERITY": {
+            "required": false,
+            "default": "high"
+          },
+          "HERALDYX_PASSPORTS": {
+            "required": false
+          },
+          "HERALDYX_POLL_MS": {
+            "required": false
+          },
+          "HERALDYX_SENT": {
+            "required": false
+          },
+          "HERALDYX_SMTP_FROM": {
+            "required": false
+          },
+          "HERALDYX_SMTP_HOST": {
+            "required": false
+          },
+          "HERALDYX_SMTP_PASS": {
+            "required": false
+          },
+          "HERALDYX_SMTP_USER": {
+            "required": false
+          },
+          "HERALDYX_STATE": {
+            "required": false,
+            "default": "/var/lib/stack/heraldyx/state.json"
+          },
+          "HERALDYX_TO": {
+            "required": false
+          }
+        },
+        "starts_with_empty_environment": true
+      },
+      "declared": {
+        "it_opens_no_listener": {
+          "value": "none",
+          "why": "There is no socket, so there is nothing to probe and nothing this repository could assert about a port. A launcher that wanted a readiness signal would have to read the process's own log, which is what stack-up does by registering the pid without a wait_health."
+        },
+        "mail_is_the_side_effect_and_it_is_not_run_here": {
+          "value": "SMTP, or HERALDYX_MAIL_FILE",
+          "why": "The run-proof starts the process and watches it stay up. It does not send mail: doing so would need an SMTP server in CI or would prove only that the file sink works, and neither is the claim this manifest makes."
+        }
+      }
+    }
+  ]
+}

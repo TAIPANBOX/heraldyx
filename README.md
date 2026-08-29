@@ -35,6 +35,17 @@ small enough to state in a sentence.
 
 ---
 
+<div align="center">
+
+<img src="docs/pipeline.png" alt="heraldyx pipeline: it reads the shared log read-only, passes events through a severity floor, a dedup window and an hourly ceiling, sends one mail carrying a link and never a button, and keeps a hash-chained dispatch record" width="960">
+
+<sub>The same path on <a href="https://it-rat.com/services/heraldyx.html">it-rat.com</a>.</sub>
+
+</div>
+
+
+---
+
 ## Where this fits in the stack
 
 ```mermaid
@@ -545,3 +556,16 @@ been verified and how.
 
 Apache-2.0. This stack is defensive: it exists so an organization can govern
 and audit its own agents.
+
+## Status
+
+- [x] Reads the shared log read-only, and registers itself with nobody
+- [x] Three filters an operator sets: a severity floor, a dedup window, an hourly ceiling
+- [x] One mail, carrying a link into your own console and never an action
+- [x] A hash-chained dispatch record, including the runs that sent nothing
+- [x] SMTP through the only egress hole in a default-deny box
+- [ ] Nothing here decides policy; it reports what other planes already decided
+
+## Licence
+
+Apache-2.0, like the rest of the stack. See [LICENSE](./LICENSE).

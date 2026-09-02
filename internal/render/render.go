@@ -516,7 +516,11 @@ var catalog = map[string]phrasing{
 	"decision_requested": {
 		what: "sent one owner a decision request for the sprint",
 		did:  "The supervisor's pass wrote it, carrying the options whose classes its job hands upward.",
-		next: "The owner stamps each option, applying or refusing it, or the request lapses after 7 days unanswered.",
+		// costcrew writes a date into the request and enforces nothing by it:
+		// no sweeper reads decision_requests.lapses, and the next supervisor's
+		// pass rewrites the request with the options still carried. "Lapses
+		// after 7 days" would be the same promise "eventually times out" was.
+		next: "The owner stamps each option, applying or refusing it. The request names a date after which it counts as lapsed; nothing in the console enforces that date, so an unanswered request stays open until a person answers.",
 	},
 	// ---------------------------------------- an error budget nobody enforces
 	//

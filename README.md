@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-159-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-160-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.2-success.svg)
 
@@ -129,7 +129,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 34 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 38 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -174,15 +174,27 @@ for, and the link still opens the console at it.
 | `forecast_frozen` | had a forecast frozen for the period |
 | `sprint_planned` | had a sprint approved |
 | `explainer_published` | published a written explanation to a team |
+| `generated_estate_replaced` | had its generated estate replaced with a fresh one |
+| `option_refused` | wrote a deliverable whose options the console refused |
+| `option_applied` | had one of its options stamped |
+| `decision_requested` | sent one owner a decision request for the sprint |
 
-**The last thirteen rows come from costcrew, and none of them describes an
-enforcement.** That console records: it has no gateway, no interceptor and no
-refusal path, so no `did` above says anything was stopped and no `next`
-promises anything will be. The one exception is a suspension, which does stop
-that console giving an agent further work, and says so in those words. The
-sentences were written by reading costcrew's own code, which is what this file
-requires of a catalog entry, and `internal/render/costcrew_test.go` holds them
-to it.
+**The thirteen rows from `anomaly_triaged` through `explainer_published` come
+from costcrew, and none of them describes an enforcement.** That console
+records: it has no gateway, no interceptor and no refusal path, so no `did`
+above says anything was stopped and no `next` promises anything will be. The
+one exception is a suspension, which does stop that console giving an agent
+further work, and says so in those words. The sentences were written by
+reading costcrew's own code, which is what this file requires of a catalog
+entry, and `internal/render/costcrew_test.go` holds them to it.
+
+Four more rows followed, still from costcrew. `generated_estate_replaced` is a
+person's own act on the store, not a finding. The other three are a narrower
+refusal than the paragraph above rules out: `option_refused` is the console
+declining a deliverable's proposed OPTIONS, a document it reviews, never a
+call it routes, and `option_applied` and `decision_requested` are what a stamp
+or a request does with what survives that review. Read against costcrew's own
+code the same way the thirteen before them were.
 
 
 `identity_finding` was in the catalog from 2026-08-10 and missing from this

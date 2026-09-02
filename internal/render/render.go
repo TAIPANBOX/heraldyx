@@ -490,6 +490,34 @@ var catalog = map[string]phrasing{
 		did:  "The drill recorded a guardrail that did not hold, against the gateway it was pointed at.",
 		next: "A guardrail that failed a drill will fail the same way in production.",
 	},
+	// The store's own generated estate, replaced deliberately by a person
+	// rather than found broken, and the decision-request chain that
+	// reviews what an analyst proposes before it reaches an owner. Both
+	// arrived after the thirteen above: the first when SPEC 6.2
+	// registered it (agent-passport#51, #52), the other three when SPEC
+	// 6.2 grew the same row again (agent-passport#53, costcrew#23). Same
+	// rule as everything above it: no `did` says anything was stopped,
+	// and no `next` promises anything will be.
+	"generated_estate_replaced": {
+		what: "had its generated estate replaced with a fresh one",
+		did:  "A person did it deliberately, through the runner's -replace-generated flag. Nothing outside the store changed.",
+		next: "Nothing, unless nobody expected it. Then it is a person to ask, not a fault to chase.",
+	},
+	"option_refused": {
+		what: "wrote a deliverable whose options the console refused",
+		did:  "The deliverable was saved without them, and the task went back to the role that wrote it with the reason attached.",
+		next: "Nothing further from this console. The options are rewritten, or the deliverable stands without any.",
+	},
+	"option_applied": {
+		what: "had one of its options stamped",
+		did:  "A stamp applied it: the supervisor's own for a class its job decides alone, or an owner's for one carried up in a decision request. What happened next is the class's own, an anomaly explained, a drivers row, a period closed or a forecast frozen; some classes are only recorded.",
+		next: "Nothing further from this console. The side effect already happened with the stamp.",
+	},
+	"decision_requested": {
+		what: "sent one owner a decision request for the sprint",
+		did:  "The supervisor's pass wrote it, carrying the options whose classes its job hands upward.",
+		next: "The owner stamps each option, applying or refusing it, or the request lapses after 7 days unanswered.",
+	},
 	// ---------------------------------------- an error budget nobody enforces
 	//
 	// The quality plane's error budget, and the entry where the honest `did`

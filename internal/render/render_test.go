@@ -249,6 +249,36 @@ func TestTheCatalogDoesNotRepeatTheFourClaimsThatWereFalse(t *testing.T) {
 	}
 }
 
+// The four newest entries, added when SPEC 6.2 registered
+// generated_estate_replaced (agent-passport#51, #52) and the decision-request
+// chain, option_refused, option_applied and decision_requested
+// (agent-passport#53, costcrew#23). Same shape as the test above: a phrase
+// that would be the wrong promise, pinned so it cannot arrive in the first
+// place rather than pinned after somebody's inbox caught it.
+func TestTheNewestEntriesDoNotOverpromise(t *testing.T) {
+	for _, c := range []struct {
+		kind, mustNotSay, why string
+	}{
+		{"generated_estate_replaced", "restored",
+			"a person REPLACED the estate deliberately, through the runner's flag; there is nothing here to bring back"},
+		{"option_refused", "was blocked",
+			"the deliverable was saved, without its options, and returned to the role that wrote it; saving it was never blocked"},
+		{"option_applied", "automatically",
+			"a stamp applies an option, the supervisor's own or an owner's; nothing here acts on its own"},
+		{"decision_requested", "eventually",
+			"it lapses after 7 days unanswered, a fact worth stating plainly rather than a vague promise that somebody gets to it"},
+	} {
+		p, ok := catalog[c.kind]
+		if !ok {
+			t.Fatalf("%s has no catalog entry, so it mails as the fallback", c.kind)
+		}
+		joined := p.what + " " + p.did + " " + p.next
+		if strings.Contains(joined, c.mustNotSay) {
+			t.Errorf("%s says %q: %s", c.kind, c.mustNotSay, c.why)
+		}
+	}
+}
+
 // The one an operator acts on money with. Spend already happened, and the mail
 // has to say so.
 func TestTaintBlockSaysTheMoneyWasAlreadySpent(t *testing.T) {

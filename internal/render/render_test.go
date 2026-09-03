@@ -267,6 +267,10 @@ func TestTheNewestEntriesDoNotOverpromise(t *testing.T) {
 			"a stamp applies an option, the supervisor's own or an owner's; nothing here acts on its own"},
 		{"decision_requested", "eventually",
 			"it lapses after 7 days unanswered, a fact worth stating plainly rather than a vague promise that somebody gets to it"},
+		{"crew_ran", "will stop",
+			"the event fires once, after a live run already finished; it records what was spent and refused, it does not stop anything, the runner's own ceiling check already did that before any call"},
+		{"cadence_set", "now runs",
+			"the switch only stops the runner's own -due mode refusing; nothing is scheduled by this console, and the routine itself runs only when the platform's operator also un-suspends it"},
 	} {
 		p, ok := catalog[c.kind]
 		if !ok {

@@ -129,7 +129,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 40 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 41 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -180,6 +180,7 @@ for, and the link still opens the console at it.
 | `decision_requested` | sent one owner a decision request for the sprint |
 | `cadence_set` | had the console's cadence switch changed |
 | `crew_ran` | had a clock-driven run of the crew finish |
+| `plan_asked` | was asked to plan its sprint with a model, beside the deterministic plan |
 
 **The thirteen rows from `anomaly_triaged` through `explainer_published` come
 from costcrew, and none of them describes an enforcement.** That console
@@ -190,17 +191,22 @@ further work, and says so in those words. The sentences were written by
 reading costcrew's own code, which is what this file requires of a catalog
 entry, and `internal/render/costcrew_test.go` holds them to it.
 
-Six more rows followed, still from costcrew, in two batches. `generated_estate_replaced` is a
+Seven more rows followed, still from costcrew, in three batches. `generated_estate_replaced` is a
 person's own act on the store, not a finding. The next three are a narrower
 refusal than the paragraph above rules out: `option_refused` is the console
 declining a deliverable's proposed OPTIONS, a document it reviews, never a
 call it routes, and `option_applied` and `decision_requested` are what a stamp
-or a request does with what survives that review. The last two are what lets
+or a request does with what survives that review. Two more are what lets
 that console's own clock spend anything at all, rather than what it decided:
 `cadence_set` is a person flipping the switch and its ceiling on the /cadence
 page, and `crew_ran` is what one clock-driven run did with it, priced and
-recorded after the run already finished. Read against costcrew's own code the
-same way the thirteen before them were.
+recorded after the run already finished. The last is what it costs to ask a
+model into that same plan, beside the deterministic one a person still
+chooses between: `plan_asked` prices the call first and, over the
+supervisor's own guard or with no gateway configured, refuses it before it is
+made, at no cost; made or refused, the event records the outcome and the
+cost. Read against costcrew's own code the same way the thirteen before them
+were.
 
 
 `identity_finding` was in the catalog from 2026-08-10 and missing from this

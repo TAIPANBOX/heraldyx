@@ -271,6 +271,8 @@ func TestTheNewestEntriesDoNotOverpromise(t *testing.T) {
 			"the event fires once, after a live run already finished; it records what was spent and refused, it does not stop anything, the runner's own ceiling check already did that before any call"},
 		{"cadence_set", "now runs",
 			"the switch only stops the runner's own -due mode refusing; nothing is scheduled by this console, and the routine itself runs only when the platform's operator also un-suspends it"},
+		{"plan_asked", "was applied",
+			"the event fires once the model is asked and priced, whichever way that goes; a person still approves one of the two plans through the unchanged approval, and this event does not act on either of them"},
 	} {
 		p, ok := catalog[c.kind]
 		if !ok {

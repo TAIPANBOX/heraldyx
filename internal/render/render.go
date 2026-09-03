@@ -492,13 +492,15 @@ var catalog = map[string]phrasing{
 	},
 	// The store's own generated estate, replaced deliberately by a person
 	// rather than found broken, the decision-request chain that reviews
-	// what an analyst proposes before it reaches an owner, and the
-	// cadence pair that lets a person opt the crew's own clock-driven run
-	// into spending at all. All arrived after the thirteen above: the
+	// what an analyst proposes before it reaches an owner, the cadence
+	// pair that lets a person opt the crew's own clock-driven run into
+	// spending at all, and the one call that same run's own plan may ask
+	// of a model beside it. All arrived after the thirteen above: the
 	// first when SPEC 6.2 registered it (agent-passport#51, #52), three
 	// more when SPEC 6.2 grew the same row again (agent-passport#53,
-	// costcrew#23), and the last two the same way once more
-	// (agent-passport#54, costcrew#28). Same rule as everything above it:
+	// costcrew#23), two more the same way once more (agent-passport#54,
+	// costcrew#28), and the last one the same way again
+	// (agent-passport#55, costcrew#37). Same rule as everything above it:
 	// no `did` says anything was stopped, and no `next` promises anything
 	// will be.
 	"generated_estate_replaced": {
@@ -534,6 +536,11 @@ var catalog = map[string]phrasing{
 		what: "had a clock-driven run of the crew finish",
 		did:  "The -due -live run priced and ran the sprint's cadence-due tasks under its ceiling. Tasks that would have gone over it were left undone rather than charged for. The cost of what ran is summed once, in micro-dollars, never rounded per task.",
 		next: "Nothing further from this console. Nothing is enforced by this event: it records what the run spent and left undone, after the run already finished.",
+	},
+	"plan_asked": {
+		what: "was asked to plan its sprint with a model, beside the deterministic plan",
+		did:  "The call is priced against the worst case first. Over the supervisor's own per-task guard, or with no gateway configured, it is refused before being made and costs nothing; otherwise it settles at what the gateway actually spent. Either way the event carries the outcome, the cost in micro-dollars, the sprint and who asked.",
+		next: "A person still approves one of the two plans through the unchanged approval; this event applies neither of them, and nothing runs on a clock because of it.",
 	},
 	// ---------------------------------------- an error budget nobody enforces
 	//

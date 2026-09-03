@@ -491,13 +491,16 @@ var catalog = map[string]phrasing{
 		next: "A guardrail that failed a drill will fail the same way in production.",
 	},
 	// The store's own generated estate, replaced deliberately by a person
-	// rather than found broken, and the decision-request chain that
-	// reviews what an analyst proposes before it reaches an owner. Both
-	// arrived after the thirteen above: the first when SPEC 6.2
-	// registered it (agent-passport#51, #52), the other three when SPEC
-	// 6.2 grew the same row again (agent-passport#53, costcrew#23). Same
-	// rule as everything above it: no `did` says anything was stopped,
-	// and no `next` promises anything will be.
+	// rather than found broken, the decision-request chain that reviews
+	// what an analyst proposes before it reaches an owner, and the
+	// cadence pair that lets a person opt the crew's own clock-driven run
+	// into spending at all. All arrived after the thirteen above: the
+	// first when SPEC 6.2 registered it (agent-passport#51, #52), three
+	// more when SPEC 6.2 grew the same row again (agent-passport#53,
+	// costcrew#23), and the last two the same way once more
+	// (agent-passport#54, costcrew#28). Same rule as everything above it:
+	// no `did` says anything was stopped, and no `next` promises anything
+	// will be.
 	"generated_estate_replaced": {
 		what: "had its generated estate replaced with a fresh one",
 		did:  "A person did it deliberately, through the runner's -replace-generated flag. Nothing outside the store changed.",
@@ -521,6 +524,16 @@ var catalog = map[string]phrasing{
 		// pass rewrites the request with the options still carried. "Lapses
 		// after 7 days" would be the same promise "eventually times out" was.
 		next: "The owner stamps each option, applying or refusing it. The request names a date after which it counts as lapsed; nothing in the console enforces that date, so an unanswered request stays open until a person answers.",
+	},
+	"cadence_set": {
+		what: "had the console's cadence switch changed",
+		did:  "A person set the switch and its ceiling on the /cadence page. That switch is what the runner's -due mode reads before it will spend anything on a clock; nothing runs because of this event by itself.",
+		next: "The routine itself runs only when the platform's operator also un-suspends it: this console owns the switch, not the schedule.",
+	},
+	"crew_ran": {
+		what: "had a clock-driven run of the crew finish",
+		did:  "The -due -live run priced and ran the sprint's cadence-due tasks under its ceiling. Tasks that would have gone over it were left undone rather than charged for. The cost of what ran is summed once, in micro-dollars, never rounded per task.",
+		next: "Nothing further from this console. Nothing is enforced by this event: it records what the run spent and left undone, after the run already finished.",
 	},
 	// ---------------------------------------- an error budget nobody enforces
 	//

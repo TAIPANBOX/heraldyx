@@ -304,6 +304,20 @@ a deployment whose contents change without a rollout anybody recorded.
 Building from source still works and is what `make build` does; it is no longer
 what an install has to do.
 
+## Verify the image
+
+Every image is signed keyless with Sigstore and carries a build-provenance
+attestation and an SBOM. With `cosign` and `gh` installed:
+
+```sh
+cosign verify ghcr.io/taipanbox/heraldyx:<tag> \
+  --certificate-identity-regexp '^https://github.com/TAIPANBOX/heraldyx/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+gh attestation verify oci://ghcr.io/taipanbox/heraldyx:<tag> -R TAIPANBOX/heraldyx
+```
+
+Releases through v0.2.2 have none of this; the next tag is the first to carry it.
+
 ## Try it without a mail server
 
 ```bash

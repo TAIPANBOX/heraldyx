@@ -24,6 +24,7 @@
   ],
   "schema": "taipanbox.dev/components/v1",
   "repo": "TAIPANBOX/heraldyx",
+  "distribution": "ghcr.io/taipanbox/heraldyx",
   "components": [
     {
       "name": "heraldyx",

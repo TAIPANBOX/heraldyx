@@ -153,6 +153,36 @@ func TestACallCutOffMidStreamIsNotCalledFreeOrUnmade(t *testing.T) {
 	}
 }
 
+// A provider that was reached and REFUSED (a 429, a 5xx, a retired model id
+// answered 404 or 400) is `call_failed` at stage `response`, tokenfuse 1.0.1
+// (tokenfuse#260). Neither existing sentence fits it: it was reached and it
+// did finish, so "could not be reached" is wrong, and a refusal that reported
+// what it generated IS charged for that (tokenfuse's own rule since its #167),
+// so "nothing was charged" can be wrong too. The mail says the provider
+// answered and refused, and puts the money where the gateway puts it.
+func TestAProviderThatRefusedIsNeitherUnreachableNorCalledFree(t *testing.T) {
+	m := depMail(map[string]any{
+		"dependency": "provider", "stage": "response", "effect": "call_failed",
+		"detail": "provider answered HTTP 429 for model claude-haiku-4-5",
+	})
+	body := strings.ToLower(m.Body)
+	if strings.Contains(body, "could not be reached") {
+		t.Errorf("a provider that answered is described as unreachable:\n%s", m.Body)
+	}
+	if strings.Contains(body, "nothing was charged for it, and the money reserved against the run was released in full") {
+		t.Errorf("a refusal is promised free without qualification, and one that reported usage is not:\n%s", m.Body)
+	}
+	if !strings.Contains(body, "answered and refused") {
+		t.Errorf("the mail does not say the provider answered and refused:\n%s", m.Body)
+	}
+	if !strings.Contains(body, "reported generating") {
+		t.Errorf("the mail does not put the money where the gateway puts it (charged only what was reported generating):\n%s", m.Body)
+	}
+	if !strings.Contains(m.Body, "the provider") {
+		t.Errorf("the refused dependency is not named:\n%s", m.Body)
+	}
+}
+
 // Which dependency died is the first thing an operator needs, because it
 // decides who they call: their provider, or their own policy plane.
 //

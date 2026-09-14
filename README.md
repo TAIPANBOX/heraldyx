@@ -8,7 +8,7 @@
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
 ![tests](https://img.shields.io/badge/tests-161-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
-![Version](https://img.shields.io/badge/version-v0.2.3-success.svg)
+![Version](https://img.shields.io/badge/version-v0.2.2-success.svg)
 
 <img src="assets/diagram.svg" alt="heraldyx architecture: five planes append to one shared NDJSON event log which idryx and qryx also read, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
 
@@ -293,7 +293,7 @@ it happens.
 ## Running it without building it
 
 ```bash
-docker pull ghcr.io/TAIPANBOX/heraldyx:v0.2.3
+docker pull ghcr.io/TAIPANBOX/heraldyx:v0.2.2
 ```
 
 Published on a tag, for `linux/amd64` and `linux/arm64`. **Immutable versions
@@ -316,7 +316,7 @@ cosign verify ghcr.io/taipanbox/heraldyx:<tag> \
 gh attestation verify oci://ghcr.io/taipanbox/heraldyx:<tag> -R TAIPANBOX/heraldyx
 ```
 
-Releases through v0.2.2 have none of this; v0.2.3 is the first to carry it.
+Releases through v0.2.2 have none of this; the next tag is the first to carry it.
 
 ## Try it without a mail server
 

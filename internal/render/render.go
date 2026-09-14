@@ -681,12 +681,29 @@ func dependencyFailed(e event.Event, p phrasing) phrasing {
 // holding a truncated answer instead of an error, which is the part it is least
 // likely to notice.
 //
+// A REFUSAL is the third money answer, and it arrived with tokenfuse 1.0.1
+// (stage `response`, tokenfuse#260): the provider was reached and answered
+// with a status the gateway counts as the provider's own failure (a 429, a
+// 5xx, a retired model id answered 404 or 400), the agent got that status
+// through, and the gateway charged what the provider reported generating,
+// which for the common refusal is nothing and for a provider that failed over
+// a partial answer is that partial answer (tokenfuse's rule since its #167).
+// So neither "could not be reached" nor an unqualified "nothing was charged"
+// is true of it, and it gets its own sentence.
+//
 // The stage is read as one value against a constant, not parsed: a stage this
-// build does not know takes the buffered wording only if it is not the streamed
-// one, which is the safe direction, since the streamed sentence claims a
-// delivery that a non-streamed failure did not make.
+// build does not know takes the buffered wording only if it is neither the
+// streamed nor the refused one, which is the safe direction, since each of
+// those two sentences claims something a plain failure did not do.
 func callFailed(e event.Event, p phrasing, dep string) phrasing {
-	if stage, _ := e.Data["stage"].(string); stage == "stream" {
+	stage, _ := e.Data["stage"].(string)
+	if stage == "response" {
+		p.what = "was refused by a dependency of this box"
+		p.did = "The call reached " + dep + ", which answered and refused it, and the agent was given that refusal through this gateway rather than an answer. The run was charged only what the provider reported generating, which for a refusal is usually nothing, and the rest of the money reserved against the run was released."
+		p.next = "Nothing automatic. A refusal that repeats is the provider rate-limiting this box, a model id the provider no longer serves, or the provider down; the status in the event's detail says which."
+		return p
+	}
+	if stage == "stream" {
 		p.what = "had its answer cut off part way through"
 		p.did = "Part of the answer had already reached the agent when " + dep + " broke, so this is not a call that never happened, and it was not free either: what the provider reported as used is charged to the run, and a stream that started successfully and then reported no usage at all is charged the estimate that was reserved for it."
 		p.next = "Nothing automatic. The agent is holding a truncated answer rather than an error, which is the part worth looking at: a run that reads it as a whole one carries on from half a result."

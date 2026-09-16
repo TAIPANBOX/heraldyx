@@ -515,6 +515,37 @@ func TestAGapAlreadyReportedIsNotReportedAgainEveryPoll(t *testing.T) {
 	}
 }
 
+// A plane producing more than a poll reads is said once per growth, not once
+// per poll and not never: the same discipline as sayUnrecorded, for the two
+// counters the byte cap added.
+func TestAbnormalVolumeIsReportedOncePerGrowthNotEveryPoll(t *testing.T) {
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	said := 0
+	// Quiet, quiet, one capped poll, quiet (same standing counts), then a
+	// poll that both hits the cap again and skips an oversized line.
+	for _, c := range []struct{ capped, oversized int }{
+		{0, 0}, {0, 0}, {1, 0}, {1, 0}, {2, 1},
+	} {
+		said = sayVolume(c.capped, c.oversized, said)
+	}
+	if said != 3 {
+		t.Fatalf("the high-water mark is wrong: want 3, got %d", said)
+	}
+	got := out.String()
+	if n := strings.Count(got, "producing more than one poll reads"); n != 2 {
+		t.Fatalf("want one line per cycle that actually grew, 2 in all, got %d:\n%s", n, got)
+	}
+	if !strings.Contains(got, "1 capped poll(s) and 0 oversized line(s) since this process started (1 new)") {
+		t.Errorf("the first growth is not reported as one capped poll:\n%s", got)
+	}
+	if !strings.Contains(got, "2 capped poll(s) and 1 oversized line(s) since this process started (2 new)") {
+		t.Errorf("the later growth must say both counts and what it added:\n%s", got)
+	}
+}
+
 // A journal that fails to close is said out loud, not silently dropped.
 //
 // defer journal.Close() at the end of run() used to discard its return value

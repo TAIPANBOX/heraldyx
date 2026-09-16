@@ -57,7 +57,11 @@ type Watcher struct {
 // few hundred bytes, so this is tens of thousands of them per file per poll)
 // and small next to the memory of any box this runs on. What does not fit in
 // one poll is read on the next one: the offset only ever advances past whole
-// lines actually consumed, so nothing is lost, only delayed.
+// lines actually consumed, so nothing is lost, only delayed. Peak memory per
+// poll is two caps, not one: the capped read plus the chunk endOfLine uses
+// to skip a line the cap cannot hold (one of exactly cap bytes plus its
+// newline counts as such a line; the prose says "longer" and means "does
+// not fit with its newline").
 const maxBytesPerPoll = 4 * 1024 * 1024 // 4 MiB
 
 // New returns a watcher over paths, starting from the given offsets (nil for

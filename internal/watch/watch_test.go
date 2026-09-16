@@ -339,6 +339,12 @@ func TestALineLongerThanTheCapIsSkippedAndTheFileKeepsFlowing(t *testing.T) {
 	if w.Oversized != 1 {
 		t.Fatalf("an oversized line must be counted so an operator can see it, got Oversized=%d", w.Oversized)
 	}
+	// Skipped whole, never delivered in fragments: an implementation that
+	// simply advanced the offset by the cap would hand the tail of the huge
+	// line to the parser as a malformed line and count it there.
+	if w.Malformed != 0 {
+		t.Fatalf("the oversized line's tail was parsed as %d malformed line(s); it must be skipped whole", w.Malformed)
+	}
 	if off, size := w.Offsets()[p], int64(len(huge)+len(line("after"))); off != size {
 		t.Fatalf("offset %d after the file was read whole, want %d", off, size)
 	}

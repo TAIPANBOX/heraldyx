@@ -318,6 +318,21 @@ an absent invariant.
     catches the faults named in it, not every fault of that kind. It found no
     hole in either.
 
+17. **A single poll never reads more than `maxBytesPerPoll` of one file's
+    growth.** `pollOne` used to read from the held offset to the file's
+    current end with no limit at all: a looping or compromised producer that
+    appends faster than an operator can react gets its whole growth loaded
+    into one buffer, and the process that exists to say something is wrong is
+    the one an out-of-memory kill silences at that exact moment. The cap is a
+    package constant (`internal/watch/watch.go`, a few MiB), the offset only
+    ever advances past whole lines actually consumed within the capped read,
+    and what does not fit in one poll is read on the next one rather than
+    lost. `Watcher.Capped` counts the polls that hit the limit, beside
+    `Malformed` and `Truncations`, so an operator can see a plane producing
+    abnormal volume.
+    *(test: `TestAFileGrowingPastTheCapIsReadInPieces`,
+    `TestABurstUnderTheCapIsReadWholeInOnePoll`)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

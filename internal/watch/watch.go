@@ -32,7 +32,25 @@ type Watcher struct {
 	// Truncations counts files that got shorter than the offset we held,
 	// which is a rotation or a reset, not an error.
 	Truncations int
+	// Capped counts polls where a file's growth since the last offset
+	// exceeded maxBytesPerPoll, so only the first maxBytesPerPoll bytes of
+	// it were read this poll. Surfaced for the same reason as Malformed and
+	// Truncations: a plane producing abnormal volume is a fact an operator
+	// should be able to see, not a silent internal detail.
+	Capped int
 }
+
+// maxBytesPerPoll bounds how much of a single file's growth is read in one
+// poll. Without a cap, a looping or compromised producer that appends more
+// bytes than the process has memory for inside one poll interval gets that
+// whole growth loaded into one buffer, and the process an operator relies on
+// to say something is wrong is OOM-killed at the exact moment it matters
+// most. A few MiB is ample for a normal NDJSON burst (an event line runs a
+// few hundred bytes, so this is tens of thousands of them per file per poll)
+// and small next to the memory of any box this runs on. What does not fit in
+// one poll is read on the next one: the offset only ever advances past whole
+// lines actually consumed, so nothing is lost, only delayed.
+const maxBytesPerPoll = 4 * 1024 * 1024 // 4 MiB
 
 // New returns a watcher over paths, starting from the given offsets (nil for
 // a fresh start).
@@ -155,7 +173,8 @@ func (w *Watcher) pollOne(path string) ([]event.Event, error) {
 		w.Truncations++
 		from = 0
 	}
-	if info.Size() == from {
+	grown := info.Size() - from
+	if grown == 0 {
 		return nil, nil
 	}
 
@@ -169,7 +188,13 @@ func (w *Watcher) pollOne(path string) ([]event.Event, error) {
 	if _, err := f.Seek(from, io.SeekStart); err != nil {
 		return nil, err
 	}
-	buf, err := io.ReadAll(f)
+
+	limit := grown
+	if limit > maxBytesPerPoll {
+		limit = maxBytesPerPoll
+		w.Capped++
+	}
+	buf, err := io.ReadAll(io.LimitReader(f, limit))
 	if err != nil {
 		return nil, err
 	}

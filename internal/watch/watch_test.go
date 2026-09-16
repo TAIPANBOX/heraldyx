@@ -1,6 +1,8 @@
 package watch
 
 import (
+	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -199,5 +201,112 @@ func TestAReplacedFileIsStillReadFromTheStart(t *testing.T) {
 	}
 	if w.Truncations != 1 {
 		t.Fatalf("truncations: %d", w.Truncations)
+	}
+}
+
+// A plane that appends more than maxBytesPerPoll's worth of lines inside one
+// poll interval must not be read in one buffer: that is an unbounded read
+// held against a process an operator relies on to say something is wrong,
+// and a looping or compromised producer is exactly the case where the box
+// that would tell them is the one that gets OOM-killed for trying.
+//
+// One Poll() must stop at the cap (offset advanced no further than the cap,
+// fewer lines delivered than were written), the next Poll() must pick up the
+// remainder with nothing lost and nothing delivered twice, and the Capped
+// counter must show the cap was actually hit.
+func TestAFileGrowingPastTheCapIsReadInPieces(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "burst.ndjson")
+
+	oneLine := line("r0000000")
+	lineLen := int64(len(oneLine))
+	total := int(maxBytesPerPoll/lineLen) + 1000
+
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bw := bufio.NewWriter(f)
+	for i := 0; i < total; i++ {
+		if _, err := bw.WriteString(line(fmt.Sprintf("r%07d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := bw.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	w := New([]string{p}, nil)
+	first := w.Poll()
+
+	if w.Capped != 1 {
+		t.Fatalf("want the cap counter at 1 after a capped poll, got %d", w.Capped)
+	}
+	if off := w.Offsets()[p]; off > maxBytesPerPoll {
+		t.Fatalf("one poll advanced the offset %d bytes, past the %d byte cap", off, maxBytesPerPoll)
+	}
+	if len(first) >= total {
+		t.Fatalf("one poll delivered all %d lines; the cap capped nothing", total)
+	}
+
+	second := w.Poll()
+	if len(first)+len(second) != total {
+		t.Fatalf("lost or duplicated across two polls: %d + %d != %d", len(first), len(second), total)
+	}
+	if w.Capped != 1 {
+		t.Fatalf("the second, smaller poll must not add to the cap counter, got %d", w.Capped)
+	}
+	seen := make(map[string]bool, total)
+	for _, e := range first {
+		if seen[e.RunID] {
+			t.Fatalf("run %s delivered twice within the first poll", e.RunID)
+		}
+		seen[e.RunID] = true
+	}
+	for _, e := range second {
+		if seen[e.RunID] {
+			t.Fatalf("run %s delivered twice across the two polls", e.RunID)
+		}
+		seen[e.RunID] = true
+	}
+	if len(seen) != total {
+		t.Fatalf("want %d distinct runs delivered, got %d", total, len(seen))
+	}
+}
+
+// The negative control for the cap: a burst that fits under it in one poll
+// must be delivered whole and must not touch the Capped counter. Without
+// this, a cap that fired on every poll regardless of size would still pass
+// the test above.
+func TestABurstUnderTheCapIsReadWholeInOnePoll(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "small.ndjson")
+	const total = 500
+
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bw := bufio.NewWriter(f)
+	for i := 0; i < total; i++ {
+		if _, err := bw.WriteString(line(fmt.Sprintf("s%07d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := bw.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	w := New([]string{p}, nil)
+	got := w.Poll()
+	if len(got) != total {
+		t.Fatalf("want %d events read whole, got %d", total, len(got))
+	}
+	if w.Capped != 0 {
+		t.Fatalf("a burst under the cap must not touch the cap counter, got %d", w.Capped)
 	}
 }

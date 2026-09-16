@@ -32,7 +32,37 @@ type Watcher struct {
 	// Truncations counts files that got shorter than the offset we held,
 	// which is a rotation or a reset, not an error.
 	Truncations int
+	// Capped counts polls where a file's growth since the last offset
+	// exceeded maxBytesPerPoll, so only the first maxBytesPerPoll bytes of
+	// it were read this poll. Surfaced for the same reason as Malformed and
+	// Truncations: a plane producing abnormal volume is a fact an operator
+	// should be able to see, not a silent internal detail.
+	Capped int
+	// Oversized counts completed lines longer than maxBytesPerPoll. Such a
+	// line can never be delivered: it does not fit in one read, and holding
+	// the offset before it would read its first cap forever while every
+	// line after it stays invisible, which is the freeze the cap must not
+	// introduce. So it is skipped, the offset moves past it, and it is
+	// counted here rather than under Malformed, because it may well have
+	// parsed and the operator should know which of the two it was.
+	Oversized int
 }
+
+// maxBytesPerPoll bounds how much of a single file's growth is read in one
+// poll. Without a cap, a looping or compromised producer that appends more
+// bytes than the process has memory for inside one poll interval gets that
+// whole growth loaded into one buffer, and the process an operator relies on
+// to say something is wrong is OOM-killed at the exact moment it matters
+// most. A few MiB is ample for a normal NDJSON burst (an event line runs a
+// few hundred bytes, so this is tens of thousands of them per file per poll)
+// and small next to the memory of any box this runs on. What does not fit in
+// one poll is read on the next one: the offset only ever advances past whole
+// lines actually consumed, so nothing is lost, only delayed. Peak memory per
+// poll is two caps, not one: the capped read plus the chunk endOfLine uses
+// to skip a line the cap cannot hold (one of exactly cap bytes plus its
+// newline counts as such a line; the prose says "longer" and means "does
+// not fit with its newline").
+const maxBytesPerPoll = 4 * 1024 * 1024 // 4 MiB
 
 // New returns a watcher over paths, starting from the given offsets (nil for
 // a fresh start).
@@ -89,6 +119,31 @@ func (w *Watcher) SetPaths(paths []string) {
 }
 
 // Offsets returns a copy of the current read positions, for persisting.
+// endOfLine reads forward from `at`, one cap at a time, and reports the
+// offset just past the first newline it meets, or -1 when the file ends
+// before one does. Bounded per read so skipping an oversized line costs no
+// more memory than reading an ordinary poll.
+func endOfLine(f *os.File, at int64) (int64, error) {
+	if _, err := f.Seek(at, io.SeekStart); err != nil {
+		return -1, err
+	}
+	chunk := make([]byte, maxBytesPerPoll)
+	pos := at
+	for {
+		n, err := f.Read(chunk)
+		if i := bytes.IndexByte(chunk[:n], '\n'); i >= 0 {
+			return pos + int64(i) + 1, nil
+		}
+		pos += int64(n)
+		if err == io.EOF {
+			return -1, nil
+		}
+		if err != nil {
+			return -1, err
+		}
+	}
+}
+
 func (w *Watcher) Offsets() map[string]int64 {
 	out := make(map[string]int64, len(w.offsets))
 	for k, v := range w.offsets {
@@ -155,7 +210,8 @@ func (w *Watcher) pollOne(path string) ([]event.Event, error) {
 		w.Truncations++
 		from = 0
 	}
-	if info.Size() == from {
+	grown := info.Size() - from
+	if grown == 0 {
 		return nil, nil
 	}
 
@@ -169,7 +225,13 @@ func (w *Watcher) pollOne(path string) ([]event.Event, error) {
 	if _, err := f.Seek(from, io.SeekStart); err != nil {
 		return nil, err
 	}
-	buf, err := io.ReadAll(f)
+
+	limit := grown
+	if limit > maxBytesPerPoll {
+		limit = maxBytesPerPoll
+		w.Capped++
+	}
+	buf, err := io.ReadAll(io.LimitReader(f, limit))
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +240,26 @@ func (w *Watcher) pollOne(path string) ([]event.Event, error) {
 	// progress; leave the offset before it.
 	cut := bytes.LastIndexByte(buf, '\n')
 	if cut < 0 {
+		if int64(len(buf)) < maxBytesPerPoll {
+			return nil, nil
+		}
+		// A full buffer with no newline in it is not a write in progress,
+		// it is a line the cap cannot hold. Holding the offset before it
+		// would read its first cap forever and every line after it would
+		// stay invisible: the OOM turned into a silent per-file freeze. So
+		// the offset moves past it, to the newline that ends it, read in
+		// cap-sized pieces so the skip itself is bounded too. If that
+		// newline has not been written yet, the offset stays and the next
+		// poll looks again.
+		end, err := endOfLine(f, from+int64(len(buf)))
+		if err != nil {
+			return nil, err
+		}
+		if end < 0 {
+			return nil, nil
+		}
+		w.offsets[path] = end
+		w.Oversized++
 		return nil, nil
 	}
 	complete := buf[:cut+1]

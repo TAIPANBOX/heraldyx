@@ -318,6 +318,32 @@ an absent invariant.
     catches the faults named in it, not every fault of that kind. It found no
     hole in either.
 
+17. **A single poll never reads more than `maxBytesPerPoll` of one file's
+    growth.** `pollOne` used to read from the held offset to the file's
+    current end with no limit at all: a looping or compromised producer that
+    appends faster than an operator can react gets its whole growth loaded
+    into one buffer, and the process that exists to say something is wrong is
+    the one an out-of-memory kill silences at that exact moment. The cap is a
+    package constant (`internal/watch/watch.go`, a few MiB), the offset only
+    ever advances past whole lines actually consumed within the capped read,
+    and what does not fit in one poll is read on the next one rather than
+    lost. Two consequences are stated rather than implied. "Delayed, not
+    lost" holds while a plane's sustained rate stays under one cap per poll
+    interval (4 MiB per 2 s by default, 2 MiB/s per file); above it the lag
+    grows for as long as the burst lasts and a rule sees each event at the
+    wall-clock moment it is processed. And a single completed line longer
+    than the cap can never be delivered: holding the offset before it would
+    read its first cap forever and freeze the file, the OOM turned into a
+    silent per-file stall, so it is skipped (the offset moves to the newline
+    that ends it, read in cap-sized pieces) and counted as `Oversized`.
+    `Watcher.Capped` and `Watcher.Oversized` sit beside `Malformed` and
+    `Truncations`, and `cmd/heraldyx` prints their growth once per poll
+    (`sayVolume`), the way `sayUnrecorded` prints the journal's, because a
+    counter nobody prints is a field an operator cannot act on (invariant 13).
+    *(test: `TestAFileGrowingPastTheCapIsReadInPieces`,
+    `TestABurstUnderTheCapIsReadWholeInOnePoll`,
+    `TestALineLongerThanTheCapIsSkippedAndTheFileKeepsFlowing`)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

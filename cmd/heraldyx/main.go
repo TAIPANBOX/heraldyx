@@ -165,10 +165,12 @@ func run(args []string) error {
 
 	// How many unwritten records have already been logged. See sayUnrecorded.
 	said := 0
+	saidVolume := 0
 
 	for {
 		cycle(cfg, rcfg, rendercfg, w, snap, sender, journal, passports, picture, time.Now())
 		said = sayUnrecorded(journal.Failures, said)
+		saidVolume = sayVolume(w.Capped, w.Oversized, saidVolume)
 		snap.Offsets = w.Offsets()
 		if err := state.Save(cfg.StatePath, snap); err != nil {
 			log.Printf("state: %v", err)
@@ -229,6 +231,26 @@ func sayUnrecorded(failures, said int) int {
 	log.Printf("record: %d message(s) sent without a record just now, %d since this process started: no agent id to file them under, or the write failed. The mail went out either way, and the journal is short by that many.",
 		failures-said, failures)
 	return failures
+}
+
+// sayVolume reports a plane producing more than a poll can read, and returns
+// the count that has now been said.
+//
+// A counter nobody prints is a field an operator cannot act on, which is the
+// shape invariant 13 records as worse than an absent field. Same discipline as
+// sayUnrecorded: growth, not the standing count, once per poll. Two facts in
+// one line because they are the same fact at two sizes: a poll that hit the
+// cap means the plane wrote more than a cap between two polls and the rest is
+// delayed to the next one; an oversized line means one event alone did not
+// fit and was skipped rather than delivered.
+func sayVolume(capped, oversized, said int) int {
+	now := capped + oversized
+	if now <= said {
+		return said
+	}
+	log.Printf("watch: a plane is producing more than one poll reads: %d capped poll(s) and %d oversized line(s) since this process started (%d new). A capped poll is read on the next one; an oversized line is skipped and counted, never delivered.",
+		capped, oversized, now-said)
+	return now
 }
 
 // cycle is one pass: read what is new, decide, send. Split out so a test can

@@ -1,8 +1,12 @@
 package watch
 
 import (
+	"bufio"
+	"fmt"
+	"github.com/TAIPANBOX/agent-stack-go/event"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -199,5 +203,153 @@ func TestAReplacedFileIsStillReadFromTheStart(t *testing.T) {
 	}
 	if w.Truncations != 1 {
 		t.Fatalf("truncations: %d", w.Truncations)
+	}
+}
+
+// A plane that appends more than maxBytesPerPoll's worth of lines inside one
+// poll interval must not be read in one buffer: that is an unbounded read
+// held against a process an operator relies on to say something is wrong,
+// and a looping or compromised producer is exactly the case where the box
+// that would tell them is the one that gets OOM-killed for trying.
+//
+// One Poll() must stop at the cap (offset advanced no further than the cap,
+// fewer lines delivered than were written), the next Poll() must pick up the
+// remainder with nothing lost and nothing delivered twice, and the Capped
+// counter must show the cap was actually hit.
+func TestAFileGrowingPastTheCapIsReadInPieces(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "burst.ndjson")
+
+	oneLine := line("r0000000")
+	lineLen := int64(len(oneLine))
+	total := int(maxBytesPerPoll/lineLen) + 1000
+
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bw := bufio.NewWriter(f)
+	for i := 0; i < total; i++ {
+		if _, err := bw.WriteString(line(fmt.Sprintf("r%07d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := bw.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	w := New([]string{p}, nil)
+	first := w.Poll()
+
+	if w.Capped != 1 {
+		t.Fatalf("want the cap counter at 1 after a capped poll, got %d", w.Capped)
+	}
+	if off := w.Offsets()[p]; off > maxBytesPerPoll {
+		t.Fatalf("one poll advanced the offset %d bytes, past the %d byte cap", off, maxBytesPerPoll)
+	}
+	if len(first) >= total {
+		t.Fatalf("one poll delivered all %d lines; the cap capped nothing", total)
+	}
+
+	second := w.Poll()
+	if len(first)+len(second) != total {
+		t.Fatalf("lost or duplicated across two polls: %d + %d != %d", len(first), len(second), total)
+	}
+	if w.Capped != 1 {
+		t.Fatalf("the second, smaller poll must not add to the cap counter, got %d", w.Capped)
+	}
+	seen := make(map[string]bool, total)
+	for _, e := range first {
+		if seen[e.RunID] {
+			t.Fatalf("run %s delivered twice within the first poll", e.RunID)
+		}
+		seen[e.RunID] = true
+	}
+	for _, e := range second {
+		if seen[e.RunID] {
+			t.Fatalf("run %s delivered twice across the two polls", e.RunID)
+		}
+		seen[e.RunID] = true
+	}
+	if len(seen) != total {
+		t.Fatalf("want %d distinct runs delivered, got %d", total, len(seen))
+	}
+}
+
+// The negative control for the cap: a burst that fits under it in one poll
+// must be delivered whole and must not touch the Capped counter. Without
+// this, a cap that fired on every poll regardless of size would still pass
+// the test above.
+func TestABurstUnderTheCapIsReadWholeInOnePoll(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "small.ndjson")
+	const total = 500
+
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bw := bufio.NewWriter(f)
+	for i := 0; i < total; i++ {
+		if _, err := bw.WriteString(line(fmt.Sprintf("s%07d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := bw.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	w := New([]string{p}, nil)
+	got := w.Poll()
+	if len(got) != total {
+		t.Fatalf("want %d events read whole, got %d", total, len(got))
+	}
+	if w.Capped != 0 {
+		t.Fatalf("a burst under the cap must not touch the cap counter, got %d", w.Capped)
+	}
+}
+
+// One line longer than the cap must not freeze the file. Under the cap alone
+// a full buffer with no newline in it is "a write in progress", the offset
+// stays where it was, and the next poll reads the same first cap of the same
+// line forever: Capped climbs, nothing is delivered, and every later event in
+// that plane's log is invisible. Before the cap that line was read whole and
+// counted malformed, and the file kept flowing. So a completed line the cap
+// cannot hold is skipped, counted, and the lines after it arrive.
+func TestALineLongerThanTheCapIsSkippedAndTheFileKeepsFlowing(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "huge.ndjson")
+
+	blob := strings.Repeat("x", int(maxBytesPerPoll)+1)
+	huge := `{"schema":"taipanbox.dev/agent-event/v0.2","ts":"2026-08-02T14:00:00Z","source":"tokenfuse","type":"budget_exhausted","agent_id":"agent://acme/biller","run_id":"huge","severity":"critical","data":{"blob":"` + blob + `"}}` + "\n"
+	write(t, p, huge+line("after"))
+
+	w := New([]string{p}, nil)
+	var got []event.Event
+	for i := 0; i < 4 && len(got) == 0; i++ {
+		got = append(got, w.Poll()...)
+	}
+	if len(got) != 1 || got[0].RunID != "after" {
+		t.Fatalf("the line after the oversized one was never delivered: got %d event(s), offset %d, Capped %d, Oversized %d",
+			len(got), w.Offsets()[p], w.Capped, w.Oversized)
+	}
+	if w.Oversized != 1 {
+		t.Fatalf("an oversized line must be counted so an operator can see it, got Oversized=%d", w.Oversized)
+	}
+	// Skipped whole, never delivered in fragments: an implementation that
+	// simply advanced the offset by the cap would hand the tail of the huge
+	// line to the parser as a malformed line and count it there.
+	if w.Malformed != 0 {
+		t.Fatalf("the oversized line's tail was parsed as %d malformed line(s); it must be skipped whole", w.Malformed)
+	}
+	if off, size := w.Offsets()[p], int64(len(huge)+len(line("after"))); off != size {
+		t.Fatalf("offset %d after the file was read whole, want %d", off, size)
+	}
+	// And nothing arrives twice: a further poll delivers nothing.
+	if more := w.Poll(); len(more) != 0 {
+		t.Fatalf("a poll after the file was consumed delivered %d event(s) again", len(more))
 	}
 }

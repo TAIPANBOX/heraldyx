@@ -3,8 +3,10 @@ package watch
 import (
 	"bufio"
 	"fmt"
+	"github.com/TAIPANBOX/agent-stack-go/event"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -308,5 +310,40 @@ func TestABurstUnderTheCapIsReadWholeInOnePoll(t *testing.T) {
 	}
 	if w.Capped != 0 {
 		t.Fatalf("a burst under the cap must not touch the cap counter, got %d", w.Capped)
+	}
+}
+
+// One line longer than the cap must not freeze the file. Under the cap alone
+// a full buffer with no newline in it is "a write in progress", the offset
+// stays where it was, and the next poll reads the same first cap of the same
+// line forever: Capped climbs, nothing is delivered, and every later event in
+// that plane's log is invisible. Before the cap that line was read whole and
+// counted malformed, and the file kept flowing. So a completed line the cap
+// cannot hold is skipped, counted, and the lines after it arrive.
+func TestALineLongerThanTheCapIsSkippedAndTheFileKeepsFlowing(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "huge.ndjson")
+
+	blob := strings.Repeat("x", int(maxBytesPerPoll)+1)
+	huge := `{"schema":"taipanbox.dev/agent-event/v0.2","ts":"2026-08-02T14:00:00Z","source":"tokenfuse","type":"budget_exhausted","agent_id":"agent://acme/biller","run_id":"huge","severity":"critical","data":{"blob":"` + blob + `"}}` + "\n"
+	write(t, p, huge+line("after"))
+
+	w := New([]string{p}, nil)
+	var got []event.Event
+	for i := 0; i < 4 && len(got) == 0; i++ {
+		got = append(got, w.Poll()...)
+	}
+	if len(got) != 1 || got[0].RunID != "after" {
+		t.Fatalf("the line after the oversized one was never delivered: got %d event(s), offset %d, Capped %d, Oversized %d",
+			len(got), w.Offsets()[p], w.Capped, w.Oversized)
+	}
+	if w.Oversized != 1 {
+		t.Fatalf("an oversized line must be counted so an operator can see it, got Oversized=%d", w.Oversized)
+	}
+	if off, size := w.Offsets()[p], int64(len(huge)+len(line("after"))); off != size {
+		t.Fatalf("offset %d after the file was read whole, want %d", off, size)
+	}
+	// And nothing arrives twice: a further poll delivers nothing.
+	if more := w.Poll(); len(more) != 0 {
+		t.Fatalf("a poll after the file was consumed delivered %d event(s) again", len(more))
 	}
 }

@@ -38,6 +38,14 @@ type Watcher struct {
 	// Truncations: a plane producing abnormal volume is a fact an operator
 	// should be able to see, not a silent internal detail.
 	Capped int
+	// Oversized counts completed lines longer than maxBytesPerPoll. Such a
+	// line can never be delivered: it does not fit in one read, and holding
+	// the offset before it would read its first cap forever while every
+	// line after it stays invisible, which is the freeze the cap must not
+	// introduce. So it is skipped, the offset moves past it, and it is
+	// counted here rather than under Malformed, because it may well have
+	// parsed and the operator should know which of the two it was.
+	Oversized int
 }
 
 // maxBytesPerPoll bounds how much of a single file's growth is read in one
@@ -107,6 +115,31 @@ func (w *Watcher) SetPaths(paths []string) {
 }
 
 // Offsets returns a copy of the current read positions, for persisting.
+// endOfLine reads forward from `at`, one cap at a time, and reports the
+// offset just past the first newline it meets, or -1 when the file ends
+// before one does. Bounded per read so skipping an oversized line costs no
+// more memory than reading an ordinary poll.
+func endOfLine(f *os.File, at int64) (int64, error) {
+	if _, err := f.Seek(at, io.SeekStart); err != nil {
+		return -1, err
+	}
+	chunk := make([]byte, maxBytesPerPoll)
+	pos := at
+	for {
+		n, err := f.Read(chunk)
+		if i := bytes.IndexByte(chunk[:n], '\n'); i >= 0 {
+			return pos + int64(i) + 1, nil
+		}
+		pos += int64(n)
+		if err == io.EOF {
+			return -1, nil
+		}
+		if err != nil {
+			return -1, err
+		}
+	}
+}
+
 func (w *Watcher) Offsets() map[string]int64 {
 	out := make(map[string]int64, len(w.offsets))
 	for k, v := range w.offsets {
@@ -203,6 +236,26 @@ func (w *Watcher) pollOne(path string) ([]event.Event, error) {
 	// progress; leave the offset before it.
 	cut := bytes.LastIndexByte(buf, '\n')
 	if cut < 0 {
+		if int64(len(buf)) < maxBytesPerPoll {
+			return nil, nil
+		}
+		// A full buffer with no newline in it is not a write in progress,
+		// it is a line the cap cannot hold. Holding the offset before it
+		// would read its first cap forever and every line after it would
+		// stay invisible: the OOM turned into a silent per-file freeze. So
+		// the offset moves past it, to the newline that ends it, read in
+		// cap-sized pieces so the skip itself is bounded too. If that
+		// newline has not been written yet, the offset stays and the next
+		// poll looks again.
+		end, err := endOfLine(f, from+int64(len(buf)))
+		if err != nil {
+			return nil, err
+		}
+		if end < 0 {
+			return nil, nil
+		}
+		w.offsets[path] = end
+		w.Oversized++
 		return nil, nil
 	}
 	complete := buf[:cut+1]

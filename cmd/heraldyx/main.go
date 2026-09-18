@@ -253,6 +253,27 @@ func sayVolume(capped, oversized, said int) int {
 	return now
 }
 
+// cadence is how often the ceiling's summary goes out while alerts are being
+// held. A package value rather than a flag or a variable: the ceiling is the
+// operator's to set, and how often they are told it is holding the line is
+// this process's own promise, the same one in every deployment.
+var cadence = rule.DefaultCadence()
+
+// sayCeiling prints the line at the ceiling: that it is holding alerts back
+// from here, which one was the first, and what happens next. Called once per
+// summary period, on the first alert held since the previous summary, by the
+// caller that knows that.
+//
+// It names the three things an operator reading the log needs in order to
+// stop wondering: a summary follows within the interval and repeats while
+// anything is held, a critical is not held at all, and the events themselves
+// are all still in the log. Issue #71 measured the version of this that said
+// nothing: twenty alerts, then silence, for 28 minutes.
+func sayCeiling(maxPerHour int, first string, c rule.Cadence) {
+	log.Printf("ceiling: %d messages went out in the last hour, so alerts below critical are held back from here (%s first). What happens next: a summary naming the count and the worst severity goes out within %s and again every %s while any are held, sooner for a burst of %d; a critical is still sent at once, one message per condition; every event stays in the log and the console.",
+		maxPerHour, first, c.Every, c.Every, c.Burst)
+}
+
 // cycle is one pass: read what is new, decide, send. Split out so a test can
 // drive it with a fixed clock and no timers.
 func cycle(
@@ -309,27 +330,44 @@ func cycle(
 			// file. Understating a flood during the exact event the ceiling
 			// exists for.
 			heldAgent, heldRun = e.AgentID, e.RunID
+			// The log line at the ceiling, and what happens next. Once per
+			// summary period rather than once per held event: the first hold
+			// since the previous summary is the moment the ceiling starts
+			// mattering again, and a line on every held event would repeat
+			// itself every poll of a flood, which is a log an operator stops
+			// reading. Issue #71 found the log silent here, twenty alerts and
+			// then nothing, with no way to tell a quiet fleet from a held one.
+			if snap.Rule.SuppressedSince == 1 {
+				sayCeiling(rcfg.MaxPerHour, rule.Key(e), cadence)
+			}
 		case rule.Digest, rule.Drop:
 			// Nothing now. The digest goes out on its own schedule below.
 		}
 	}
 
-	// The ceiling's own notice: one per window, carrying everything held back
-	// since the last one. At the end of the cycle for the same reason the
-	// digest is, so it counts what this poll actually did rather than what its
-	// first refused event did.
+	// The ceiling's own summary: under the cadence, carrying everything held
+	// back since the previous one, the time the first of them was held and
+	// the worst severity among them. At the end of the cycle for the same
+	// reason the digest is, so it counts what this poll actually did rather
+	// than what its first refused event did.
 	//
 	// Taken unconditionally, not only when this cycle held something. What
 	// releases the count is the CLOCK, and a remainder that can only leave on
 	// the next suppression is a remainder nobody hears about in the ordinary
 	// ending, where the flood stops. This way it leaves on the first poll after
-	// the window opens, about two seconds later by default.
+	// the interval passes, about two seconds later by default.
+	//
+	// The interval was an hour until issue #71, the same width as the ceiling
+	// itself, and that width measured as one summary at the moment the
+	// ceiling was reached followed by 28 minutes of held alerts nobody was
+	// told about. It is ten minutes now, sooner for a burst, never inside a
+	// minute (rule.DefaultCadence), and the summary that goes says all three.
 	//
 	// When nothing was held this cycle there is no agent to file it under, and
 	// this stack does not invent one (invariant 11). The mail goes, and the
 	// journal counts the record it did not write, exactly as the digest below
 	// behaves when nothing caused a message.
-	if n, due := snap.Rule.TakeSuppressionNotice(time.Hour, now); due {
+	if n, due := snap.Rule.TakeSuppressionNotice(cadence, now); due {
 		if heldAgent != "" {
 			lastAgent, lastRun = heldAgent, heldRun
 		}
@@ -337,7 +375,7 @@ func cycle(
 			Kind:    record.KindSuppression,
 			AgentID: heldAgent,
 			RunID:   heldRun,
-			About:   fmt.Sprintf("suppressed:%d", n),
+			About:   fmt.Sprintf("suppressed:%d", n.Count),
 		}, now)
 	}
 

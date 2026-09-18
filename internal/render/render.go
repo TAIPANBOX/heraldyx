@@ -1003,20 +1003,60 @@ func Test(cfg Config, now time.Time) Message {
 	}
 }
 
-// Suppression renders the one notice sent when the hourly ceiling is holding
-// events back. It deliberately says nothing about the individual events: if
-// the mailbox is the thing under pressure, the fix is fewer messages, not a
-// summary of the flood inside one of them.
-func Suppression(cfg Config, n int, now time.Time) Message {
+// Suppression renders the summary sent while the hourly ceiling is holding
+// alerts back: how many since the previous summary, since when, and how bad
+// the worst of them was. It deliberately says nothing about the individual
+// events: if the mailbox is the thing under pressure, the fix is fewer
+// messages, not a summary of the flood inside one of them.
+//
+// The subject carries the three facts an operator triages on, in the shape
+// issue #71 asked for: `N alerts suppressed since HH:MM UTC, worst high`. The
+// two qualifiers are dropped rather than faked when the state that held the
+// count predates them; a zero time in a subject line is a lie with a
+// timestamp.
+func Suppression(cfg Config, n rule.Notice, now time.Time) Message {
+	head := fmt.Sprintf("[%s] %d alerts suppressed", boxName(cfg), n.Count)
+	if !n.Since.IsZero() {
+		head += " since " + n.Since.UTC().Format("15:04 UTC")
+	}
+	if n.Worst != "" {
+		head += ", worst " + n.Worst
+	}
+
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d further alerts were not sent, because this box reached its hourly limit on mail.\n", n)
+	fmt.Fprintf(&b, "%d further alerts were not sent, because this box reached its hourly limit on mail.\n", n.Count)
+	if !n.Since.IsZero() {
+		fmt.Fprintf(&b, "The first of them was held at %s", stampTime(n.Since))
+		if n.Worst != "" {
+			fmt.Fprintf(&b, " and the worst of them was %s", n.Worst)
+		}
+		b.WriteString(".\n")
+	} else if n.Worst != "" {
+		fmt.Fprintf(&b, "The worst of them was %s.\n", n.Worst)
+	}
 	b.WriteString("\nThis is a limit on messages, not on the stack: every event is still recorded, and every control still works.\n")
+	b.WriteString("A critical alert is never held back by this limit: it is sent at once, one message per condition.\n")
+	if n.Every > 0 {
+		fmt.Fprintf(&b, "\nWhile alerts keep being held, a summary like this one goes out every %s, sooner for a large burst, each naming the count and the worst severity since the previous one.\n", plainDuration(n.Every))
+	}
 	if cfg.ConsoleURL != "" {
 		fmt.Fprintf(&b, "\nOpen your console to see them:\n%s\n", strings.TrimRight(cfg.ConsoleURL, "/"))
 	}
-	return Message{
-		Subject: fmt.Sprintf("[%s] %d alerts suppressed this hour", boxName(cfg), n),
-		Body:    b.String(),
+	return Message{Subject: head, Body: b.String()}
+}
+
+// plainDuration writes a duration the way a sentence would: "10 minutes",
+// not "10m0s". Whole minutes only, which is what a cadence is made of;
+// anything else falls back to Go's own spelling rather than rounding a
+// promise.
+func plainDuration(d time.Duration) string {
+	switch {
+	case d == time.Minute:
+		return "minute"
+	case d > time.Minute && d%time.Minute == 0:
+		return fmt.Sprintf("%d minutes", int(d/time.Minute))
+	default:
+		return d.String()
 	}
 }
 

@@ -31,12 +31,69 @@ type State struct {
 	Digest map[string]int `json:"digest"`
 	// DigestSince is the unix millis the current digest window opened.
 	DigestSince int64 `json:"digest_since"`
-	// SuppressedSince counts events dropped by the hourly ceiling since the
-	// last suppression notice was sent.
+	// SuppressedSince counts events held back by the hourly ceiling since the
+	// last summary of them was sent.
 	SuppressedSince int `json:"suppressed_since"`
-	// SuppressNoticeAt is the unix millis of the last suppression notice, so
-	// the notice itself cannot become the flood it warns about.
+	// SuppressedWorst is the worst severity among them, as the canonical word
+	// (`high`, never `HIGH ` off the wire), so the summary can say how bad the
+	// worst held alert was rather than only how many there were. Empty in a
+	// state file written before it existed, and the summary says nothing
+	// about a worst it does not know.
+	SuppressedWorst string `json:"suppressed_worst,omitempty"`
+	// SuppressedFirstAt is the unix millis the first of them was held, so the
+	// summary can say since when. Zero in an older state file.
+	SuppressedFirstAt int64 `json:"suppressed_first_at,omitempty"`
+	// SuppressNoticeAt is the unix millis of the last summary, so the summary
+	// itself cannot become the flood it warns about.
 	SuppressNoticeAt int64 `json:"suppress_notice_at"`
+}
+
+// Cadence bounds how often the ceiling's own summary goes out while alerts
+// are being held back. Three numbers rather than one, and each closes a way
+// the summary failed in production:
+//
+//   - Every: a summary is due once this long has passed since the previous one
+//     and anything has been held since. It was an hour, the same width as the
+//     ceiling itself, and issue #71 measured what that means: one summary at
+//     the moment the ceiling was reached, then 28 minutes of held alerts the
+//     operator heard nothing about.
+//   - Burst: a summary is due sooner once this many have been held since the
+//     previous one, so a flood is reported as a flood rather than ten minutes
+//     later as a number.
+//   - Floor: but never sooner than this after the previous one, whatever the
+//     count. Without it the burst bound turns the summary into one mail per
+//     fifty events, which is the flood the ceiling exists to prevent, sent by
+//     the ceiling.
+//
+// This is policy about the summary, not a limit an operator sets: the
+// ceiling is theirs (`HERALDYX_MAX_PER_HOUR`), and how often they are told it
+// is holding the line is this process's own promise.
+type Cadence struct {
+	Every time.Duration
+	Burst int
+	Floor time.Duration
+}
+
+// DefaultCadence is a summary every 10 minutes while anything is held, sooner
+// for fifty held since the previous one, and never inside a minute of it.
+func DefaultCadence() Cadence {
+	return Cadence{Every: 10 * time.Minute, Burst: 50, Floor: time.Minute}
+}
+
+// Notice is what one summary of held alerts carries.
+type Notice struct {
+	// Count is how many were held since the previous summary.
+	Count int
+	// Worst is the worst severity among them as a canonical word, or empty
+	// when the state that held them predates the field.
+	Worst string
+	// Since is when the first of them was held, or the zero time when the
+	// state that held them predates the field.
+	Since time.Time
+	// Every is how long, at most, until the next summary while alerts keep
+	// being held: the policy that produced this one, carried so the mail can
+	// say it without a second source of truth.
+	Every time.Duration
 }
 
 // NewState returns an empty state.
@@ -98,25 +155,51 @@ func (s *State) SentInLastHour(now time.Time) int {
 	return n
 }
 
-// NoteSuppressed records one event the ceiling refused.
-func (s *State) NoteSuppressed(now time.Time) {
+// NoteSuppressed records one event the ceiling refused, with its severity, so
+// the summary can say how bad the worst of them was and since when.
+//
+// The word stored is the canonical one for the rank, never the wire's own
+// spelling: a summary subject is a mail header, and what goes into it is
+// chosen here rather than by a producer.
+func (s *State) NoteSuppressed(severity string, now time.Time) {
+	if s.SuppressedSince == 0 {
+		s.SuppressedFirstAt = now.UnixMilli()
+		s.SuppressedWorst = ""
+	}
 	s.SuppressedSince++
+	if r := Rank(severity); r > Rank(s.SuppressedWorst) {
+		s.SuppressedWorst = word(r)
+	}
 }
 
-// TakeSuppressionNotice reports whether a "messages suppressed" notice is due,
-// and if so returns how many were suppressed and resets the counter.
+// TakeSuppressionNotice reports whether a summary of held alerts is due under
+// c, and if so returns what it carries and resets the count behind it.
 //
-// The notice is itself rate limited to one per window: the whole point is that
-// the operator's mailbox stays usable while something is on fire.
-func (s *State) TakeSuppressionNotice(window time.Duration, now time.Time) (int, bool) {
+// Due means: something has been held since the previous summary, and either
+// there was no previous summary, or it is at least c.Every old, or at least
+// c.Burst have been held and it is at least c.Floor old. A previous summary
+// stamped in the future (a clock that moved, a state file from another
+// machine) counts as recent, for the same reason SentWithin treats a future
+// stamp that way: of the two ways to be wrong about a clock, quiet once is
+// the recoverable one.
+func (s *State) TakeSuppressionNotice(c Cadence, now time.Time) (Notice, bool) {
 	if s.SuppressedSince == 0 {
-		return 0, false
+		return Notice{}, false
 	}
-	if s.SuppressNoticeAt > 0 && now.UnixMilli()-s.SuppressNoticeAt < window.Milliseconds() {
-		return 0, false
+	if s.SuppressNoticeAt > 0 {
+		age := now.UnixMilli() - s.SuppressNoticeAt
+		burst := c.Burst > 0 && s.SuppressedSince >= c.Burst && age >= c.Floor.Milliseconds()
+		if age < c.Every.Milliseconds() && !burst {
+			return Notice{}, false
+		}
 	}
-	n := s.SuppressedSince
+	n := Notice{Count: s.SuppressedSince, Worst: s.SuppressedWorst, Every: c.Every}
+	if s.SuppressedFirstAt > 0 {
+		n.Since = time.UnixMilli(s.SuppressedFirstAt)
+	}
 	s.SuppressedSince = 0
+	s.SuppressedWorst = ""
+	s.SuppressedFirstAt = 0
 	s.SuppressNoticeAt = now.UnixMilli()
 	return n, true
 }

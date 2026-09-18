@@ -1107,6 +1107,63 @@ exit=0
 $ git diff        # empty
 ```
 
+## 2026-09-17, on a box behind a home router, mailing to a file
+
+**What was run.** heraldyx v0.2.3, the version stack-single v1.1.3 pins, ran
+on a single Debian 13 box behind a home router, `HERALDYX_MAIL_FILE` set
+(file transport, no SMTP), the floor lowered to `medium` so a
+`breaker_tripped` event would mail, dedup 10 minutes, ceiling 20 per hour,
+and the FinOps crew's passports mounted read-only through
+`HERALDYX_PASSPORTS`. Two customer clusters reached the box's gateway over
+a tailnet for a working day and the FinOps crew ran on the box through a
+door of its own; the shape of the whole run is
+`estate-gates/PROVEN.md`'s 2026-09-17 rows.
+
+**17 mails, and the journal agrees with itself.** `--journal` against the
+box's own volume: 17 records, 17 accepted, 0 refused, 16 chained behind one
+head, chain verifying. The costcrew anomaly mails carried an owner line read
+from a passport (`Answerable for it: ...`); the customer agents' own mails
+carried none, because no passport existed for them, which is the rule
+working as designed rather than a gap. What went out, by type:
+`breaker_tripped` for the four customer runs and for the crew's own runs,
+`identity_mismatch` when a valid key carried the wrong cloud's identity,
+`policy_deny` while one cloud sat under a freeze, `unit_cap_exceeded` when
+the crew passed its monthly unit cap, and `dependency_failed` while the
+policy plane and, separately, the provider were each unreachable.
+
+**The storm.** With this hour's ceiling already spent, eight further gateway
+refusals, each carrying its own run id, landed within two seconds of each
+other. heraldyx held back all eight: one `suppressed:8` record went out, and
+every one of the eight events stayed on the shared log regardless, since the
+ceiling limits messages, never evidence.
+
+**What went wrong after it.** For 28 minutes past that storm, high and
+critical events kept arriving, one `budget_exhausted` at critical among
+them, and heraldyx sent no mail and wrote no second suppression record,
+while its own state file showed read offsets sitting at the end of every
+file the whole time: it was current on the log and silent about it
+regardless. That is issue #71, fixed the next day by #72 (below; not
+repeated here); both launchers still pin the v0.2.3 that goes quiet this
+way.
+
+**One thing this run could not see, outside this repository.** The
+tokenfuse control plane's own `budget_exhausted` events never reached the
+shared log on this launcher at all, because the control plane could not
+create its own events file (tokenfuse#292, stack-single#57, both filed off
+this run on 2026-09-17 and closed the next day). Under the default floor,
+`high`, a `budget_exhausted` reaching the log would still mail, since
+critical clears any floor: what removed it sat upstream of heraldyx, in a
+file that was never opened. The floor lowered to `medium` for this run is a
+separate fact: it is why `breaker_tripped`, which sits at medium, mailed at
+all instead of going to the digest.
+
+**NOT proven.** SMTP delivery: this run only ever wrote to a file. The daily
+digest never fired, so nothing here says what it would have collected. And
+catching up after a restart with the ceiling not yet reached stays unproven
+on its own: the process restarted more than once in the same window for
+reasons unrelated to mail, and nothing in this run isolates a restart's own
+effect on the count from the ceiling finding above.
+
 ## 2026-09-18, after the ceiling the operator heard nothing, a critical included
 
 Issue #71, measured on an appliance run on 2026-09-17 (stack-single v1.1.3,

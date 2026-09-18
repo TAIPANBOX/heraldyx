@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-165-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-176-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.3-success.svg)
 
@@ -101,7 +101,7 @@ of four doors.
 
 <div align="center">
 
-<img src="docs/assets/decide.svg" alt="One event passes four checks in order: an unknown severity and anything below the floor go to the daily digest, a condition already mailed within the dedup window is dropped, an event over the hourly ceiling is suppressed with one notice, and what is left is mailed immediately. A measured burst of 120 events produced 20 alert mails" width="960">
+<img src="docs/assets/decide.svg" alt="One event passes four checks in order: an unknown severity and anything below the floor go to the daily digest, a condition already mailed within the dedup window is dropped, an event over the hourly ceiling is held back and summarised every ten minutes while any are held, a critical is mailed regardless, and what is left is mailed immediately. A measured burst of 120 events produced 20 alert mails" width="960">
 
 <sub>The numbers are from <code>scripts/burst-demo.sh</code>, which runs the real binary over a generated burst. It is a scenario: what a real fleet produces is unmeasured, and <code>VALIDATION.md</code> says so.</sub>
 
@@ -363,7 +363,7 @@ other.
 | `HERALDYX_SMTP_FROM` | (empty) | envelope sender |
 | `HERALDYX_SMTP_USER` / `_PASS` | (empty) | credentials, if your server wants them |
 | `HERALDYX_DEDUP_SECONDS` | `600` | quiet window per condition |
-| `HERALDYX_MAX_PER_HOUR` | `20` | ceiling on immediate messages, `0` for none |
+| `HERALDYX_MAX_PER_HOUR` | `20` | ceiling on immediate messages, `0` for none; a `critical` is sent regardless, and what is held is summarised every ten minutes |
 | `HERALDYX_DIGEST_HOURS` | `24` | how often the below-the-floor summary goes out, `0` for never |
 | `HERALDYX_POLL_MS` | `2000` | how often to read the log |
 | `HERALDYX_SENT` | beside the state file | the dispatch journal; empty disables recording |
@@ -557,6 +557,14 @@ log is mounted read-only here on purpose, and it stays that way.
   is still in the log, which outlives this process.
 - **It does not know your working hours.** Quiet hours are designed and not
   built; the ceiling and the digest are the only volume controls.
+- **It does not go quiet at the ceiling.** While the ceiling holds alerts
+  back, a summary goes out every ten minutes naming how many, since when and
+  the worst severity among them (sooner for a burst of fifty, never inside a
+  minute of the previous one), and a `critical` is never held: it is sent at
+  once, one message per condition, with the dedup window still applying. The
+  log line at the ceiling says the same. Measured the other way on 2026-09-17
+  (issue #71): one summary at the ceiling, then 28 minutes of held alerts,
+  a critical among them, and silence.
 - **It does not talk to any plane.** No polling of an API, no credential, no
   client. If a fact is not in the event log, heraldyx does not know it.
 - **It does not ship the journal anywhere.** The record plane comes and reads

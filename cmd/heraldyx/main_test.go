@@ -331,7 +331,8 @@ func TestTheSuppressionNoticeCountsTheWholeBurst(t *testing.T) {
 	}
 
 	got := read(t, mail)
-	if !strings.Contains(got, "[prod-box] 10 alerts suppressed this hour") {
+	// The subject's start time is the wall clock here, since this drives run().
+	if !strings.Contains(got, "[prod-box] 10 alerts suppressed since ") || !strings.Contains(got, ", worst high") {
 		t.Fatalf("the notice does not carry the whole burst, subjects were:\n%s", subjects(got))
 	}
 	// And nothing is stranded behind it. A count that can only leave on the
@@ -392,7 +393,7 @@ func TestAStrandedSuppressionCountLeavesOnTheNextCycle(t *testing.T) {
 		write(t, events, ndjson("policy_deny", "high", fmt.Sprintf("run-%d", i), ""))
 	}
 	poll(t0)
-	if got := read(t, mail); !strings.Contains(got, "5 alerts suppressed this hour") {
+	if got := read(t, mail); !strings.Contains(got, "5 alerts suppressed since 14:00 UTC, worst high") {
 		t.Fatalf("the first notice does not carry the burst, subjects were:\n%s", subjects(got))
 	}
 
@@ -405,7 +406,7 @@ func TestAStrandedSuppressionCountLeavesOnTheNextCycle(t *testing.T) {
 	if n := snap.Rule.SuppressedSince; n != 3 {
 		t.Fatalf("want the 3 held events waiting, have %d", n)
 	}
-	if strings.Count(read(t, mail), "alerts suppressed this hour") != 1 {
+	if strings.Count(read(t, mail), "alerts suppressed") != 1 {
 		t.Fatal("the notice itself became the flood it warns about")
 	}
 
@@ -413,7 +414,7 @@ func TestAStrandedSuppressionCountLeavesOnTheNextCycle(t *testing.T) {
 	// here: waiting for another suppression is waiting for a flood that may
 	// never come.
 	poll(t0.Add(61 * time.Minute))
-	if got := read(t, mail); !strings.Contains(got, "3 alerts suppressed this hour") {
+	if got := read(t, mail); !strings.Contains(got, "3 alerts suppressed since 14:01 UTC, worst high") {
 		t.Fatalf("the stranded count never left, subjects were:\n%s", subjects(got))
 	}
 	if n := snap.Rule.SuppressedSince; n != 0 {
@@ -665,4 +666,296 @@ func read(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// bench drives cycle() with a fixed clock, the way the stranded-count test
+// above does, so a ten-minute cadence can be tested without waiting ten
+// minutes. Each poll is one pass over whatever has been appended to events.
+type bench struct {
+	events, mail string
+	snap         *state.Snapshot
+	poll         func(now time.Time)
+}
+
+func newBench(t *testing.T, minSeverity string) *bench {
+	t.Helper()
+	dir := t.TempDir()
+	events := filepath.Join(dir, "tokenfuse.ndjson")
+	mail := filepath.Join(dir, "mail.txt")
+	env(t, map[string]string{
+		"HERALDYX_EVENTS":       events,
+		"HERALDYX_TO":           "ops@example.com",
+		"HERALDYX_MAIL_FILE":    mail,
+		"HERALDYX_MIN_SEVERITY": minSeverity,
+		"HERALDYX_BOX":          "prod-box",
+		"HERALDYX_STATE":        filepath.Join(dir, "state.json"),
+	})
+	cfg, err := config.FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	minRank, err := rule.ParseSeverity(cfg.MinSeverity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rcfg := rule.Config{MinRank: minRank, DedupWindow: cfg.DedupWindow, MaxPerHour: cfg.MaxPerHour}
+	snap := state.New()
+	journal, err := record.Open(cfg.SentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { journal.Close() })
+	w := watch.New(cfg.ResolveEventFiles(), snap.Offsets)
+	// The file exists before the first poll, so the watcher has something to
+	// hold an offset for even when the first poll's events are appended later.
+	write(t, events, "")
+	b := &bench{events: events, mail: mail, snap: snap}
+	b.poll = func(now time.Time) {
+		cycle(cfg, rcfg, render.Config{Box: cfg.Box}, w, snap, deliver.NewFile(mail),
+			journal, passport.Open(""), fleet.New(), now)
+	}
+	return b
+}
+
+// held appends n distinct alerts of one type and severity, numbered from
+// start, so dedup never fires on them and only the ceiling can hold them.
+func (b *bench) held(t *testing.T, kind, severity string, start, n int) {
+	t.Helper()
+	for i := start; i < start+n; i++ {
+		write(t, b.events, ndjson(kind, severity, fmt.Sprintf("run-%d", i), ""))
+	}
+}
+
+// summaries counts the ceiling's own notices in the mail file.
+func (b *bench) summaries(t *testing.T) int {
+	t.Helper()
+	if _, err := os.Stat(b.mail); err != nil {
+		return 0
+	}
+	return strings.Count(read(t, b.mail), "alerts suppressed")
+}
+
+// Issue #71, the second ask. A critical that arrived after the ceiling was
+// reached was held with everything else: the whole meaning of that severity
+// is "now", and the one limit that exists to keep the mailbox usable is not
+// a reason to sit on it. It goes through the ceiling, one message per
+// condition, and the dedup window still applies to it.
+func TestACriticalIsSentThroughTheCeiling(t *testing.T) {
+	b := newBench(t, "medium")
+	t0 := time.Date(2026, 9, 17, 12, 11, 0, 0, time.UTC)
+
+	// The ceiling is reached: 25 distinct highs, 20 go out, 5 are held.
+	b.held(t, "policy_deny", "high", 0, 25)
+	b.poll(t0)
+	if got := b.snap.Rule.SentInLastHour(t0); got != 20 {
+		t.Fatalf("premise: the ceiling must be reached, %d sent", got)
+	}
+	if n := b.summaries(t); n != 1 {
+		t.Fatalf("premise: want the first summary, have %d", n)
+	}
+
+	// A critical a minute later, about a run nothing has been mailed about.
+	write(t, b.events, ndjson("budget_exhausted", "critical", "run-900", ""))
+	b.poll(t0.Add(time.Minute))
+	if got := read(t, b.mail); !strings.Contains(subjects(got), "run-900") {
+		t.Fatalf("a critical was held back by the ceiling, subjects were:\n%s", subjects(got))
+	}
+
+	// The same critical again inside the dedup window: one message, not two.
+	write(t, b.events, ndjson("budget_exhausted", "critical", "run-900", ""))
+	b.poll(t0.Add(2 * time.Minute))
+	if n := strings.Count(subjects(read(t, b.mail)), "run-900"); n != 1 {
+		t.Fatalf("dedup must still apply to a critical: %d messages about run-900", n)
+	}
+
+	// A different critical is a different condition, and it goes too.
+	write(t, b.events, ndjson("budget_exhausted", "critical", "run-901", ""))
+	b.poll(t0.Add(3 * time.Minute))
+	if got := read(t, b.mail); !strings.Contains(subjects(got), "run-901") {
+		t.Fatalf("a second, different critical was held back, subjects were:\n%s", subjects(got))
+	}
+
+	// And none of the three was counted as held: with nothing else held since
+	// the first summary, no further summary is due when the interval passes.
+	b.poll(t0.Add(15 * time.Minute))
+	if n := b.summaries(t); n != 1 {
+		t.Fatalf("a critical that went out was still counted as held: %d summaries", n)
+	}
+}
+
+// Issue #71, the first ask. After the first summary the operator heard
+// nothing for 28 minutes while events kept being held, because the summary
+// was rate limited to one an hour. A summary is due again ten minutes after
+// the previous one whenever anything has been held since, and it carries the
+// true count, the time the first of them was held, and the worst severity.
+func TestHeldAlertsAreSummarisedAgainWithinABoundedInterval(t *testing.T) {
+	b := newBench(t, "medium")
+	t0 := time.Date(2026, 9, 17, 12, 11, 0, 0, time.UTC)
+
+	b.held(t, "policy_deny", "high", 0, 25)
+	b.poll(t0)
+	if n := b.summaries(t); n != 1 {
+		t.Fatalf("premise: want the first summary, have %d", n)
+	}
+
+	// Three more a minute later. The summary is rate limited, so none goes
+	// now, and that is the limit working rather than the defect.
+	b.held(t, "dependency_failed", "high", 25, 3)
+	b.poll(t0.Add(time.Minute))
+	if n := b.summaries(t); n != 1 {
+		t.Fatalf("the summary became the flood it warns about: %d summaries after one minute", n)
+	}
+	if n := b.snap.Rule.SuppressedSince; n != 3 {
+		t.Fatalf("want the 3 held events waiting, have %d", n)
+	}
+
+	// Just under the interval: still nothing.
+	b.poll(t0.Add(10*time.Minute - time.Second))
+	if n := b.summaries(t); n != 1 {
+		t.Fatalf("a summary went out before the interval had passed: %d summaries", n)
+	}
+
+	// The interval passes with nothing new in the log at all. The three
+	// leave here, and the mail says when the first of them was held and how
+	// bad the worst of them was.
+	b.poll(t0.Add(10 * time.Minute))
+	got := read(t, b.mail)
+	if n := b.summaries(t); n != 2 {
+		t.Fatalf("no second summary ten minutes after the first, subjects were:\n%s", subjects(got))
+	}
+	if !strings.Contains(got, "[prod-box] 3 alerts suppressed since 12:12 UTC, worst high") {
+		t.Fatalf("the second summary does not carry the count, the start and the worst, subjects were:\n%s", subjects(got))
+	}
+	if n := b.snap.Rule.SuppressedSince; n != 0 {
+		t.Fatalf("%d events are still stranded after the second summary", n)
+	}
+
+	// And again, for as long as it goes on.
+	b.held(t, "unit_cap_exceeded", "high", 28, 4)
+	b.poll(t0.Add(12 * time.Minute))
+	b.poll(t0.Add(20 * time.Minute))
+	if got := read(t, b.mail); !strings.Contains(got, "4 alerts suppressed since 12:23 UTC, worst high") {
+		t.Fatalf("no third summary, subjects were:\n%s", subjects(got))
+	}
+}
+
+// The summary says how bad the worst held alert was, so an operator reading
+// "31 held" can tell thirty-one mediums from thirty mediums and one high.
+func TestTheSummaryNamesTheWorstSeverityHeld(t *testing.T) {
+	b := newBench(t, "medium")
+	t0 := time.Date(2026, 9, 17, 12, 11, 0, 0, time.UTC)
+
+	// The ceiling is filled by mediums, none held yet.
+	b.held(t, "breaker_tripped", "medium", 0, 20)
+	b.poll(t0)
+	if n := b.summaries(t); n != 0 {
+		t.Fatalf("premise: nothing should be held yet, have %d summaries", n)
+	}
+
+	// Five more mediums and one high are held.
+	b.held(t, "breaker_tripped", "medium", 20, 3)
+	b.held(t, "dependency_failed", "high", 23, 1)
+	b.held(t, "breaker_tripped", "medium", 24, 2)
+	b.poll(t0.Add(time.Minute))
+	got := read(t, b.mail)
+	if !strings.Contains(got, "[prod-box] 6 alerts suppressed since 12:12 UTC, worst high") {
+		t.Fatalf("the summary does not name the worst severity held, subjects were:\n%s", subjects(got))
+	}
+	if !strings.Contains(got, "the worst of them was high") {
+		t.Fatalf("the body does not say how bad the worst one was:\n%s", got)
+	}
+}
+
+// A burst is summarised sooner than the interval, and the summary still
+// cannot become the flood it warns about: fifty held since the previous
+// summary bring the next one forward, but never to less than a minute after
+// the previous one.
+func TestALargeBurstIsSummarisedSoonerThanTheInterval(t *testing.T) {
+	b := newBench(t, "medium")
+	t0 := time.Date(2026, 9, 17, 12, 11, 0, 0, time.UTC)
+
+	b.held(t, "policy_deny", "high", 0, 25)
+	b.poll(t0)
+	if n := b.summaries(t); n != 1 {
+		t.Fatalf("premise: want the first summary, have %d", n)
+	}
+
+	// Fifty held two minutes after the first summary: a summary now.
+	b.held(t, "policy_deny", "high", 25, 50)
+	b.poll(t0.Add(2 * time.Minute))
+	got := read(t, b.mail)
+	if n := b.summaries(t); n != 2 {
+		t.Fatalf("a burst of 50 waited for the interval, subjects were:\n%s", subjects(got))
+	}
+	if !strings.Contains(got, "50 alerts suppressed since 12:13 UTC, worst high") {
+		t.Fatalf("the burst summary does not carry the burst, subjects were:\n%s", subjects(got))
+	}
+
+	// Fifty more thirty seconds later: the floor holds them.
+	b.held(t, "policy_deny", "high", 75, 50)
+	b.poll(t0.Add(2*time.Minute + 30*time.Second))
+	if n := b.summaries(t); n != 2 {
+		t.Fatalf("the burst rule let the summary become a flood: %d summaries", n)
+	}
+	if n := b.snap.Rule.SuppressedSince; n != 50 {
+		t.Fatalf("want the 50 held events waiting behind the floor, have %d", n)
+	}
+
+	// A minute after the previous summary they leave, together with what
+	// arrived in the meantime.
+	b.held(t, "policy_deny", "high", 125, 10)
+	b.poll(t0.Add(3 * time.Minute))
+	if got := read(t, b.mail); !strings.Contains(got, "60 alerts suppressed since 12:13 UTC") {
+		t.Fatalf("the floor never released the burst, subjects were:\n%s", subjects(got))
+	}
+}
+
+// Issue #71, the third ask. The log said nothing at the ceiling, so a person
+// reading it saw twenty alerts and then silence, with no way to tell a quiet
+// fleet from a held one. The line at the ceiling says what happens next, and
+// it is printed once per summary period rather than once per held event.
+func TestTheLogSaysWhatHappensNextAtTheCeiling(t *testing.T) {
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	b := newBench(t, "medium")
+	t0 := time.Date(2026, 9, 17, 12, 11, 0, 0, time.UTC)
+
+	b.held(t, "policy_deny", "high", 0, 25)
+	b.poll(t0)
+	got := out.String()
+	if !strings.Contains(got, "ceiling:") {
+		t.Fatalf("nothing in the log says the ceiling is holding alerts back:\n%s", got)
+	}
+	for _, want := range []string{"held back", "summary", "critical"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the line at the ceiling does not say what happens next (%q missing):\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, "ceiling:"); n != 1 {
+		t.Fatalf("five alerts were held and the line was printed %d times, want once", n)
+	}
+
+	// The first summary went at the end of that cycle, so the next hold opens
+	// a new period and gets its line; two more held thirty seconds after it,
+	// inside the same period, do not.
+	b.held(t, "policy_deny", "high", 25, 3)
+	b.poll(t0.Add(time.Minute))
+	if n := strings.Count(out.String(), "ceiling:"); n != 2 {
+		t.Fatalf("the first hold after a summary must get its line, got %d lines", n)
+	}
+	b.held(t, "policy_deny", "high", 28, 2)
+	b.poll(t0.Add(time.Minute + 30*time.Second))
+	if n := strings.Count(out.String(), "ceiling:"); n != 2 {
+		t.Fatalf("the line repeats inside one summary period: %d lines", n)
+	}
+
+	// The next summary goes, then one more is held: a new period, a new line.
+	b.poll(t0.Add(10 * time.Minute))
+	b.held(t, "policy_deny", "high", 30, 1)
+	b.poll(t0.Add(11 * time.Minute))
+	if n := strings.Count(out.String(), "ceiling:"); n != 3 {
+		t.Fatalf("want one line per summary period, 3 in all, got %d:\n%s", n, out.String())
+	}
 }

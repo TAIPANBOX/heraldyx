@@ -39,6 +39,13 @@ jobs:
       - name: the README's numbers are true
         run: ./scripts/readme-numbers.sh
 
+      # The scenarios in features/ are what a person reads instead of the
+      # code. Each one names a test; this fails when a name points at
+      # nothing, when a scenario has no name, or when there is nothing left
+      # to check.
+      - name: every scenario is bound to a test, both ways
+        run: ./scripts/features-are-bound.sh
+
       # Last, because it mutates tracked files and restores them. It needs a
       # clean tree and says so plainly, so it also reports any earlier step
       # that starts writing into the checkout.

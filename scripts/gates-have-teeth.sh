@@ -63,7 +63,7 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 
 if [ -n "$(git status --porcelain)" ]; then
 	printf 'this script mutates tracked files, so it needs a clean tree.\n'
-	printf 'commit or stash first; it restores with `git checkout` and cannot\n'
+	printf 'commit or stash first; it restores with git checkout and cannot\n'
 	printf 'tell your edits from its own.\n'
 	exit 1
 fi
@@ -236,6 +236,20 @@ assert anchor in s, "anchor not found in " + p
 open(p, "w").write(s.replace(anchor, planted + anchor, 1))')" \
 	"the README's table lists"
 
+# The scenarios in features/ are what a person reads instead of the code, and
+# the binding is a pointer. A scenario pointing at a test that has been
+# renamed reads as held, and only this direction can see it.
+run_case "features-are-bound: a scenario names a test that is gone" fail \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'edit("features/ceiling.feature", "@test:TestACriticalIsSentThroughTheCeiling", "@test:TestACriticalWasOnceSentThroughTheCeiling")')" \
+	"no such test exists"
+
+# And the other direction: a scenario nobody bound is a wish, not a proof.
+run_case "features-are-bound: a scenario with no binding at all" fail \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'edit("features/ceiling.feature", "  Scenario: the ceiling itself is unchanged", "  Scenario: something nobody bound\n    Given a paragraph\n\n  Scenario: the ceiling itself is unchanged")')" \
+	"binding(s)"
+
 echo
 echo "=== and what they must NOT catch ==="
 
@@ -266,6 +280,13 @@ run_case "readme-numbers: a described sentence is reworded" pass \
 	'./scripts/readme-numbers.sh' \
 	"$(py 'edit("internal/render/render.go", "what: \"failed a rehearsal\",", "what: \"did not survive a rehearsal\",")')"
 
+# A test named in a scenario's prose is prose. Only the binding line is a
+# pointer, and a gate that read every mention as one would fire on a correct
+# file and be deleted by whoever is unblocking CI.
+run_case "features-are-bound: a test named in prose rather than in a binding" pass \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'edit("features/ceiling.feature", "  # @test:TestDedupHolds", "  # See also TestSomethingThatDoesNotExistAtAll.\n  # @test:TestDedupHolds")')"
+
 echo
 echo "=== and the one this estate learned the hard way ==="
 echo "    a gate whose subject is gone must SAY so, not report OK on nothing"
@@ -292,6 +313,17 @@ run_case "readme-numbers: nothing left that counts as the catalog" fail \
 run_case "readme-numbers: no table of event types to count" fail \
 	'./scripts/readme-numbers.sh' \
 	"$(py 'edit("README.md", "| type | the mail", "| event type | the mail")')" \
+	"measured nothing"
+
+# Every feature file removed from the index and the disk: the gate must say it
+# measured nothing rather than report zero broken bindings out of zero.
+run_case "features-are-bound: no scenarios left to check" fail \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'import subprocess
+out = subprocess.run(["git", "ls-files", "features"], capture_output=True, text=True).stdout.split()
+assert out, "no feature files tracked in this repo"
+for f in out:
+    subprocess.run(["git", "rm", "-q", f], check=True)')" \
 	"measured nothing"
 
 echo

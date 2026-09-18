@@ -208,7 +208,7 @@ func TestUnknownTypeIsHonest(t *testing.T) {
 }
 
 func TestSuppressionNoticeCarriesNoEvents(t *testing.T) {
-	m := Suppression(cfg(), 37, now)
+	m := Suppression(cfg(), rule.Notice{Count: 37, Worst: "high", Since: now.Add(-3 * time.Minute), Every: 10 * time.Minute}, now)
 	if !strings.Contains(m.Subject, "37 alerts suppressed") {
 		t.Fatalf("subject: %s", m.Subject)
 	}
@@ -712,5 +712,57 @@ func TestAnEstablishedSubjectKeepsItsCoordinate(t *testing.T) {
 	}
 	if strings.Contains(m.Body, "no card") {
 		t.Errorf("an established agent was told it has no card:\n%s", m.Body)
+	}
+}
+
+// A state file written before the worst severity and the start time were
+// kept still summarises: the count is real, and the mail says nothing about
+// a worst or a start it does not know rather than printing a zero time.
+func TestASummaryWithoutAWorstOrAStartStillReads(t *testing.T) {
+	m := Suppression(cfg(), rule.Notice{Count: 4, Every: 10 * time.Minute}, now)
+	if !strings.Contains(m.Subject, "4 alerts suppressed") {
+		t.Fatalf("subject: %s", m.Subject)
+	}
+	for _, mustNot := range []string{"worst", "since"} {
+		if strings.Contains(m.Subject, mustNot) {
+			t.Fatalf("a summary with no worst or start must not claim one in its subject (%q):\n%s", mustNot, m.Subject)
+		}
+	}
+	for _, mustNot := range []string{"worst of them", "held at", "1970", "0001"} {
+		if strings.Contains(m.Body, mustNot) {
+			t.Fatalf("a summary with no worst or start must not claim one in its body (%q):\n%s", mustNot, m.Body)
+		}
+	}
+	if !strings.Contains(m.Body, "every 10 minutes") {
+		t.Fatalf("the body must still say when the next summary comes:\n%s", m.Body)
+	}
+
+	// And a worst with no start, the other half-known shape, names the worst
+	// and nothing else.
+	m = Suppression(cfg(), rule.Notice{Count: 4, Worst: "medium"}, now)
+	if !strings.Contains(m.Subject, "4 alerts suppressed, worst medium") || strings.Contains(m.Subject, "since") {
+		t.Fatalf("subject with a worst and no start: %s", m.Subject)
+	}
+	if !strings.Contains(m.Body, "The worst of them was medium.") || strings.Contains(m.Body, "held at") {
+		t.Fatalf("body with a worst and no start:\n%s", m.Body)
+	}
+}
+
+// The cadence in a mail reads as a sentence, and a duration that is not a
+// whole number of minutes is spelled the way Go spells it rather than rounded
+// into a promise the process does not keep.
+func TestACadenceReadsAsASentence(t *testing.T) {
+	for _, c := range []struct {
+		d    time.Duration
+		want string
+	}{
+		{time.Minute, "minute"},
+		{10 * time.Minute, "10 minutes"},
+		{90 * time.Second, "1m30s"},
+		{45 * time.Second, "45s"},
+	} {
+		if got := plainDuration(c.d); got != c.want {
+			t.Errorf("plainDuration(%s) = %q, want %q", c.d, got, c.want)
+		}
 	}
 }

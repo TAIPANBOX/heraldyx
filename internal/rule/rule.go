@@ -57,6 +57,25 @@ func Rank(severity string) int {
 	}
 }
 
+// word is the canonical spelling of a known rank, the inverse of [Rank] for
+// everything Rank knows. An unknown rank has no word and gets an empty one.
+func word(rank int) string {
+	switch rank {
+	case rankInfo:
+		return event.SeverityInfo
+	case rankLow:
+		return event.SeverityLow
+	case rankMedium:
+		return event.SeverityMedium
+	case rankHigh:
+		return event.SeverityHigh
+	case rankCrit:
+		return event.SeverityCritical
+	default:
+		return ""
+	}
+}
+
 // ParseSeverity turns an operator-supplied floor ("high") into a rank.
 func ParseSeverity(s string) (int, error) {
 	r := Rank(s)
@@ -77,8 +96,9 @@ const (
 	// Notify: send it now.
 	Notify
 	// Suppressed: it would have been a Notify, but the hourly ceiling is
-	// reached. The caller sends ONE notice per window, never the events
-	// themselves, and [State.SuppressedSince] carries the count.
+	// reached and it is not a critical. The caller sends a summary under a
+	// [Cadence], never the events themselves, and [State.SuppressedSince]
+	// carries the count.
 	Suppressed
 )
 
@@ -163,8 +183,16 @@ func Decide(cfg Config, st *State, e event.Event, now time.Time) Verdict {
 		return Drop
 	}
 
-	if cfg.MaxPerHour > 0 && st.SentInLastHour(now) >= cfg.MaxPerHour {
-		st.NoteSuppressed(now)
+	// The ceiling holds everything below critical. A critical goes through
+	// it: the whole meaning of that severity is "now", and the one limit that
+	// exists to keep the mailbox usable is not a reason to sit on it. It is
+	// still one message per condition, because dedup ran first, and it still
+	// counts toward the hour, because the ceiling is a count of what went out
+	// and not of what deserved to. Issue #71 measured the alternative: a
+	// `budget_exhausted` at critical held with twenty mediums, and an operator
+	// who heard nothing for 28 minutes.
+	if cfg.MaxPerHour > 0 && r < rankCrit && st.SentInLastHour(now) >= cfg.MaxPerHour {
+		st.NoteSuppressed(e.Severity, now)
 		return Suppressed
 	}
 

@@ -36,6 +36,7 @@ go vet ./...
 go test -race ./...
 ./scripts/one-way-out.sh
 ./scripts/readme-numbers.sh
+./scripts/features-are-bound.sh # invariant 18's scenarios, bound both ways
 ./scripts/gates-have-teeth.sh   # invariant 16; needs a clean tree
 ```
 
@@ -292,7 +293,7 @@ an absent invariant.
     *(test: `TestEveryRecordIsReadableAtTheRecordPlanesDoor`, which pins the
     schema heraldyx stamps)*
 
-16. **A check must be able to tell "did not fail" from "did not run", and both
+16. **A check must be able to tell "did not fail" from "did not run", and the
     gates here have been made to fail on purpose to prove they can.**
     `readme-numbers.sh` already refuses when its subject is absent, in four
     distinct ways: no test functions at all, no badge to compare against, no
@@ -306,12 +307,13 @@ an absent invariant.
     that stops matching does not fail: it falls through, the loop finds nothing
     to complain about, and the script prints OK. A green result and an absent
     check are the same output.
-    *(gate: `scripts/gates-have-teeth.sh`, 12 cases: six real faults, three
-    non-faults, and three subjects taken away. The non-faults are the ones
+    *(gate: `scripts/gates-have-teeth.sh`, 16 cases: eight real faults, four
+    non-faults, and four subjects taken away. The non-faults are the ones
     worth keeping: `internal/deliver` speaking SMTP is the design this gate
     protects, a decision package may still use the standard library for pure
-    work, and rewording a catalog sentence changes what a mail SAYS and changes
-    no number. A gate that flagged any of them would be deleted by whoever is
+    work, rewording a catalog sentence changes what a mail SAYS and changes
+    no number, and a test named in a scenario's prose is prose rather than a
+    binding. A gate that flagged any of them would be deleted by whoever is
     unblocking CI.)*
 
     **What it does not cover.** It cannot test itself. It proves each gate
@@ -343,6 +345,49 @@ an absent invariant.
     *(test: `TestAFileGrowingPastTheCapIsReadInPieces`,
     `TestABurstUnderTheCapIsReadWholeInOnePoll`,
     `TestALineLongerThanTheCapIsSkippedAndTheFileKeepsFlowing`)*
+
+18. **The ceiling never goes quiet, and a `critical` goes through it.** The
+    ceiling is a limit on how much mail an hour carries, and it stays exactly
+    that: `HERALDYX_MAX_PER_HOUR` messages, dedup first, unchanged. What it
+    must never become is silence. While it holds alerts back, a summary goes
+    out every ten minutes naming the true count since the previous summary,
+    when the first of them was held, and the worst severity among them;
+    sooner once fifty have been held since the previous one, and never
+    inside a minute of it, so the summary cannot become the flood it warns
+    about (`rule.DefaultCadence`, a promise of this process rather than a
+    setting). A `critical` is not held at all: it is sent at once, one
+    message per condition, with the dedup window still applying, and it still
+    counts toward the hour. And the log line at the ceiling says all of this,
+    once per summary period rather than once per held event.
+
+    Measured the other way on an appliance run on 2026-09-17 (issue #71): the
+    ceiling was reached at 12:11Z with one summary saying 8 were held, and
+    over the next 28 minutes a `budget_exhausted` at critical, ten highs and
+    about twenty mediums were read, held, and never mentioned, because the
+    summary was rate limited to one an hour, the same width as the ceiling,
+    and the critical was held with the rest. Reproduced against the unfixed
+    binary on 2026-09-18 with 25 distinct highs and then the issue's second
+    poll: 21 records, `suppressed_since: 31`, the critical among the 31, and
+    nothing in the log.
+
+    The consequence stated rather than implied: a fleet raising DISTINCT
+    criticals at volume is bounded by dedup alone, since a critical bypasses
+    the only other limit. That is the ask, and it is the right trade for a
+    severity whose meaning is "now"; a producer that raises `critical` for
+    something that is not is the defect in that case, and it is not one this
+    process can tell from a real one.
+    *(test: `TestACriticalIsSentThroughTheCeiling`,
+    `TestHeldAlertsAreSummarisedAgainWithinABoundedInterval`,
+    `TestTheSummaryNamesTheWorstSeverityHeld`,
+    `TestALargeBurstIsSummarisedSoonerThanTheInterval`,
+    `TestTheLogSaysWhatHappensNextAtTheCeiling`,
+    `TestACriticalBypassesTheCeilingAndDedupStillHolds`,
+    `TestTheSummaryCadenceHasBothBoundsAndAFloor`; every one run red against
+    the unfixed code first, and each verified against the fixed code by the
+    mutation that puts the defect back, recorded in `VALIDATION.md`;
+    scenarios: `features/ceiling.feature`, each bound to a named test both
+    ways, held by `scripts/features-are-bound.sh` with four cases in
+    `gates-have-teeth.sh`)*
 
 ## Decisions that have no gate yet
 

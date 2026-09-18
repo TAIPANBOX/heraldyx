@@ -36,6 +36,7 @@ go vet ./...
 go test -race ./...
 ./scripts/one-way-out.sh
 ./scripts/readme-numbers.sh
+./scripts/features-are-bound.sh # invariant 18's scenarios, bound both ways
 ./scripts/gates-have-teeth.sh   # invariant 16; needs a clean tree
 ```
 
@@ -292,7 +293,7 @@ an absent invariant.
     *(test: `TestEveryRecordIsReadableAtTheRecordPlanesDoor`, which pins the
     schema heraldyx stamps)*
 
-16. **A check must be able to tell "did not fail" from "did not run", and both
+16. **A check must be able to tell "did not fail" from "did not run", and the
     gates here have been made to fail on purpose to prove they can.**
     `readme-numbers.sh` already refuses when its subject is absent, in four
     distinct ways: no test functions at all, no badge to compare against, no
@@ -306,12 +307,13 @@ an absent invariant.
     that stops matching does not fail: it falls through, the loop finds nothing
     to complain about, and the script prints OK. A green result and an absent
     check are the same output.
-    *(gate: `scripts/gates-have-teeth.sh`, 12 cases: six real faults, three
-    non-faults, and three subjects taken away. The non-faults are the ones
+    *(gate: `scripts/gates-have-teeth.sh`, 16 cases: eight real faults, four
+    non-faults, and four subjects taken away. The non-faults are the ones
     worth keeping: `internal/deliver` speaking SMTP is the design this gate
     protects, a decision package may still use the standard library for pure
-    work, and rewording a catalog sentence changes what a mail SAYS and changes
-    no number. A gate that flagged any of them would be deleted by whoever is
+    work, rewording a catalog sentence changes what a mail SAYS and changes
+    no number, and a test named in a scenario's prose is prose rather than a
+    binding. A gate that flagged any of them would be deleted by whoever is
     unblocking CI.)*
 
     **What it does not cover.** It cannot test itself. It proves each gate
@@ -383,7 +385,9 @@ an absent invariant.
     `TestTheSummaryCadenceHasBothBoundsAndAFloor`; every one run red against
     the unfixed code first, and each verified against the fixed code by the
     mutation that puts the defect back, recorded in `VALIDATION.md`;
-    scenarios: `features/ceiling.feature`, each bound to a named test)*
+    scenarios: `features/ceiling.feature`, each bound to a named test both
+    ways, held by `scripts/features-are-bound.sh` with four cases in
+    `gates-have-teeth.sh`)*
 
 ## Decisions that have no gate yet
 

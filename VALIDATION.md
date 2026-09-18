@@ -1107,6 +1107,137 @@ exit=0
 $ git diff        # empty
 ```
 
+## 2026-09-18, after the ceiling the operator heard nothing, a critical included
+
+Issue #71, measured on an appliance run on 2026-09-17 (stack-single v1.1.3,
+`heraldyx:v0.2.3`, floor `medium`, dedup 10 min, ceiling 20/hour): the ceiling
+was reached at 12:11:08Z with one summary saying 8 were held, and between
+12:12 and 12:40Z one `budget_exhausted` at critical, ten highs and about twenty
+mediums were read (the offsets sat at the end of every file), none was mailed,
+and no further summary went. The process restarted twice in that window and
+resumed correctly, which rules the restarts out: the state file carried the
+count across them exactly as invariant 5 says it must.
+
+Two causes, both in the caller of `rule`. The summary was rate limited to one
+an hour, the same width as the ceiling itself, so after the first one the
+count grew silently until 13:11Z at the earliest. And `rule.Decide` sent a
+critical to the ceiling like anything else.
+
+`@measured` against the unfixed binary at `434d786`, 2026-09-18, with the
+issue's own shape: 25 distinct `policy_deny` at high in one poll, then a second
+poll with one `budget_exhausted` at critical, ten highs and twenty mediums,
+`HERALDYX_MAIL_FILE` set, floor `medium`, `./bin/heraldyx --once --from-now=false`
+twice.
+
+```
+poll 1: 21 subjects (20 alerts, "[prod-box] 5 alerts suppressed this hour")
+poll 2: 21 subjects, nothing new
+state.json:  "suppressed_since": 31
+--journal:   records: 21 (alert 20, suppression 1)
+             last:    suppressed:5
+log:         nothing at the ceiling
+```
+
+The critical is one of the 31.
+
+**The fix**, in three parts, none of which touches the ceiling or the dedup
+window. `rule.State` keeps, beside the count, the worst severity held and when
+the first of them was held; `TakeSuppressionNotice` takes a `rule.Cadence`
+instead of a window: a summary is due once ten minutes have passed since the
+previous one with anything held since, sooner once fifty have been held, and
+never inside a minute of the previous one, so the burst bound cannot turn the
+summary into the flood the ceiling exists to prevent. `rule.Decide` lets a
+critical through the ceiling; dedup ran first, so it is still one message per
+condition, and it still counts toward the hour. And `cycle` prints a line on
+the first alert held since the previous summary saying what happens next.
+
+`@measured` the same input against the fixed binary, 2026-09-18:
+
+```
+poll 1: log:  ceiling: 20 messages went out in the last hour, so alerts below
+              critical are held back from here (policy_deny:run-621 first).
+              What happens next: a summary naming the count and the worst
+              severity goes out within 10m0s and again every 10m0s while any
+              are held, sooner for a burst of 50; a critical is still sent at
+              once, one message per condition; every event stays in the log
+              and the console.
+        mail: Subject: [prod-box] 5 alerts suppressed since 04:26 UTC, worst high
+poll 2: mail: Subject: [prod-box] run-900 has exhausted its budget
+state.json:  "suppressed_since": 30, "suppressed_worst": "high"
+--journal:   records: 22 (alert 21, suppression 1)
+             chain:   verifies (21 chained, 1 head(s))
+             last:    budget_exhausted:run-900 -> ops@example.com (accepted)
+```
+
+The second summary, ten minutes after the first, is a fixed-clock test and
+not a wall-clock observation: `TestHeldAlertsAreSummarisedAgainWithinABoundedInterval`
+drives `cycle` at 12:11, 12:12, 12:20:59, 12:21 and 12:31 and reads
+`[prod-box] 3 alerts suppressed since 12:12 UTC, worst high` after the fourth
+poll and `4 alerts suppressed since 12:23 UTC, worst high` after the fifth.
+
+`@measured` red before green, 2026-09-18: every new test was run against the
+unfixed code first.
+
+```
+--- FAIL: TestACriticalIsSentThroughTheCeiling
+    a critical was held back by the ceiling
+--- FAIL: TestHeldAlertsAreSummarisedAgainWithinABoundedInterval
+    no second summary ten minutes after the first
+--- FAIL: TestTheSummaryNamesTheWorstSeverityHeld
+    the summary does not name the worst severity held
+--- FAIL: TestALargeBurstIsSummarisedSoonerThanTheInterval
+    a burst of 50 waited for the interval
+--- FAIL: TestTheLogSaysWhatHappensNextAtTheCeiling
+    nothing in the log says the ceiling is holding alerts back
+--- FAIL: TestACriticalBypassesTheCeilingAndDedupStillHolds
+    a critical at the ceiling: want notify, got suppressed
+```
+
+`TestTheSummaryCadenceHasBothBoundsAndAFloor`,
+`TestTheWorstHeldSeverityIsTheWorstInAnyOrder` and
+`TestASummaryWithoutAWorstOrAStartStillReads` did not build against the unfixed
+code (`undefined: DefaultCadence`, `undefined: rule.Notice`), which is the
+weaker kind of red, so each was then verified against the FIXED code by a
+mutation that puts the defect back:
+
+| mutation planted in the fixed code | caught by |
+|---|---|
+| the `r < rankCrit` clause removed from `Decide` | `TestACriticalIsSentThroughTheCeiling`, `TestACriticalBypassesTheCeilingAndDedupStillHolds` |
+| the interval set back to an hour | `TestHeldAlertsAreSummarisedAgainWithinABoundedInterval`, `TestTheLogSaysWhatHappensNextAtTheCeiling`, `TestTheSummaryCadenceHasBothBoundsAndAFloor` |
+| the worst severity never tracked | `TestTheSummaryNamesTheWorstSeverityHeld`, `TestTheWorstHeldSeverityIsTheWorstInAnyOrder`, and four more |
+| the burst bound removed | `TestALargeBurstIsSummarisedSoonerThanTheInterval`, `TestTheSummaryCadenceHasBothBoundsAndAFloor` |
+| the floor under the burst removed | the same two |
+| the log line removed | `TestTheLogSaysWhatHappensNextAtTheCeiling` |
+| the log line printed on every held event (`>= 1` for `== 1`) | `TestTheLogSaysWhatHappensNextAtTheCeiling` |
+| the start time never kept | `TestHeldAlertsAreSummarisedAgainWithinABoundedInterval` and four more |
+| the summary sent on every poll (`Every` and `Floor` zero) | `TestAStrandedSuppressionCountLeavesOnTheNextCycle` and four more |
+
+Nine planted, nine caught, and the tree was restored and checked byte for
+byte after each.
+
+Two existing tests changed their expected subject line, and nothing else:
+`TestTheSuppressionNoticeCountsTheWholeBurst` and
+`TestAStrandedSuppressionCountLeavesOnTheNextCycle` read `N alerts suppressed
+this hour` and now read `N alerts suppressed since HH:MM UTC, worst high`,
+because "this hour" stopped being what the summary covers. `TestCeilingHolds`
+and `TestSuppressionNoticeCarriesNoEvents` call the new signatures. Every
+other test in the module is untouched and green, the journal chain tests
+included.
+
+`@measured` gates after the change, 2026-09-18: `gofmt -l .` clean, `go vet`
+clean, `staticcheck ./...` clean, `go test -race ./...` all packages ok,
+`gosec -quiet ./...` clean, `govulncheck ./...` no vulnerabilities,
+`shellcheck scripts/*.sh` clean, `./scripts/one-way-out.sh` OK,
+`./scripts/readme-numbers.sh` 176 test functions and the badge says so,
+`./scripts/features-are-bound.sh` 10 scenarios, 10 bindings, 0 broken,
+`./scripts/gates-have-teeth.sh` OK: 16 cases.
+
+`features/ceiling.feature` is this repository's first scenario file, written
+from the issue's ask before the code, and `scripts/features-are-bound.sh` is
+its gate, with four cases in `gates-have-teeth.sh`: a binding to a test that
+is gone, a scenario with no binding, a test named in prose that must not count
+as one, and every feature file removed, on which it says it measured nothing.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of
@@ -1145,4 +1276,10 @@ $ git diff        # empty
 - **Volume under a real fleet is unmeasured.** The dedup window, the ceiling
   and the digest period are reasoned defaults carried over from the money
   plane's own alert pipeline, not numbers anyone has watched an operator live
-  with.
+  with. The summary cadence (ten minutes, fifty, one minute) is the same kind
+  of number, and the ten-minute summary has only been observed under a fixed
+  clock in a test, never on a wall clock.
+- **A fleet raising DISTINCT criticals at volume is bounded by dedup alone**,
+  since a critical bypasses the ceiling by decision (issue #71). Nothing here
+  measures what that does to a mailbox, and nothing here can tell a producer
+  that raises `critical` for something that is not from one that is right.

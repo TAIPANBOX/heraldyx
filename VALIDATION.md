@@ -1114,8 +1114,9 @@ on a single Debian 13 box behind a home router, `HERALDYX_MAIL_FILE` set
 (file transport, no SMTP), the floor lowered to `medium` so a
 `breaker_tripped` event would mail, dedup 10 minutes, ceiling 20 per hour,
 and the FinOps crew's passports mounted read-only through
-`HERALDYX_PASSPORTS`. Two customer clusters and the crew reached the box's
-gateway over a tailnet for a working day; the shape of the whole run is
+`HERALDYX_PASSPORTS`. Two customer clusters reached the box's gateway over
+a tailnet for a working day and the FinOps crew ran on the box through a
+door of its own; the shape of the whole run is
 `estate-gates/PROVEN.md`'s 2026-09-17 rows.
 
 **17 mails, and the journal agrees with itself.** `--journal` against the

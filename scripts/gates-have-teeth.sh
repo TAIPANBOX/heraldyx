@@ -339,6 +339,18 @@ run_case "run-stalled: missing tests are not a pass" fail \
     "$(py 'import os; os.remove("internal/render/stalled_test.go")')" \
     "no such test exists"
 
+run_case "failed-call: refund promise returns" fail \
+    './scripts/features-are-bound.sh && go test ./internal/render' \
+    "$(py 'edit("internal/render/render.go", "The agent received an error from this gateway", "Nothing was charged. The agent received an error from this gateway")')" \
+    'promises "nothing was charged"'
+run_case "failed-call: harmless comment" pass \
+    './scripts/features-are-bound.sh && go test ./internal/render' \
+    "$(py 'edit("internal/render/render.go", "func callFailed(", "// harmless comment\nfunc callFailed(")')"
+run_case "failed-call: absent tests refuse success" fail \
+    './scripts/features-are-bound.sh && go test ./internal/render' \
+    "$(py 'import os; os.remove("internal/render/dependency_test.go")')" \
+    'no such test exists'
+
 echo
 if [ -n "$(git status --porcelain)" ]; then
 	printf 'FAIL: this script left the tree dirty, so it cannot be trusted about anything above\n'

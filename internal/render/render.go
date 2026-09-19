@@ -672,38 +672,11 @@ func dependencyFailed(e event.Event, p phrasing) phrasing {
 	return p
 }
 
-// callFailed splits one effect on the STAGE it happened at, because the money
-// answer is opposite at two of them and the money answer is what an operator
-// reads first.
-//
-// At the buffered stages the gateway settles `Microusd::ZERO` against both the
-// run's budget and the unit ledger, under its own comment "Failed call cost us
-// nothing" (tokenfuse `crates/gateway/src/proxy.rs`, read 2026-08-25). So the
-// outage genuinely cost nothing and the mail may say so.
-//
-// Mid-stream it is the reverse, and saying "nothing was charged" there would be
-// the same class of falsehood as the four this catalog was audited for on
-// 2026-08-03. The response has already gone out with its own status and part of
-// the answer has already reached the agent; `SettleGuard`'s `Drop` then settles
-// whatever usage was parsed, and a stream that started 2xx and reported no
-// usage settles the RESERVED ESTIMATE rather than zero. The agent is also left
-// holding a truncated answer instead of an error, which is the part it is least
-// likely to notice.
-//
-// A REFUSAL is the third money answer, and it arrived with tokenfuse 1.0.1
-// (stage `response`, tokenfuse#260): the provider was reached and answered
-// with a status the gateway counts as the provider's own failure (a 429, a
-// 5xx, a retired model id answered 404 or 400), the agent got that status
-// through, and the gateway charged what the provider reported generating,
-// which for the common refusal is nothing and for a provider that failed over
-// a partial answer is that partial answer (tokenfuse's rule since its #167).
-// So neither "could not be reached" nor an unqualified "nothing was charged"
-// is true of it, and it gets its own sentence.
-//
-// The stage is read as one value against a constant, not parsed: a stage this
-// build does not know takes the buffered wording only if it is neither the
-// streamed nor the refused one, which is the safe direction, since each of
-// those two sentences claims something a plain failure did not do.
+// callFailed describes what the response stage establishes, without treating
+// a transport error as proof that no provider work or charge occurred.
+// @codex 2026-09-19: read against TokenFuse SettleGuard and the D9 real-HTTP
+// probes. A send failure may retain exposure; a broken 2xx body may cost the
+// reported usage or estimate. Neither is an unconditional refund.
 func callFailed(e event.Event, p phrasing, dep string) phrasing {
 	stage, _ := e.Data["stage"].(string)
 	if stage == "response" {
@@ -718,8 +691,15 @@ func callFailed(e event.Event, p phrasing, dep string) phrasing {
 		p.next = "Nothing automatic. The agent is holding a truncated answer rather than an error, which is the part worth looking at: a run that reads it as a whole one carries on from half a result."
 		return p
 	}
+	if stage == "response_body" {
+		p.what = "received an incomplete answer from a dependency of this box"
+		p.did = "The response body from " + dep + " broke, so the agent received an error. A successful response is charged at reported usage or, if that is unavailable, the reserved estimate. A refused response is charged only for reported usage."
+		p.next = "Inspect the run's recorded charge before retrying; an incomplete answer does not mean the provider did no work."
+		return p
+	}
 	p.what = "could not be served, because a dependency of this box failed"
-	p.did = "The call did not complete: " + dep + " could not be reached or did not finish, so the agent was given an error from this gateway rather than an answer. Nothing was charged for it, and the money reserved against the run was released in full."
+	p.did = "The agent received an error from this gateway rather than an answer from " + dep + ". This event does not establish whether the provider accepted the request. Check the run's charge and reservation: an uncertain outcome may keep its reserved exposure until reconciled."
+
 	p.next = "Nothing automatic. The agent has an error rather than an answer, and whether it retries or stops is up to the agent."
 	return p
 }

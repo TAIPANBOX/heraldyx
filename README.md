@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-178-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-179-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.4-success.svg)
 
@@ -227,7 +227,7 @@ written from `data.effect` rather than from the type alone:
 
 | what happened | what the mail says |
 |---|---|
-| the call could not be made or completed | it did not complete, nothing was charged, and the agent has an error rather than an answer. A call cut off part way through a STREAM is the exception and says so: part of the answer had already arrived and it was not free |
+| the call could not be made or completed | the agent got an error; the message describes the response stage without promising a refund. An uncertain send may retain its reservation, and a broken successful response may still be charged |
 | the policy plane was unreachable and this gateway fails open | the call **went through with no policy applied to it**. Not a failed call: a governed estate that was briefly not one |
 | the policy plane was unreachable and this gateway fails closed | the call was refused, and no policy refused it. The plane could not be asked, so the same call may well be allowed once it answers |
 

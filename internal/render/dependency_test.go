@@ -107,22 +107,32 @@ func TestARefusalNobodyDecidedIsNotDescribedAsAPolicyDecision(t *testing.T) {
 	}
 }
 
-// The ordinary case, and the one where the money answer is knowable. At
-// `proxy.rs` both buffered failure paths settle `Microusd::ZERO` against the
-// run and against the unit ledger, with the comment "Failed call cost us
-// nothing", so an operator can be told plainly that this outage did not cost
-// them anything.
-func TestAFailedCallSaysNothingWasCharged(t *testing.T) {
-	m := depMail(map[string]any{
-		"dependency": "provider", "stage": "send", "effect": "call_failed",
-	})
-
-	body := strings.ToLower(m.Body)
-	if !strings.Contains(body, "nothing was charged") {
-		t.Errorf("the mail does not say the failed call cost nothing:\n%s", m.Body)
+// @measured go test ./internal/render -run TestAFailedCallDoesNotPromiseARefund
+// 2026-09-19: send failures promised a full release without dispatch evidence.
+func TestAFailedCallDoesNotPromiseARefund(t *testing.T) {
+	for _, stage := range []string{"send", "future_stage", ""} {
+		m := depMail(map[string]any{"dependency": "provider", "stage": stage, "effect": "call_failed"})
+		body := strings.ToLower(m.Body)
+		for _, bad := range []string{"nothing was charged", "released in full", "could not be reached"} {
+			if strings.Contains(body, bad) {
+				t.Errorf("stage %q promises %q: %s", stage, bad, m.Body)
+			}
+		}
+		if !strings.Contains(body, "error") || !strings.Contains(body, "reservation") {
+			t.Errorf("missing outcome guidance: %s", m.Body)
+		}
 	}
-	if !strings.Contains(body, "error") {
-		t.Errorf("the mail does not say the agent got an error instead of an answer:\n%s", m.Body)
+}
+
+func TestABufferedBodyFailureNamesThePossibleCharge(t *testing.T) {
+	m := depMail(map[string]any{"dependency": "provider", "stage": "response_body", "effect": "call_failed"})
+	for _, want := range []string{"error", "reported usage", "estimate"} {
+		if !strings.Contains(m.Body, want) {
+			t.Errorf("missing %q: %s", want, m.Body)
+		}
+	}
+	if strings.Contains(m.Body, "Nothing was charged") {
+		t.Fatal(m.Body)
 	}
 }
 

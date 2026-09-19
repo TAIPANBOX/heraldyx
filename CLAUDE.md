@@ -389,6 +389,15 @@ an absent invariant.
     ways, held by `scripts/features-are-bound.sh` with four cases in
     `gates-have-teeth.sh`)*
 
+20. **A failed call is not evidence of a refund.** @codex 2026-09-19:
+    `dependency_failed` at send or an unknown stage does not establish whether
+    the provider accepted the request. Its wording directs the operator to the
+    run's charge and reservation. A buffered body failure states the successful
+    response's usage-or-estimate rule and the refusal's usage-only rule.
+    (gate: `./scripts/features-are-bound.sh && go test ./internal/render`;
+    tests: `TestAFailedCallDoesNotPromiseARefund`,
+    `TestABufferedBodyFailureNamesThePossibleCharge`.)
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

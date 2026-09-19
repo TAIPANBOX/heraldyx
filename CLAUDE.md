@@ -389,6 +389,17 @@ an absent invariant.
     ways, held by `scripts/features-are-bound.sh` with four cases in
     `gates-have-teeth.sh`)*
 
+19. **Run-stalled rendering reports observations and validates numeric timing.**
+
+@codex 2026-09-19: `run_stalled` describes an observation, never a diagnosed
+node or provider failure. `last_call_millis` and `silence_ms` come from
+TokenFuse Cloud's numeric call history (`store.rs::tick_stalls`); only
+non-negative integer numbers are rendered, as UTC time and seconds. Text,
+non-finite, fractional and overflowing values are omitted. These keys are
+excluded from generic raw data rendering.
+(gate: `./scripts/features-are-bound.sh && go test ./internal/render -run TestRunStalled`; tests: `TestRunStalledNamesTheObservationWithoutDiagnosingTheCause`,
+`TestRunStalledRejectsInvalidNumbersWithoutRenderingContent`.)
+
 20. **A failed call is not evidence of a refund.** @codex 2026-09-19:
     `dependency_failed` at send or an unknown stage does not establish whether
     the provider accepted the request. Its wording directs the operator to the

@@ -26,6 +26,7 @@ package render
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"regexp"
 	"sort"
@@ -88,6 +89,9 @@ var dataAllowlist = map[string]bool{
 	// identity finding mails as "raised an event this build does not have a
 	// description for", which names no fault at all.
 	"detector": true,
+	// Numeric observations from tokenfuse Cloud store.rs, never model content.
+	"last_call_millis": true,
+	"silence_ms":       true,
 }
 
 // safeString is the shape a string value must have to be rendered: short, one
@@ -253,6 +257,11 @@ var catalog = map[string]phrasing{
 		what: "has exhausted its budget",
 		did:  "Calls from this run are being refused with a hard 402.",
 		next: "The run cannot spend again until someone raises its budget.",
+	},
+	"run_stalled": {
+		what: "went quiet",
+		did:  "Nothing automatic. The control plane observed no calls for longer than the configured threshold and this run's previous longest gap.",
+		next: "Look at the run. This observation cannot tell a failed node from a long generation or a run that ended without reporting it.",
 	},
 	"run_killed": {
 		what: "was killed",
@@ -1182,6 +1191,20 @@ func describe(e event.Event) string {
 // factLine renders the allowlisted parts of `data` as one line, or "" when
 // nothing survived the allowlist.
 func factLine(e event.Event) string {
+	if e.Type == "run_stalled" {
+		var parts []string
+		if n, ok := observationMillis(e.Data["last_call_millis"]); ok && n <= 253402300799999 {
+			parts = append(parts, "Last call at "+time.UnixMilli(n).UTC().Format(time.RFC3339))
+		}
+		if n, ok := observationMillis(e.Data["silence_ms"]); ok {
+			parts = append(parts, fmt.Sprintf("silent for %g seconds", float64(n)/1000))
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, ", ") + "."
+		}
+		return ""
+	}
+
 	if len(e.Data) == 0 {
 		return ""
 	}
@@ -1197,7 +1220,7 @@ func factLine(e event.Event) string {
 
 	keys := make([]string, 0, len(e.Data))
 	for k := range e.Data {
-		if dataAllowlist[k] {
+		if dataAllowlist[k] && k != "last_call_millis" && k != "silence_ms" {
 			keys = append(keys, k)
 		}
 	}
@@ -1342,4 +1365,20 @@ func stamp(e event.Event, now time.Time) string {
 
 func stampTime(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04:05 UTC")
+}
+
+// observationMillis accepts only non-negative integer numbers. Strings and
+// fractional, non-finite or overflowing numbers never become message content.
+func observationMillis(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int:
+		return int64(n), n >= 0
+	case int64:
+		return n, n >= 0
+	case float64:
+		if n >= 0 && n < math.Exp2(63) && math.Trunc(n) == n {
+			return int64(n), true
+		}
+	}
+	return 0, false
 }

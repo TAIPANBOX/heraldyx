@@ -326,6 +326,19 @@ for f in out:
     subprocess.run(["git", "rm", "-q", f], check=True)')" \
 	"measured nothing"
 
+# The numeric boundary is exercised through the rendered message.
+run_case "run-stalled: invalid timing converted" fail \
+    './scripts/features-are-bound.sh && go test ./internal/render -run TestRunStalled' \
+    "$(py 'edit("internal/render/render.go", "if n >= 0 && n < math.Exp2(63) && math.Trunc(n) == n {", "if !math.IsNaN(n) {")')" \
+    "invalid -0.5 rendered"
+run_case "run-stalled: harmless phrasing comment" pass \
+    './scripts/features-are-bound.sh && go test ./internal/render -run TestRunStalled' \
+    "$(py 'edit("internal/render/render.go", "func observationMillis(v any)", "// harmless comment\nfunc observationMillis(v any)")')"
+run_case "run-stalled: missing tests are not a pass" fail \
+    './scripts/features-are-bound.sh && go test ./internal/render -run TestRunStalled' \
+    "$(py 'import os; os.remove("internal/render/stalled_test.go")')" \
+    "no such test exists"
+
 run_case "failed-call: refund promise returns" fail \
     './scripts/features-are-bound.sh && go test ./internal/render' \
     "$(py 'edit("internal/render/render.go", "The agent received an error from this gateway", "Nothing was charged. The agent received an error from this gateway")')" \

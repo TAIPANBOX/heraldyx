@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-177-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-179-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.4-success.svg)
 
@@ -129,7 +129,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 41 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 42 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -142,6 +142,7 @@ for, and the link still opens the console at it.
 |---|---|
 | `budget_threshold` | is approaching its budget |
 | `budget_exhausted` | has exhausted its budget |
+| `run_stalled` | went quiet (with the last call and silence duration) |
 | `run_killed` | was killed |
 | `sustained_loop` | is repeating the same step |
 | `spend_spike` | is burning money far faster than it usually does (a sentence that cannot currently be shown: see the row above about org-wide facts) |

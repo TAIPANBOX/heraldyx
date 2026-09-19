@@ -337,7 +337,7 @@ run_case "run-stalled: harmless phrasing comment" pass \
 run_case "run-stalled: missing tests are not a pass" fail \
     './scripts/features-are-bound.sh && go test ./internal/render -run TestRunStalled' \
     "$(py 'import os; os.remove("internal/render/stalled_test.go")')" \
-    "DANGLING"
+    "no such test exists"
 
 echo
 if [ -n "$(git status --porcelain)" ]; then

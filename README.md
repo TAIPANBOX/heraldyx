@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-179-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-189-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.5-success.svg)
 
@@ -129,7 +129,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 42 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 46 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -162,6 +162,10 @@ for, and the link still opens the console at it.
 | `sim_finding` | failed a rehearsal |
 | `dependency_failed` | was affected by a failure in one of this box's own dependencies (the sentence changes with what actually happened: see below) |
 | `slo_burn` | has spent, or is fast spending, the error budget on one of its objectives (which objective, and which of the two, are both in the mail: see below) |
+| `typed_answer` | was given a typed answer with a probability behind it |
+| `typed_unanswered` | asked a typed question that came back with no usable answer |
+| `typed_refused` | asked a typed question that never reached a backend (the sentence names typryx's own reason: a cap, an unregistered template, freeform switched off, or a malformed ask; see below) |
+| `calibration_drift` | has a group of typed answers whose calibration crossed a configured bound (the template, backend, model and which metric crossed are all in the mail; see below) |
 | `anomaly_triaged` | was given a spend anomaly to investigate |
 | `anomaly_explained` | wrote up what caused a spend anomaly |
 | `anomaly_accepted` | had its explanation of a spend anomaly accepted |
@@ -271,6 +275,42 @@ left are all outside the `data` allowlist, so what the mail carries from the
 payload is the window, and the link is where the rest of it is. Adding a key to
 that allowlist is a decision for the operator of this box rather than something
 a rendering change makes on its way past (see `CLAUDE.md`).
+
+**typryx is an optional add-on** (agent-passport SPEC.md 6.2): a stack that
+never wired it in emits none of the four rows above. It answers a typed
+question (a choice, a score, or a yes/no) with a probability, over a box the
+operator chose to add. `@decided 2026-09-26`: its journal moves onto the shared
+bus in all three launchers, so `typed_answer` (info),
+`typed_unanswered` (medium), `typed_refused` (high) and `calibration_drift`
+(high) can now reach this floor. Severities are typryx's own and are not
+this file's to change.
+
+`typed_refused` fires before any backend is ever called, for one of several
+reasons typryx's own code names: an hourly or a daily spend cap already
+spent, a template id nobody registered, freeform switched off, or a
+malformed question or state. The mail names which one, in typryx's own
+words, because a cap the operator configured on purpose and a caller sending
+a malformed question want opposite responses. A caller-supplied `bad_run_id`
+is refused earlier still, at typryx's own API or MCP boundary, so it never
+reaches this bus at all.
+
+`calibration_drift` reports a measurement, never an enforcement: typryx's
+own calibration check compares a template, backend and model group's Brier
+score and ECE against a configured bound, and nothing here (or in typryx)
+turns a crossed bound into a cap change or a refusal. The mail names the
+template, its version, the backend, the model, and which of the two metrics
+crossed, all read from the event's own `data.bounds_crossed` rather than
+from a bound this file would otherwise have to keep in sync with typryx's
+own configuration.
+
+**Whether a burst of `typed_refused` at the default floor is noisy is bounded
+by mechanisms this file does not add.** An hourly-cap burst from one run or
+agent dedups to one message per ten-minute window, since `rule.Key` is
+`type:subject` and every refusal for the same cap shares the same subject; a
+burst spread across many distinct agents or runs is instead bounded by the
+hourly ceiling itself, which summarises rather than mails each one once the
+default 20-an-hour limit is reached. Neither is new: both already govern
+every other `high` type in this table.
 
 `behavior_anomaly` and `excessive_privilege` were listed here until 2026-08-03.
 They were removed because nothing raises them: both are concepts of the identity

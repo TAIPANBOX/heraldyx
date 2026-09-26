@@ -92,6 +92,24 @@ var dataAllowlist = map[string]bool{
 	// Numeric observations from tokenfuse Cloud store.rs, never model content.
 	"last_call_millis": true,
 	"silence_ms":       true,
+	// typryx's own configuration identifiers, approved by the owner
+	// 2026-09-26 alongside the four catalog entries below: `template` and
+	// `backend` name what the operator configured (a template id from a
+	// file typryx loaded, one of a closed set of backend names), `model` is
+	// what the operator set in `TYPRYX_OPENAI_MODEL`/`TYPRYX_JEV_*`, and
+	// `template_version` is a sha256 content digest of the template file.
+	// None of the four can ever hold text a model produced. `template_version`
+	// and `bounds_crossed` (calibration_drift's crossed metric values) are
+	// excluded from the generic per-key line below and rendered only through
+	// `calibrationFacts`, the same way `last_call_millis`/`silence_ms` are
+	// carved out for `run_stalled`: a raw 64-byte digest is not a fact a
+	// human reads at three in the morning, and a nested map never survives
+	// `safeValue` regardless.
+	"template":         true,
+	"template_version": true,
+	"backend":          true,
+	"model":            true,
+	"bounds_crossed":   true,
 }
 
 // safeString is the shape a string value must have to be rendered: short, one
@@ -605,6 +623,61 @@ var catalog = map[string]phrasing{
 		did:  "Nothing. The quality plane measured the objective over its window and worked out how much of the error budget is left. That measurement is the whole of what happened: no traffic was stopped, no policy was written or changed, and nothing about this agent was lowered, because there is no control in this stack that a budget feeds into. What to do about it is a decision nobody has made yet.",
 		next: "Nothing automatic. This event does not say whether the budget is already gone or is only being spent too fast, and those are a statement about the past and a forecast, so open the console at this incident rather than reading one of them into it.",
 	},
+
+	// ------------------------------------------------------------- typryx
+	//
+	// typryx answers a typed question (a choice, a score, or a yes/no) with a
+	// probability. It is an optional add-on (agent-passport SPEC.md 6.2): a
+	// stack that never wired it in emits none of these four, and the owner
+	// approved moving its journal onto the shared bus in all three launchers
+	// on 2026-09-26. Read against typryx's own code
+	// (internal/record/record.go, internal/service/service.go), the same
+	// rule every entry in this catalog is held to.
+	//
+	// `typed_answer` and `typed_unanswered` are single, fixed sentences: an
+	// answer or its absence is one fact, not several outcomes needing a
+	// branch the way `dependency_failed` and `slo_burn` do. `typed_refused`
+	// is the one that branches, in [typedRefused] below, because typryx's
+	// own refusal reasons want opposite operator responses: a cap an
+	// operator set on purpose reads nothing like a caller sending a
+	// malformed question. `calibration_drift`'s three named facts (which
+	// group, which metric, what value) come from [factLine]'s own
+	// `calibrationFacts`, not from a branch here, because they are
+	// additional detail rather than a different MEANING of the type: every
+	// calibration_drift event says the same thing happened, a measured
+	// group crossed a bound, whichever bound it was.
+	"typed_answer": {
+		what: "was given a typed answer with a probability behind it",
+		did:  "typryx answered the question and recorded the probability distribution behind it. Nothing else happened.",
+		next: "Nothing automatic. The answer sits in typryx's ledger until a later outcome is recorded to score it against.",
+	},
+	"typed_unanswered": {
+		what: "asked a typed question that came back with no usable answer",
+		did:  "Nothing automatic. A backend was reached, but gave nothing typryx could use as an answer, so none was recorded.",
+		next: "Nothing further from typryx. A reason that repeats across many asks is usually the backend or the template, not the agent.",
+	},
+	// The neutral base for a refusal reason [typedRefused] does not know.
+	// typryx refuses an ask before any backend is called for several
+	// distinct reasons (a cap, a malformed question, an unregistered
+	// template, freeform switched off); naming none of them here and
+	// letting the reason decide is the same discipline `dependency_failed`
+	// and `slo_burn` already hold themselves to.
+	"typed_refused": {
+		what: "asked a typed question that never reached a backend",
+		did:  "typryx refused the ask before any backend was called. Nothing was spent on it.",
+		next: "Nothing automatic. Open the console at this incident to see why.",
+	},
+	// A measurement, never an enforcement (typryx's own invariant: a
+	// calibration verdict is reported and nothing here turns it into a cap
+	// change or a deny). The group and the metric that crossed are named by
+	// `calibrationFacts` in a separate fact line, off the event's own
+	// `bounds_crossed`, never a bound this file would have to keep in sync
+	// with typryx's own configuration.
+	"calibration_drift": {
+		what: "has a group of typed answers whose calibration crossed a configured bound",
+		did:  "typryx's calibration check measured this template, backend and model group against its own ledger of outcomes and found it crossed the bound configured for it. Nothing about the deployment changed: typryx never turns a calibration verdict into an enforcement.",
+		next: "Nothing automatic. Open the console at this incident to see the group and the numbers behind it.",
+	},
 }
 
 // qualify adjusts a phrasing where the EVENT carries something that changes
@@ -641,9 +714,57 @@ func qualify(e event.Event, p phrasing) phrasing {
 		return sloBurn(e, p)
 	case "budget_threshold":
 		return budgetThreshold(e, p)
+	case "typed_refused":
+		return typedRefused(e, p)
 	default:
 		return p
 	}
+}
+
+// typedRefused says which of typryx's own reasons stopped an ask before any
+// backend was called, off `data.reason`. Read from internal/service/service.go
+// on 2026-09-26. Named plainly rather than left as one generic "was refused",
+// because a cap the operator configured on purpose and a caller sending a
+// malformed question want opposite responses, and an operator who cannot
+// tell them apart from the subject line has to open the console for every
+// one of them.
+//
+// A `bad_run_id` refusal never reaches here: it is refused at the API/MCP
+// boundary before `Service.Ask` runs, so it never reaches `Journal.Refused`
+// and never becomes a `typed_refused` event on the bus.
+//
+// A reason this switch does not recognise keeps the base catalog entry's
+// neutral wording rather than guessing, the same fallback [dependencyFailed]
+// and [sloBurn] already use for an outcome outside the set their own
+// contracts name.
+func typedRefused(e event.Event, p phrasing) phrasing {
+	switch reason, _ := e.Data["reason"].(string); reason {
+	case "over_hourly_cap":
+		p.what = "hit typryx's hourly call cap"
+		p.did = "The ask was refused before any backend was called: this deployment's hourly cap on typryx calls is already spent."
+		p.next = "Nothing automatic. Calls refused this way resume once the hour rolls over, or when the cap is raised."
+	case "over_daily_spend_cap":
+		p.what = "hit typryx's daily spend cap"
+		p.did = "The ask was refused before any backend was called: this deployment's daily USD spend cap for typryx is already reached."
+		p.next = "Nothing automatic. Calls refused this way resume once the day rolls over at UTC midnight, or when the cap is raised."
+	case "unknown_template":
+		p.what = "asked for a typed-answer template this deployment does not have registered"
+		p.did = "The ask named a template id typryx's registry does not recognise, so no backend was called."
+		p.next = "Nothing automatic. Check the template id the caller used against what this deployment has registered."
+	case "freeform_disabled":
+		p.what = "asked a freeform typed question on a box that has freeform switched off"
+		p.did = "The ask was refused: this deployment has not set TYPRYX_ALLOW_FREEFORM."
+		p.next = "Nothing automatic. Freeform stays off until an operator turns it on."
+	case "bad_state", "state_too_large":
+		p.what = "sent typryx a state it could not use"
+		p.did = "The ask was refused before any backend was called: the state either did not parse or was larger than this deployment allows."
+		p.next = "Nothing automatic. Check what the caller sent against this template's fields and typryx's state size limit."
+	case "bad_question":
+		p.what = "asked a malformed typed question"
+		p.did = "The ask was refused before any backend was called: the question itself did not parse."
+		p.next = "Nothing automatic. Check the shape of the question the caller sent."
+	}
+	return p
 }
 
 // dependencyFailed says which of three outcomes a failed dependency produced,
@@ -1205,6 +1326,10 @@ func factLine(e event.Event) string {
 		return ""
 	}
 
+	if e.Type == "calibration_drift" {
+		return calibrationFacts(e)
+	}
+
 	if len(e.Data) == 0 {
 		return ""
 	}
@@ -1220,7 +1345,8 @@ func factLine(e event.Event) string {
 
 	keys := make([]string, 0, len(e.Data))
 	for k := range e.Data {
-		if dataAllowlist[k] && k != "last_call_millis" && k != "silence_ms" {
+		if dataAllowlist[k] && k != "last_call_millis" && k != "silence_ms" &&
+			k != "template_version" && k != "bounds_crossed" {
 			keys = append(keys, k)
 		}
 	}
@@ -1244,6 +1370,100 @@ func factLine(e event.Event) string {
 		}
 		return ", " + strings.Join(parts[1:], ", ") + "."
 	}()
+}
+
+// calibrationFacts names the calibration group and the metric that crossed
+// its configured bound, off `data.template`, `data.template_version`,
+// `data.backend`, `data.model` and `data.bounds_crossed`.
+//
+// It reads these directly rather than through the generic per-key loop
+// above, the same way [factLine]'s `run_stalled` branch reads its own two
+// numeric fields directly: `template_version` wants a SHORTENED form, never
+// its full 64-byte digest, and `bounds_crossed` is a nested map, which
+// `safeValue` already refuses to render at all. Every value is still shape
+// or range checked before it reaches this line; nothing here trusts typryx's
+// bytes any less than the generic path trusts a producer's.
+//
+// The metric NAME is mapped through a closed set to this file's own words
+// ("Brier score", "ECE"), the same pattern [dependencyName] and
+// [objectiveName] use for a producer's own enum, so a bound name this build
+// has not learned yet is dropped rather than shown as typryx's own internal
+// key. The measured VALUE that crossed it is a plain float and is rendered
+// once it passes the same finite, non-negative check [observationMillis]
+// already holds numeric observations to.
+func calibrationFacts(e event.Event) string {
+	var parts []string
+	if t, ok := e.Data["template"].(string); ok && safeString.MatchString(t) {
+		part := "template " + t
+		if v, ok := e.Data["template_version"].(string); ok && safeString.MatchString(v) {
+			part += " version " + shorten(v)
+		}
+		parts = append(parts, part)
+	}
+	if b, ok := e.Data["backend"].(string); ok && safeString.MatchString(b) {
+		parts = append(parts, "backend "+b)
+	}
+	if m, ok := e.Data["model"].(string); ok && safeString.MatchString(m) {
+		parts = append(parts, "model "+m)
+	}
+
+	names := map[string]string{"max_brier": "Brier score", "max_ece": "ECE"}
+	if crossed, ok := e.Data["bounds_crossed"].(map[string]any); ok {
+		keys := make([]string, 0, len(crossed))
+		for k := range crossed {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			name, known := names[k]
+			if !known {
+				continue
+			}
+			if v, ok := calibrationMetric(crossed[k]); ok {
+				parts = append(parts, fmt.Sprintf("%s %.3f", name, v))
+			}
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	joined := parts[0]
+	if len(parts) > 1 {
+		joined += ", " + strings.Join(parts[1:], ", ")
+	}
+	return strings.ToUpper(joined[:1]) + joined[1:] + " crossed its configured bound."
+}
+
+// calibrationMetric accepts only a finite, non-negative number: a Brier
+// score or an ECE outside that shape is not one this build's arithmetic
+// could have produced, and rendering it would be trusting bytes typryx never
+// wrote as a measurement.
+func calibrationMetric(v any) (float64, bool) {
+	n, ok := floatValue(v)
+	if !ok || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// floatValue reads a JSON-decoded number in whatever concrete type it
+// arrived as. `encoding/json` always decodes a bare number into `float64`;
+// the other cases are for a caller that built the value directly, as this
+// package's own tests do.
+func floatValue(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case float32:
+		return float64(t), true
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	default:
+		return 0, false
+	}
 }
 
 // safeValue renders one `data` value, or reports that it must not be rendered.

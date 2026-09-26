@@ -409,6 +409,39 @@ excluded from generic raw data rendering.
     tests: `TestAFailedCallDoesNotPromiseARefund`,
     `TestABufferedBodyFailureNamesThePossibleCharge`.)
 
+21. **typryx's four event types are described honestly, a refusal names
+    typryx's own reason in plain words, and a calibration drift is reported
+    as a measurement and never as an enforcement.** typryx is an optional
+    add-on (agent-passport SPEC.md 6.2); the owner approved moving its
+    journal onto the shared bus in all three launchers 2026-09-26, so
+    `typed_answer` (info), `typed_unanswered` (medium), `typed_refused`
+    (high) and `calibration_drift` (high) can now reach this floor.
+    Severities are typryx's own and this file does not choose or change
+    them. `typed_refused` branches on `data.reason` (typryx's own codes:
+    `over_hourly_cap`, `over_daily_spend_cap`, `unknown_template`,
+    `freeform_disabled`, `bad_state`, `state_too_large`, `bad_question`; a
+    caller's `bad_run_id` is refused at typryx's own API/MCP boundary and
+    never reaches this bus), because a cap the operator configured on
+    purpose and a caller sending a malformed question want opposite
+    responses; a reason this build has not learned yet keeps the neutral
+    base sentence rather than guessing, the same fallback `dependency_failed`
+    and `slo_burn` already use. `calibration_drift` names the template, its
+    version, the backend, the model and which of Brier score or ECE crossed
+    its bound, off the event's own `data.bounds_crossed`, and says plainly
+    that nothing about the deployment changed: typryx's own invariant is that
+    a calibration verdict is reported and never turned into a cap change or a
+    refusal.
+    *(test: `TestEveryTypryxTypeIsDescribed`, `TestTypedAnswerIsDescribedAndNamesItsTemplateAndBackend`,
+    `TestTypedUnansweredIsDescribed`, `TestTypedRefusedNamesEachReasonPlainly`,
+    `TestTypedRefusedUnknownReasonStaysNeutral`,
+    `TestCalibrationDriftNamesTheGroupAndTheMetricThatCrossed`,
+    `TestCalibrationDriftNamesBothMetricsWhenBothCross`,
+    `TestCalibrationDriftRejectsHostileBoundsCrossed`,
+    `TestTypedAnswerUnsafeTemplateOrBackendIsDropped`,
+    `TestTypryxSeveritiesAreNotChangedByThisFile`, all in `internal/render`;
+    scenarios: `features/typryx-catalog.feature`, each bound to a named test
+    both ways, held by `scripts/features-are-bound.sh`)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

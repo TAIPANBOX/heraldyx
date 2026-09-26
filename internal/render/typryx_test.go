@@ -9,8 +9,8 @@ import (
 
 // typryx is an optional add-on (agent-passport SPEC.md 6.2) that answers a
 // typed question with a probability, governs what leaves the box, and
-// records every answer. The owner approved moving its journal onto the
-// shared bus in all three launchers on 2026-09-26, so heraldyx now sees
+// records every answer. @decided 2026-09-26: its journal moves onto the
+// shared bus in all three launchers, so heraldyx now sees
 // `typed_answer` (info), `typed_unanswered` (medium), `typed_refused` (high)
 // and `calibration_drift` (high). Severities are typryx's own
 // (internal/record/record.go) and are not this file's to change.

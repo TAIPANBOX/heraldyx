@@ -92,8 +92,8 @@ var dataAllowlist = map[string]bool{
 	// Numeric observations from tokenfuse Cloud store.rs, never model content.
 	"last_call_millis": true,
 	"silence_ms":       true,
-	// typryx's own configuration identifiers, approved by the owner
-	// 2026-09-26 alongside the four catalog entries below: `template` and
+	// typryx's own configuration identifiers, @decided 2026-09-26
+	// together with the four catalog entries below: `template` and
 	// `backend` name what the operator configured (a template id from a
 	// file typryx loaded, one of a closed set of backend names), `model` is
 	// what the operator set in `TYPRYX_OPENAI_MODEL`/`TYPRYX_JEV_*`, and
@@ -628,9 +628,9 @@ var catalog = map[string]phrasing{
 	//
 	// typryx answers a typed question (a choice, a score, or a yes/no) with a
 	// probability. It is an optional add-on (agent-passport SPEC.md 6.2): a
-	// stack that never wired it in emits none of these four, and the owner
-	// approved moving its journal onto the shared bus in all three launchers
-	// on 2026-09-26. Read against typryx's own code
+	// stack that never wired it in emits none of these four, and
+	// @decided 2026-09-26 its journal moves onto the shared bus in all three
+	// launchers. Read against typryx's own code
 	// (internal/record/record.go, internal/service/service.go), the same
 	// rule every entry in this catalog is held to.
 	//

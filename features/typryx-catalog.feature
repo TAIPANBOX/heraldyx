@@ -1,8 +1,8 @@
 Feature: typryx's four event types are described honestly
 
   typryx is an optional add-on (agent-passport SPEC.md 6.2) that answers a
-  typed question with a probability. The owner approved moving its journal
-  onto the shared bus in all three launchers on 2026-09-26, so heraldyx now
+  typed question with a probability. @decided 2026-09-26: its journal moves
+  onto the shared bus in all three launchers, so heraldyx now
   sees typed_answer (info), typed_unanswered (medium), typed_refused (high)
   and calibration_drift (high). Severities are typryx's own and are not
   changed here. typed_refused branches on typryx's own reason codes rather

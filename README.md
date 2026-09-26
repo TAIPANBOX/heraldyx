@@ -279,8 +279,8 @@ a rendering change makes on its way past (see `CLAUDE.md`).
 **typryx is an optional add-on** (agent-passport SPEC.md 6.2): a stack that
 never wired it in emits none of the four rows above. It answers a typed
 question (a choice, a score, or a yes/no) with a probability, over a box the
-operator chose to add. The owner approved moving its journal onto the shared
-bus in all three launchers on 2026-09-26, so `typed_answer` (info),
+operator chose to add. `@decided 2026-09-26`: its journal moves onto the shared
+bus in all three launchers, so `typed_answer` (info),
 `typed_unanswered` (medium), `typed_refused` (high) and `calibration_drift`
 (high) can now reach this floor. Severities are typryx's own and are not
 this file's to change.

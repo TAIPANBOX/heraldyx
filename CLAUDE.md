@@ -412,8 +412,8 @@ excluded from generic raw data rendering.
 21. **typryx's four event types are described honestly, a refusal names
     typryx's own reason in plain words, and a calibration drift is reported
     as a measurement and never as an enforcement.** typryx is an optional
-    add-on (agent-passport SPEC.md 6.2); the owner approved moving its
-    journal onto the shared bus in all three launchers 2026-09-26, so
+    add-on (agent-passport SPEC.md 6.2); `@decided 2026-09-26`: its
+    journal moves onto the shared bus in all three launchers, so
     `typed_answer` (info), `typed_unanswered` (medium), `typed_refused`
     (high) and `calibration_drift` (high) can now reach this floor.
     Severities are typryx's own and this file does not choose or change

@@ -206,11 +206,16 @@ func (s *State) TakeSuppressionNotice(c Cadence, now time.Time) (Notice, bool) {
 
 // NoteDigest records one event for the daily summary.
 func (s *State) NoteDigest(e event.Event, now time.Time) {
+	s.NoteDigestKey(Key(e), now)
+}
+
+// NoteDigestKey records one condition, by its dedup key, for the daily
+// summary.
+func (s *State) NoteDigestKey(key string, now time.Time) {
 	s.ensure()
 	if s.DigestSince == 0 {
 		s.DigestSince = now.UnixMilli()
 	}
-	key := Key(e)
 	if _, known := s.Digest[key]; !known && len(s.Digest) >= maxDigestKeys {
 		// Full. Count the overflow under one honest label rather than
 		// silently dropping it or growing without bound.

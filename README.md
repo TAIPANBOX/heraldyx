@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-189-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-230-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.5-success.svg)
 
@@ -364,7 +364,7 @@ Releases through v0.2.2 have none of this; v0.2.3 is the first to carry it.
 ```bash
 make build
 mkdir -p /tmp/heraldyx
-HERALDYX_EVENTS=/tmp/heraldyx/events.ndjson \
+HERALDYX_EVENTS=/tmp/heraldyx/tokenfuse.ndjson \
 HERALDYX_TO=you@example.com \
 HERALDYX_MAIL_FILE=/tmp/heraldyx/mail.txt \
 HERALDYX_CONSOLE_URL=https://box.example.com \
@@ -373,8 +373,9 @@ HERALDYX_STATE=/tmp/heraldyx/state.json \
 ./bin/heraldyx --once --from-now=false
 ```
 
-Append an event to `/tmp/heraldyx/events.ndjson`, run it again, and read
-`/tmp/heraldyx/mail.txt`. `HERALDYX_MAIL_FILE` writes what WOULD be sent, which
+Append an event whose `source` is `tokenfuse` to `/tmp/heraldyx/tokenfuse.ndjson`
+(the file is named for the source it may carry, see the table below), run it
+again, and read `/tmp/heraldyx/mail.txt`. `HERALDYX_MAIL_FILE` writes what WOULD be sent, which
 is also the honest way to see this in a demo: the whole chain runs except the
 last mile.
 
@@ -409,6 +410,30 @@ other.
 | `HERALDYX_POLL_MS` | `2000` | how often to read the log |
 | `HERALDYX_SENT` | beside the state file | the dispatch journal; empty disables recording |
 | `HERALDYX_PASSPORTS` | (empty) | a directory of agent-passport JSON, read to name who is answerable; empty means alerts carry no owner |
+| `HERALDYX_STREAMS` | (empty) | what a stream file may carry beyond the built-in table, as `stem=source\|source`, comma-separated; see "What a file may carry" |
+
+### What a file may carry
+
+An event is processed as the source it claims only when the file it was read
+from may carry that source. By convention `tokenfuse.ndjson` carries
+`tokenfuse`, `wardryx.ndjson` carries `wardryx`, and so on for every source the
+agent-passport registry lists; `tokenfuse-cloud.ndjson` and
+`tokenfuse-mcp.ndjson` (the control plane's and the MCP broker's own files)
+carry `tokenfuse`, and `demo.ndjson` (what `taipan demo` writes) carries the six
+planes it imitates. A line that claims anything else is not processed as that
+source: it is not mailed, not in the daily summary, and it is counted. One alert
+goes per file and claimed source, and a restart does not repeat it. A file whose
+name nothing declares is read when its lines claim the file's own name, and the
+box tells you once that it does not know the stream.
+
+If your files are laid out differently, say what each may carry:
+
+```bash
+HERALDYX_STREAMS='events=tokenfuse|wardryx,mixed=engram|qryx'
+```
+
+A declaration adds to what a file may carry and never removes from it. A
+malformed one stops the process at startup and names itself.
 
 ### Proving the SMTP path without a mail account
 

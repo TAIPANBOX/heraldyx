@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -37,6 +38,7 @@ import (
 	"github.com/TAIPANBOX/agent-stack-go/event"
 	"github.com/TAIPANBOX/agent-stack-go/passport"
 	"github.com/TAIPANBOX/heraldyx/internal/rule"
+	"github.com/TAIPANBOX/heraldyx/internal/stream"
 )
 
 // Around is one line of "and what else is going on", passed in by the caller
@@ -1152,6 +1154,94 @@ func Suppression(cfg Config, n rule.Notice, now time.Time) Message {
 	if cfg.ConsoleURL != "" {
 		fmt.Fprintf(&b, "\nOpen your console to see them:\n%s\n", strings.TrimRight(cfg.ConsoleURL, "/"))
 	}
+	return Message{Subject: head, Body: b.String()}
+}
+
+// Foreign is one (file, claimed source) pair whose events the watcher
+// refused, as the renderer needs it. The caller passes it in rather than this
+// package reaching for the watcher, which does I/O (see
+// `scripts/one-way-out.sh`).
+type Foreign struct {
+	// File is the path the events were read from; only its base name is
+	// shown, since a mail is read far from the box's directory layout.
+	File string
+	// Claimed is the `source` the events carried. Producer-written text, and
+	// rendered as such: bounded and escaped, never trusted.
+	Claimed string
+	// Count is how many events of the pair were refused in the poll that
+	// raised this notice.
+	Count int
+	// Allowed is what the file may carry.
+	Allowed []string
+}
+
+// maxClaimShown bounds how much of a claimed source a mail repeats. A source
+// is a short name; one longer than this is not one, and the whole of it is not
+// worth putting in a header.
+const maxClaimShown = 64
+
+// shownName makes producer-written text safe to put in a subject and a body:
+// bounded, then escaped by [safeID] when it is not plainly an identifier.
+func shownName(s string) string {
+	if len(s) > maxClaimShown {
+		s = s[:maxClaimShown] + "..."
+	}
+	out, _ := safeID(s)
+	return out
+}
+
+// ForeignSource renders the one notice raised for a (file, claimed source)
+// pair: events inside a stream file said they were raised by a source that
+// file may not carry, and were not processed as that source.
+//
+// It says what was refused and where, and says nothing the refused lines
+// themselves carried: the run, the agent and the data of a line this box does
+// not believe are exactly what a forger would want an operator to read.
+func ForeignSource(cfg Config, f Foreign, now time.Time) Message {
+	file := shownName(filepath.Base(f.File))
+	claimed := shownName(f.Claimed)
+	allowed := make([]string, 0, len(f.Allowed))
+	for _, a := range f.Allowed {
+		allowed = append(allowed, shownName(a))
+	}
+	may := strings.Join(allowed, ", ")
+	if may == "" {
+		may = "nothing"
+	}
+
+	head := fmt.Sprintf("[%s] events in %s claim to be from %s", boxName(cfg), file, claimed)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d event(s) in %s say they were raised by %s, and that file may only carry: %s.\n", f.Count, file, claimed, may)
+	b.WriteString("They were not processed as that source: they are in no mail, they are not counted as that source's events, and they are not in the daily summary.\n")
+	b.WriteString("\nWhat this box already did: refused them and kept reading. This process only reads the event log, so it cannot remove them, and they are still in the file.\n")
+	b.WriteString("\nIf nobody acts: whatever wrote them can keep writing in that name, and this box will not mail about this file and this source again (it counts them in its own log). ")
+	b.WriteString("Either a producer is appending to a file that is not its own, or something that can write to the event directory is writing in another plane's name. This box cannot tell which from the file alone.\n")
+	stem := stream.Stem(f.File)
+	fmt.Fprintf(&b, "\nIf the file is meant to carry that source, declare it and this stops: HERALDYX_STREAMS=%s=%s\n", shownName(stem), claimed)
+	return Message{Subject: head, Body: b.String()}
+}
+
+// Unknown is one file of a stream nothing declares, as the renderer needs it.
+type Unknown struct {
+	File  string
+	Count int
+}
+
+// UnknownStream renders the one notice raised for a stream file whose name
+// nothing declares. Its events were read, because their source is the file's
+// own name and a plane this box has not heard of must not go deaf; the notice
+// is that this was trusted by convention and not by declaration.
+func UnknownStream(cfg Config, u Unknown, now time.Time) Message {
+	file := shownName(filepath.Base(u.File))
+	stem := shownName(stream.Stem(u.File))
+	head := fmt.Sprintf("[%s] %s is not a stream this box knows", boxName(cfg), file)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d event(s) were read from %s, a file this box has no declaration for. They claim the file's own name as their source, so they were processed as that source: a plane that is new here is not ignored.\n", u.Count, file)
+	b.WriteString("\nWhat this box already did: read them and counted them as an unrecognised stream. Events in that file that claim any other source are refused.\n")
+	b.WriteString("\nIf nobody acts: nothing changes, and this box will not mail about this file again. Anything that can create a file in the event directory can start a stream like this one under a name of its choosing and be read, which is why it is said once.\n")
+	fmt.Fprintf(&b, "\nIf the stream is expected, declare it and this stops: HERALDYX_STREAMS=%s=%s\n", stem, stem)
 	return Message{Subject: head, Body: b.String()}
 }
 

@@ -162,24 +162,33 @@ func Key(e event.Event) string {
 // record what it decided. The mutation is the point: dedup and the ceiling are
 // both memory, and a decision that does not remember itself is not a limit.
 func Decide(cfg Config, st *State, e event.Event, now time.Time) Verdict {
-	r := Rank(e.Severity)
+	return DecideKey(cfg, st, Key(e), e.Severity, now)
+}
+
+// DecideKey is [Decide] for something that is not an event line but has to
+// pass the same three limits: a notice this process raises about its own
+// input, under a key it chose and a severity it chose. It exists so such a
+// notice is held to the floor, the dedup window and the ceiling like every
+// other alert, instead of being a second path around them.
+func DecideKey(cfg Config, st *State, key, severity string, now time.Time) Verdict {
+	r := Rank(severity)
 
 	// An unknown severity is not silently dropped and not silently escalated.
 	// It goes to the digest, where a human sees it once and can decide
 	// whether this build needs to learn a new level.
 	if r == rankUnknown {
-		st.NoteDigest(e, now)
+		st.NoteDigestKey(key, now)
 		return Digest
 	}
 	if r < cfg.MinRank {
-		st.NoteDigest(e, now)
+		st.NoteDigestKey(key, now)
 		return Digest
 	}
 
 	// Dedup before the ceiling, on purpose: a condition that trips two hundred
 	// times must not eat two hundred slots of an operator's hourly budget and
 	// crowd out the one different thing that happened.
-	if st.SentWithin(Key(e), cfg.DedupWindow, now) {
+	if st.SentWithin(key, cfg.DedupWindow, now) {
 		return Drop
 	}
 
@@ -192,10 +201,10 @@ func Decide(cfg Config, st *State, e event.Event, now time.Time) Verdict {
 	// `budget_exhausted` at critical held with twenty mediums, and an operator
 	// who heard nothing for 28 minutes.
 	if cfg.MaxPerHour > 0 && r < rankCrit && st.SentInLastHour(now) >= cfg.MaxPerHour {
-		st.NoteSuppressed(e.Severity, now)
+		st.NoteSuppressed(severity, now)
 		return Suppressed
 	}
 
-	st.NoteSent(Key(e), now)
+	st.NoteSent(key, now)
 	return Notify
 }

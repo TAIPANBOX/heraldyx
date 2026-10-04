@@ -442,6 +442,80 @@ excluded from generic raw data rendering.
     scenarios: `features/typryx-catalog.feature`, each bound to a named test
     both ways, held by `scripts/features-are-bound.sh`)*
 
+22. **An event is processed as the source it claims only when the file it was
+    read from may carry that source.** `@decided 2026-10-04`: on the shared
+    event bus each writer writes only its own stream and everyone else reads,
+    plus a verifier on the box; this is the reader half of that decision for
+    heraldyx. `@claude 2026-10-04, delegated by the owner`: the shape below.
+
+    The bus is one directory with one file per writer, and every plane can
+    append to every file, so the `source` inside a line was the one place a
+    co-tenant could speak in another plane's name: a line claiming
+    `source: wardryx` inside `tokenfuse.ndjson` was rendered and mailed as a
+    wardryx event. `watch.Watcher` now checks each parsed line against the file
+    it came from (`internal/stream`, a pure table and a pure decision) before
+    anything else sees it. A refused line is never returned by `Poll`, so the
+    rule, the renderer, the fleet picture and the digest cannot process it as
+    the source it named. It is counted as `Watcher.ForeignSource` beside
+    `Malformed`, printed once per growth (`sayForeign`), and raised as ONE alert
+    per (file, claimed source) pair, `high`, through `rule.DecideKey`, which is
+    the same floor, dedup window and ceiling every event passes (below the
+    floor it lands in the digest, not in the void). The pair is remembered in
+    the state file (`Snapshot.Raised`, bounded at 256, oldest out), so a
+    restart does not mail it again. The alert names the file, the claim, the
+    count and what the file may carry, and carries nothing the refused lines
+    said: the claimed source is producer-written text and is bounded and
+    escaped like every other id here.
+
+    What a file may carry is the convention (`<source>.ndjson` carries
+    `<source>`, for the thirteen sources agent-passport SPEC 6.2 registers),
+    plus a small table of the measured exceptions in `internal/stream`, plus
+    what the operator declares in `HERALDYX_STREAMS` (`stem=source|source`,
+    comma-separated; widens and never narrows; a malformed entry refuses
+    startup, because the rule fails closed and an ignored entry would read as a
+    plane that stopped being heard). The table, `@claude 2026-10-04`, read from
+    the producers' writer code, estate-gates C4's producer table and the three
+    launchers: `tokenfuse-cloud` and `tokenfuse-mcp` (the control plane and the
+    MCP broker append to their own files and stamp `tokenfuse`, through the one
+    crate that builds the envelope) and `demo` (`taipan demo` writes one file
+    attributed to six planes). The own-volume journals (`events.ndjson` for
+    scopyx in two launchers, `sent.ndjson` for heraldyx) are not on the shared
+    bus and are deliberately not in the table.
+
+    A stream nothing declares is not trusted in silence and not dropped: a line
+    whose source is the stream's own name is still read (a plane new to the box
+    must not go deaf the day it ships), counted as `UnknownStream`, and raised
+    once per file as a `high` alert saying the box does not know it; a line in
+    it claiming any other source is refused like any other. A pair or a file
+    raised is never raised twice, but the counters keep counting.
+
+    Neither alert is filed under an agent, because it is about a file and this
+    process never invents a subject (invariant 11), so `record.Journal` counts
+    the missing record and `sayUnrecorded` says so, as for any agent-less
+    dispatch. The mail goes either way.
+
+    **What it does not cover.** A writer that is compromised in its own uid can
+    still forge its own stream; only signing closes that. A process that
+    creates `wardryx.ndjson` before wardryx does, and writes `source: wardryx`
+    into it, passes this check, because the file name and the claim agree: that
+    is closed by who may create files in the directory (launcher ownership) and
+    by checking the owning uid of each stream file, neither of which is done
+    here. The renamed-file table is a copy that heraldyx and idryx each carry
+    and nothing holds them equal.
+    *(test: `TestAForeignSourceIsNeverMailedAsThatSource`,
+    `TestTheForeignSourceAlertNamesTheFileTheClaimAndTheCount`,
+    `TestAForeignSourceIsRaisedOncePerFileAndClaimedSourceAcrossPolls`,
+    `TestAForeignSourceIsNotRaisedAgainAfterARestart`,
+    `TestADeclaredMultiSourceFileIsProcessedWholeAndRaisesNothing`,
+    `TestARenamedFileOfTheSameProducerIsProcessed`,
+    `TestAnUnknownStreamIsReadAndSaidOnceNotTrustedInSilence`,
+    `TestHostileLinesAreUnchangedAndAHostileClaimCannotBreakTheMail`, all in
+    `cmd/heraldyx/source_test.go`, and `TestAForeignSourceIsNeverReturnedAndIsCounted`
+    in `internal/watch`; scenarios: `features/source-must-match-its-stream.feature`,
+    each bound to a named test both ways, held by `scripts/features-are-bound.sh`;
+    every test run red against the unfixed code first, and each verified by the
+    mutation that puts the defect back, recorded in the pull request)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

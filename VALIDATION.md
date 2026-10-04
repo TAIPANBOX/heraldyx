@@ -1295,6 +1295,46 @@ its gate, with four cases in `gates-have-teeth.sh`: a binding to a test that
 is gone, a scenario with no binding, a test named in prose that must not count
 as one, and every feature file removed, on which it says it measured nothing.
 
+## 2026-10-04, a line claiming another plane's name was processed as that plane
+
+`@claude` 2026-10-04, delegated by the owner, with `@decided 2026-10-04`: on the
+shared bus each writer writes only its own stream and everyone else reads; this
+is the reader half for heraldyx (CLAUDE.md invariant 22).
+
+**The defect, run against the unfixed binary (origin/main at `c98efe3`).** A
+bus directory with `tokenfuse.ndjson` holding one legitimate tokenfuse line and
+one line claiming `source: wardryx`, plus `tokenfuse-cloud.ndjson`,
+`demo.ndjson` (a wardryx and a tokenfuse line) and `newplane.ndjson`, run with
+`--once --from-now=false`: six messages, one of them `run-forged was denied by
+policy`, the forged line mailed as a wardryx decision.
+
+**The same directory against the fixed binary.** Seven messages: the five
+legitimate alerts (`run-legit`, `run-cloud`, `run-demo-w`, `run-demo-t`,
+`run-np`), one `events in tokenfuse.ndjson claim to be from wardryx`, and one
+`newplane.ndjson is not a stream this box knows`. `run-forged` appears in no
+message. The log carries one `watch: 1 event(s) refused ...` line and one
+`watch: 1 event(s) read from a stream this box has no declaration for ...`
+line. The state file holds both raised keys under `raised`, and `--journal`
+verifies the chain over five alert records (the two notices are filed under no
+agent, so `record: 2 message(s) sent without a record` is printed, as designed).
+
+**Tests, red first.** Twelve behavioural tests in `cmd/heraldyx/source_test.go`
+were run against the unfixed code before any implementation: ten failed on
+behaviour (the forged line mailed, no alert, the alert repeated, a restart
+re-raised, an undeclared `events.ndjson` read), two passed by nature because
+they guard against over-blocking (a declared multi-source file, the renamed
+tokenfuse files). The guards are held by the mutants below instead.
+
+**Seven mutants on the fixed code, all caught** (`go test ./...`): the rule
+disabled (15 tests), the exception table ignored (7), the alert repeated every
+poll (4), an unknown stream trusted in silence (2), a refusal counted but the
+line still processed (12), the raised memory not persisted (2), a notice that
+bypasses `rule.DecideKey` (1).
+
+**Not verified.** SMTP delivery of either notice (file delivery only). Anything
+about the launchers' file ownership, which is a different layer. A real bus
+with a hostile co-tenant, as opposed to a directory written by hand.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of

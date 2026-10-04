@@ -198,3 +198,52 @@ func TestARecipientListIsSplitAndTrimmedRatherThanTakenWhole(t *testing.T) {
 		}
 	}
 }
+
+// What a stream file may carry is declared in HERALDYX_STREAMS and reaches the
+// rule through StreamPolicy.
+func TestTheStreamDeclarationReachesThePolicy(t *testing.T) {
+	t.Setenv("HERALDYX_EVENTS", "/tmp/events")
+	t.Setenv("HERALDYX_STREAMS", "events=tokenfuse|wardryx")
+
+	c, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	p := c.StreamPolicy()
+	if got := p.AllowedFor("events"); len(got) != 2 || got[0] != "tokenfuse" || got[1] != "wardryx" {
+		t.Errorf("events may carry %v, want tokenfuse and wardryx", got)
+	}
+	if got := p.AllowedFor("tokenfuse-cloud"); len(got) != 1 || got[0] != "tokenfuse" {
+		t.Errorf("the built-in table did not survive the declaration: tokenfuse-cloud may carry %v", got)
+	}
+}
+
+func TestNoStreamDeclarationIsTheBuiltInTable(t *testing.T) {
+	t.Setenv("HERALDYX_EVENTS", "/tmp/events")
+	t.Setenv("HERALDYX_STREAMS", "")
+	c, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	if c.Streams != nil {
+		t.Errorf("Streams = %v, want none", c.Streams)
+	}
+	if got := c.StreamPolicy().AllowedFor("demo"); len(got) != 6 {
+		t.Errorf("demo may carry %v, want the six planes `taipan demo` writes", got)
+	}
+}
+
+// A malformed declaration is refused at startup with the variable named: the
+// rule fails closed, and an entry quietly ignored would read as a plane that
+// stopped being heard.
+func TestAMalformedStreamDeclarationIsRefusedAtStartupNamingTheVariable(t *testing.T) {
+	t.Setenv("HERALDYX_EVENTS", "/tmp/events")
+	t.Setenv("HERALDYX_STREAMS", "events")
+	_, err := FromEnv()
+	if err == nil {
+		t.Fatal("a declaration with no sources was accepted")
+	}
+	if !strings.Contains(err.Error(), "HERALDYX_STREAMS") {
+		t.Errorf("the error must name the variable, got: %v", err)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -121,6 +122,7 @@ func run(args []string) error {
 	picture := fleet.New()
 
 	w := watch.New(cfg.ResolveEventFiles(), snap.Offsets)
+	w.SetPolicy(cfg.StreamPolicy())
 	if *fromNow && len(snap.Offsets) == 0 {
 		if err := w.SkipToEnd(); err != nil {
 			log.Printf("watch: %v", err)
@@ -166,11 +168,15 @@ func run(args []string) error {
 	// How many unwritten records have already been logged. See sayUnrecorded.
 	said := 0
 	saidVolume := 0
+	saidForeign := 0
+	saidUnknown := 0
 
 	for {
 		cycle(cfg, rcfg, rendercfg, w, snap, sender, journal, passports, picture, time.Now())
 		said = sayUnrecorded(journal.Failures, said)
 		saidVolume = sayVolume(w.Capped, w.Oversized, saidVolume)
+		saidForeign = sayForeign(w.ForeignSource, saidForeign)
+		saidUnknown = sayUnknown(w.UnknownStream, saidUnknown)
 		snap.Offsets = w.Offsets()
 		if err := state.Save(cfg.StatePath, snap); err != nil {
 			log.Printf("state: %v", err)
@@ -253,6 +259,34 @@ func sayVolume(capped, oversized, said int) int {
 	return now
 }
 
+// sayForeign reports events refused because the file they sat in may not carry
+// the source they claimed, and returns the count that has now been said.
+//
+// The counter is the same kind of fact as Malformed and Capped: process
+// lifetime, cumulative, and useless to an operator unless something prints it.
+// The growth, once per poll, for the reason sayVolume gives. The mail is
+// separate and goes once per file and claimed source; this line is how the
+// rest of a flood from an already-raised pair stays visible without a mail.
+func sayForeign(n, said int) int {
+	if n <= said {
+		return said
+	}
+	log.Printf("watch: %d event(s) refused because the file they were read from may not carry the source they claim, %d since this process started. They were not processed as that source: not mailed, not rendered, not in the digest. One alert goes per file and claimed source; HERALDYX_STREAMS declares a file that is meant to carry more.",
+		n-said, n)
+	return n
+}
+
+// sayUnknown reports events read from a stream nothing declares, and returns
+// the count that has now been said. These ARE processed, so the line says so.
+func sayUnknown(n, said int) int {
+	if n <= said {
+		return said
+	}
+	log.Printf("watch: %d event(s) read from a stream this box has no declaration for, %d since this process started. They claim the file's own name as their source and were processed; one alert goes per file. HERALDYX_STREAMS declares a stream that is expected.",
+		n-said, n)
+	return n
+}
+
 // cadence is how often the ceiling's summary goes out while alerts are being
 // held. A package value rather than a flag or a variable: the ceiling is the
 // operator's to set, and how often they are told it is holding the line is
@@ -300,7 +334,12 @@ func cycle(
 	// question. A notice about alerts that were held back must not be recorded
 	// against an agent whose alert went out.
 	var heldAgent, heldRun string
-	for _, e := range w.Poll() {
+	events := w.Poll()
+	// What the watcher refused or did not recognise is raised BEFORE the events
+	// are decided, so a poll full of ordinary alerts cannot spend the hour's
+	// ceiling ahead of the one notice that says a plane's name is being used.
+	raiseStreamNotices(cfg, rcfg, rendercfg, w, snap, sender, journal, now)
+	for _, e := range events {
 		// Every event feeds the picture, including the ones nobody is mailed
 		// about: an agent quietly at 80% of its budget is exactly the context
 		// that makes a different agent's alert worth reading.
@@ -389,6 +428,74 @@ func cycle(
 			About:   fmt.Sprintf("digest:%d", len(entries)),
 		}, now)
 	}
+}
+
+// raiseStreamNotices raises what the watcher found wrong with its input: one
+// notice per (file, claimed source) pair that was refused, and one per file of
+// a stream nothing declares. Each key is raised once, ever, across polls and
+// restarts (snap.Raise), and then goes through the same floor, dedup window
+// and ceiling as any alert (rule.DecideKey): both are `high`. Below the floor it lands in the digest rather
+// than being lost.
+//
+// Neither is filed under an agent. The notice is about a file, not about an
+// agent, and this process never invents a subject (invariant 11), so the
+// journal counts the missing record as it does for any dispatch with no agent
+// to file it under.
+func raiseStreamNotices(
+	cfg config.Config,
+	rcfg rule.Config,
+	rendercfg render.Config,
+	w *watch.Watcher,
+	snap *state.Snapshot,
+	sender deliver.Sender,
+	journal *record.Journal,
+	now time.Time,
+) {
+	for _, f := range w.TakeForeign() {
+		raised := "foreign_source:" + f.File + ":" + f.Claimed
+		key := "foreign_source:" + filepath.Base(f.File) + ":" + clip(f.Claimed, 64)
+		raiseOnce(rcfg, snap, raised, key, "high", now, func() {
+			deliver_(cfg, sender, journal, render.ForeignSource(rendercfg, render.Foreign{
+				File: f.File, Claimed: f.Claimed, Count: f.Count, Allowed: f.Allowed,
+			}, now), record.Dispatch{Kind: record.KindForeignSource, About: key}, now)
+		})
+	}
+	for _, u := range w.TakeUnknown() {
+		raised := "unknown_stream:" + u.File
+		key := "unknown_stream:" + filepath.Base(u.File)
+		raiseOnce(rcfg, snap, raised, key, "high", now, func() {
+			deliver_(cfg, sender, journal, render.UnknownStream(rendercfg, render.Unknown{
+				File: u.File, Count: u.Count,
+			}, now), record.Dispatch{Kind: record.KindUnknownStream, About: key}, now)
+		})
+	}
+}
+
+// raiseOnce lets a notice through at most once per `raised` key, and then
+// only as far as the operator's own limits allow.
+func raiseOnce(rcfg rule.Config, snap *state.Snapshot, raised, key, severity string, now time.Time, send func()) {
+	if !snap.Raise(raised, now) {
+		return
+	}
+	switch rule.DecideKey(rcfg, snap.Rule, key, severity, now) {
+	case rule.Notify:
+		send()
+	case rule.Suppressed:
+		if snap.Rule.SuppressedSince == 1 {
+			sayCeiling(rcfg.MaxPerHour, key, cadence)
+		}
+	case rule.Digest, rule.Drop:
+		// Counted in the digest by DecideKey when below the floor; a dropped
+		// duplicate inside the dedup window needs nothing more.
+	}
+}
+
+// clip bounds producer-written text used inside a dedup key.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 // deliver_ sends one message and records that it did, or does neither when
@@ -490,4 +597,6 @@ const envHelp = `  HERALDYX_EVENTS         files and/or directories of NDJSON ag
   HERALDYX_MAX_PER_HOUR   ceiling on immediate messages (default 20, 0 = none)
   HERALDYX_DIGEST_HOURS   how often the below-threshold summary goes out
                           (default 24, 0 = never)
-  HERALDYX_POLL_MS        how often to read the log (default 2000)`
+  HERALDYX_POLL_MS        how often to read the log (default 2000)
+  HERALDYX_STREAMS        what a stream file may carry beyond the built-in
+                          table, as stem=source|source,... (default none)`

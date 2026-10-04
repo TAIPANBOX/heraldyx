@@ -16,7 +16,11 @@ import (
 	"io/fs"
 	"os"
 
+	"sort"
+
 	"github.com/TAIPANBOX/agent-stack-go/event"
+
+	"github.com/TAIPANBOX/heraldyx/internal/stream"
 )
 
 // Watcher follows a set of NDJSON files by byte offset.
@@ -46,7 +50,55 @@ type Watcher struct {
 	// counted here rather than under Malformed, because it may well have
 	// parsed and the operator should know which of the two it was.
 	Oversized int
+	// ForeignSource counts well-formed events whose `source` the file they
+	// were read from may not carry, ever, for this process. Such an event is
+	// never returned by Poll: it is not processed as the source it claims.
+	// Beside Malformed on purpose, for the same reason: a producer, or a
+	// co-tenant of the bus, writing something that is not what its file says
+	// it is is a fact an operator should be able to see.
+	ForeignSource int
+	// UnknownStream counts events read from a file whose stem nothing
+	// declares, the line claiming the stem itself. They ARE returned by Poll,
+	// because a plane this build has not heard of must not go deaf, and they
+	// are counted because trusting a stream in silence is the other way to be
+	// wrong.
+	UnknownStream int
+
+	policy stream.Policy
+	// foreign and unknown hold what was refused or merely unrecognised since
+	// the caller last took them, one entry per pair or file and bounded by
+	// maxPendingNotices, so a producer inventing a source per line cannot
+	// make this process hold a map the size of its log.
+	foreign map[foreignKey]*Foreign
+	unknown map[string]*Unknown
 }
+
+// Foreign is one (file, claimed source) pair whose events were refused since
+// the last [Watcher.TakeForeign].
+type Foreign struct {
+	// File is the path the events were read from, Stem its stream name.
+	File, Stem string
+	// Claimed is the `source` the events carried, exactly as written. It is
+	// producer-written text: a caller that renders it must treat it as such.
+	Claimed string
+	// Count is how many events of this pair were refused since the last take.
+	Count int
+	// Allowed is what the file may carry, sorted.
+	Allowed []string
+}
+
+// Unknown is one file of an undeclared stream that was read since the last
+// [Watcher.TakeUnknown].
+type Unknown struct {
+	File, Stem string
+	Count      int
+}
+
+type foreignKey struct{ file, claimed string }
+
+// maxPendingNotices bounds each of the two pending maps. Past it the counters
+// still grow and the notice for a new pair simply is not raised.
+const maxPendingNotices = 256
 
 // maxBytesPerPoll bounds how much of a single file's growth is read in one
 // poll. Without a cap, a looping or compromised producer that appends more
@@ -66,12 +118,80 @@ const maxBytesPerPoll = 4 * 1024 * 1024 // 4 MiB
 
 // New returns a watcher over paths, starting from the given offsets (nil for
 // a fresh start).
+//
+// The watcher enforces [stream.Default] until [Watcher.SetPolicy] says
+// otherwise, so a caller that forgets to configure it is closed rather than
+// open.
 func New(paths []string, offsets map[string]int64) *Watcher {
-	w := &Watcher{paths: paths, offsets: map[string]int64{}}
+	w := &Watcher{paths: paths, offsets: map[string]int64{}, policy: stream.Default()}
 	for k, v := range offsets {
 		w.offsets[k] = v
 	}
 	return w
+}
+
+// SetPolicy replaces the rule that decides which sources a file may carry.
+func (w *Watcher) SetPolicy(p stream.Policy) { w.policy = p }
+
+// TakeForeign returns the (file, claimed source) pairs refused since the last
+// call, in a stable order, and forgets them. What was refused is never handed
+// back as an event; this is how the caller learns it happened.
+func (w *Watcher) TakeForeign() []Foreign {
+	out := make([]Foreign, 0, len(w.foreign))
+	for _, f := range w.foreign {
+		out = append(out, *f)
+	}
+	w.foreign = nil
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].File != out[j].File {
+			return out[i].File < out[j].File
+		}
+		return out[i].Claimed < out[j].Claimed
+	})
+	return out
+}
+
+// TakeUnknown returns the undeclared streams read since the last call, in a
+// stable order, and forgets them.
+func (w *Watcher) TakeUnknown() []Unknown {
+	out := make([]Unknown, 0, len(w.unknown))
+	for _, u := range w.unknown {
+		out = append(out, *u)
+	}
+	w.unknown = nil
+	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
+	return out
+}
+
+func (w *Watcher) noteForeign(path, stem, claimed string) {
+	w.ForeignSource++
+	key := foreignKey{path, claimed}
+	if f, ok := w.foreign[key]; ok {
+		f.Count++
+		return
+	}
+	if len(w.foreign) >= maxPendingNotices {
+		return
+	}
+	if w.foreign == nil {
+		w.foreign = map[foreignKey]*Foreign{}
+	}
+	w.foreign[key] = &Foreign{File: path, Stem: stem, Claimed: claimed, Count: 1, Allowed: w.policy.AllowedFor(stem)}
+}
+
+func (w *Watcher) noteUnknown(path, stem string) {
+	w.UnknownStream++
+	if u, ok := w.unknown[path]; ok {
+		u.Count++
+		return
+	}
+	if len(w.unknown) >= maxPendingNotices {
+		return
+	}
+	if w.unknown == nil {
+		w.unknown = map[string]*Unknown{}
+	}
+	w.unknown[path] = &Unknown{File: path, Stem: stem, Count: 1}
 }
 
 // maxRememberedPaths bounds how many read positions are kept for files that
@@ -266,6 +386,7 @@ func (w *Watcher) pollOne(path string) ([]event.Event, error) {
 	w.offsets[path] = from + int64(len(complete))
 
 	var out []event.Event
+	stem := stream.Stem(path)
 	for _, line := range bytes.Split(complete, []byte{'\n'}) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
@@ -274,6 +395,19 @@ func (w *Watcher) pollOne(path string) ([]event.Event, error) {
 		if err != nil {
 			w.Malformed++
 			continue
+		}
+		// The source an event claims is checked against the file it sits in,
+		// AFTER it parsed and BEFORE anything else sees it. A line that fails
+		// here is counted and never returned, so nothing downstream (the
+		// rule, the renderer, the fleet picture, the digest) can process it
+		// as the source it named.
+		switch w.policy.Check(stem, e.Source) {
+		case stream.Foreign:
+			w.noteForeign(path, stem, e.Source)
+			continue
+		case stream.AllowedUnknownStem:
+			w.noteUnknown(path, stem)
+		case stream.Allowed:
 		}
 		out = append(out, e)
 	}

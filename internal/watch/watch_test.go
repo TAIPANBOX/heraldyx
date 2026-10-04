@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/heraldyx/internal/stream"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,8 +130,8 @@ func TestSkipToEndReadsNoHistory(t *testing.T) {
 // A plane deployed later appears as a new file, and it is read from its start.
 func TestSetPathsKeepsOffsetsAndPicksUpNewFiles(t *testing.T) {
 	dir := t.TempDir()
-	a := filepath.Join(dir, "a.ndjson")
-	b := filepath.Join(dir, "b.ndjson")
+	a := filepath.Join(dir, "tokenfuse.ndjson")
+	b := filepath.Join(dir, "tokenfuse-cloud.ndjson")
 	write(t, a, line("a-1"))
 
 	w := New([]string{a}, nil)
@@ -154,7 +155,7 @@ func TestSetPathsKeepsOffsetsAndPicksUpNewFiles(t *testing.T) {
 // be stat'ed once, a mount not yet visible. That is a blink, not a new file.
 func TestAPathOutOfSightForOnePollKeepsItsPlace(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, "plane.ndjson")
+	p := filepath.Join(dir, "tokenfuse.ndjson")
 	write(t, p, line("r1"))
 
 	w := New([]string{p}, nil)
@@ -186,7 +187,7 @@ func TestAPathOutOfSightForOnePollKeepsItsPlace(t *testing.T) {
 // Keeping a position is only safe because this case is caught here.
 func TestAReplacedFileIsStillReadFromTheStart(t *testing.T) {
 	dir := t.TempDir()
-	p := filepath.Join(dir, "plane.ndjson")
+	p := filepath.Join(dir, "tokenfuse.ndjson")
 	write(t, p, line("r1")+line("r2"))
 
 	w := New([]string{p}, nil)
@@ -217,7 +218,7 @@ func TestAReplacedFileIsStillReadFromTheStart(t *testing.T) {
 // remainder with nothing lost and nothing delivered twice, and the Capped
 // counter must show the cap was actually hit.
 func TestAFileGrowingPastTheCapIsReadInPieces(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "burst.ndjson")
+	p := filepath.Join(t.TempDir(), "tokenfuse.ndjson")
 
 	oneLine := line("r0000000")
 	lineLen := int64(len(oneLine))
@@ -283,7 +284,7 @@ func TestAFileGrowingPastTheCapIsReadInPieces(t *testing.T) {
 // this, a cap that fired on every poll regardless of size would still pass
 // the test above.
 func TestABurstUnderTheCapIsReadWholeInOnePoll(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "small.ndjson")
+	p := filepath.Join(t.TempDir(), "tokenfuse.ndjson")
 	const total = 500
 
 	f, err := os.Create(p)
@@ -321,7 +322,7 @@ func TestABurstUnderTheCapIsReadWholeInOnePoll(t *testing.T) {
 // counted malformed, and the file kept flowing. So a completed line the cap
 // cannot hold is skipped, counted, and the lines after it arrive.
 func TestALineLongerThanTheCapIsSkippedAndTheFileKeepsFlowing(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "huge.ndjson")
+	p := filepath.Join(t.TempDir(), "tokenfuse.ndjson")
 
 	blob := strings.Repeat("x", int(maxBytesPerPoll)+1)
 	huge := `{"schema":"taipanbox.dev/agent-event/v0.2","ts":"2026-08-02T14:00:00Z","source":"tokenfuse","type":"budget_exhausted","agent_id":"agent://acme/biller","run_id":"huge","severity":"critical","data":{"blob":"` + blob + `"}}` + "\n"
@@ -351,5 +352,125 @@ func TestALineLongerThanTheCapIsSkippedAndTheFileKeepsFlowing(t *testing.T) {
 	// And nothing arrives twice: a further poll delivers nothing.
 	if more := w.Poll(); len(more) != 0 {
 		t.Fatalf("a poll after the file was consumed delivered %d event(s) again", len(more))
+	}
+}
+
+func lineFromSource(source, run string) string {
+	return `{"schema":"taipanbox.dev/agent-event/v0.2","ts":"2026-08-02T14:00:00Z","source":"` + source + `","type":"policy_deny","agent_id":"agent://acme/biller","run_id":"` + run + `","severity":"high"}` + "\n"
+}
+
+// An event whose claimed source the file may not carry is never returned. It
+// is counted beside Malformed and kept as a (file, claim) pair for the caller
+// to raise once.
+func TestAForeignSourceIsNeverReturnedAndIsCounted(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "tokenfuse.ndjson")
+	write(t, p, line("r1")+lineFromSource("wardryx", "forged-1")+lineFromSource("wardryx", "forged-2")+lineFromSource("engram", "forged-3"))
+
+	w := New([]string{p}, nil)
+	got := w.Poll()
+	if len(got) != 1 || got[0].RunID != "r1" {
+		t.Fatalf("only the line tokenfuse.ndjson may carry should come back, got %+v", got)
+	}
+	if w.ForeignSource != 3 || w.Malformed != 0 {
+		t.Fatalf("ForeignSource = %d, Malformed = %d, want 3 and 0", w.ForeignSource, w.Malformed)
+	}
+	pairs := w.TakeForeign()
+	if len(pairs) != 2 || pairs[0].Claimed != "engram" || pairs[0].Count != 1 || pairs[1].Claimed != "wardryx" || pairs[1].Count != 2 {
+		t.Fatalf("pairs not grouped by (file, claim) in stable order: %+v", pairs)
+	}
+	if pairs[1].File != p || pairs[1].Stem != "tokenfuse" || len(pairs[1].Allowed) != 1 || pairs[1].Allowed[0] != "tokenfuse" {
+		t.Fatalf("a pair must name the file and what it may carry: %+v", pairs[1])
+	}
+	if again := w.TakeForeign(); len(again) != 0 {
+		t.Fatalf("a take must forget what it handed back: %+v", again)
+	}
+	if w.ForeignSource != 3 {
+		t.Fatalf("the counter is for the life of the process, not the take: %d", w.ForeignSource)
+	}
+}
+
+// What the offset passed is gone: a refused line is not re-read and re-counted
+// on the next poll.
+func TestARefusedLineIsNotReadAgain(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "tokenfuse.ndjson")
+	write(t, p, lineFromSource("wardryx", "forged-1"))
+	w := New([]string{p}, nil)
+	w.Poll()
+	w.Poll()
+	w.Poll()
+	if w.ForeignSource != 1 {
+		t.Fatalf("the same refused line was counted %d times", w.ForeignSource)
+	}
+}
+
+// A stream nothing declares is read when the claim is its own name, counted,
+// and a claim of any other name is refused.
+func TestAnUnknownStreamIsReadAndCountedAndAnotherNameIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "newplane.ndjson")
+	write(t, p, lineFromSource("newplane", "n1")+lineFromSource("newplane", "n2")+lineFromSource("tokenfuse", "forged"))
+
+	w := New([]string{p}, nil)
+	got := w.Poll()
+	if len(got) != 2 {
+		t.Fatalf("the two lines claiming the stream's own name should be read, got %+v", got)
+	}
+	if w.UnknownStream != 2 || w.ForeignSource != 1 {
+		t.Fatalf("UnknownStream = %d, ForeignSource = %d, want 2 and 1", w.UnknownStream, w.ForeignSource)
+	}
+	un := w.TakeUnknown()
+	if len(un) != 1 || un[0].File != p || un[0].Stem != "newplane" || un[0].Count != 2 {
+		t.Fatalf("one entry per file: %+v", un)
+	}
+}
+
+// A declaration set on the watcher is the rule it enforces.
+func TestSetPolicyChangesWhatAFileMayCarry(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "events.ndjson")
+	write(t, p, lineFromSource("tokenfuse", "a")+lineFromSource("wardryx", "b"))
+
+	closed := New([]string{p}, nil)
+	if got := closed.Poll(); len(got) != 0 {
+		t.Fatalf("an undeclared events.ndjson must not carry other planes' names: %+v", got)
+	}
+
+	open := New([]string{p}, nil)
+	open.SetPolicy(stream.Default().Extend(map[string][]string{"events": {"tokenfuse", "wardryx"}}))
+	if got := open.Poll(); len(got) != 2 || open.ForeignSource != 0 || open.UnknownStream != 0 {
+		t.Fatalf("a declared file reads whole and raises nothing: %d events, %d foreign, %d unknown", len(got), open.ForeignSource, open.UnknownStream)
+	}
+}
+
+// A producer minting a new claimed source per line cannot make the pending
+// map the size of its log: the counter keeps counting, the map stops growing.
+func TestPendingNoticesAreBounded(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "tokenfuse.ndjson")
+	var b strings.Builder
+	for i := 0; i < maxPendingNotices+50; i++ {
+		b.WriteString(lineFromSource(fmt.Sprintf("forged-%d", i), "r"))
+	}
+	write(t, p, b.String())
+	w := New([]string{p}, nil)
+	w.Poll()
+	if got := len(w.TakeForeign()); got != maxPendingNotices {
+		t.Fatalf("pending pairs = %d, want the bound %d", got, maxPendingNotices)
+	}
+	if w.ForeignSource != maxPendingNotices+50 {
+		t.Fatalf("the counter must still count every refused line: %d", w.ForeignSource)
+	}
+}
+
+// Hostile bytes are Malformed exactly as before and never reach the source
+// check: the rule adds a count beside theirs and removes none.
+func TestHostileLinesStillCountAsMalformedNotForeign(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "tokenfuse.ndjson")
+	write(t, p, "not json\n{\"source\":\"wardryx\"}\n\x00\x01\x02\n"+line("ok"))
+	w := New([]string{p}, nil)
+	got := w.Poll()
+	if len(got) != 1 || got[0].RunID != "ok" {
+		t.Fatalf("got %+v", got)
+	}
+	if w.Malformed != 3 || w.ForeignSource != 0 {
+		t.Fatalf("Malformed = %d, ForeignSource = %d, want 3 and 0", w.Malformed, w.ForeignSource)
 	}
 }

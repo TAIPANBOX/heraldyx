@@ -526,6 +526,62 @@ excluded from generic raw data rendering.
     every test run red against the unfixed code first, and each verified by the
     mutation that puts the defect back, recorded in the pull request)*
 
+23. **agent-conform's two event types name the stream and the line, a break
+    is called evidence and never a verdict, and an unchained stream is not
+    called a break.** agent-conform is the on-box hash-chain verifier
+    (`agent-conform watch-dir`, agent-stack-go `cmd/agent-conform/watchdir.go`
+    at v1.1.0), an optional add-on registered in agent-passport SPEC.md 6.2;
+    `@claude 2026-10-04`, asked for by the estate audit plan of that day: its
+    two types, `chain_broken` (high) and `chain_unchained` (low), are
+    described here instead of mailing as the generic fallback, which named no
+    stream and no line. Severities are the
+    verifier's own and this file does not choose them. `chain_broken` names the
+    stream file (in the subject and the body), the first broken line, how many
+    breaks the file holds and the kind, and says what a break is evidence of:
+    the stream was edited after it was written, or two writers interleaved in
+    it, and the verifier does not say which or who; it sends the operator to the
+    verifier's own stream and to the pod or service log of what runs it.
+    `chain_unchained` names the stream and the event count, says it is not a
+    break (`prev_hash` is optional) and says what it costs: an edit to that
+    stream would not be detected. The shape below is `@claude 2026-10-04`.
+
+    The four data keys it prints, `file`, `line`, `breaks` and `events`, are
+    deliberately NOT in `dataAllowlist`: `events` is a key verdryx's `slo_burn`
+    carries and `TestTheSLOFieldsAreNotMailedRaw` holds it out, and a `file` or
+    `line` another plane carries must stay unrendered. `conformFacts` in
+    `internal/render` reads them for these two types only, each through its own
+    check (`streamFile` for the name, `wholeCount` for the numbers), so one
+    hostile field costs only itself; `kind` goes through the existing
+    `safeString`. The two clipped hash strings (`expected`, `found`) and the
+    rest of the verifier's fields are never read. A file name that is present
+    and not printable is said out loud, never left as a gap.
+
+    **What it does not cover.** Every alert the verifier writes shares one
+    subject (its own agent id, no run id) and the dedup key is the type and the
+    subject, so a second broken stream reported inside one dedup window is
+    dropped, not mailed (@measured `rule.Decide`, two `chain_broken` events for
+    different files 30 seconds apart: `notify`, then `drop`, 2026-10-04). That
+    is a property of the key and is not changed here. Nothing here can check
+    that the wording is true of the verifier beyond reading its code and SPEC
+    6.2.
+    *(test: `TestEveryAgentConformTypeIsDescribed`,
+    `TestChainBrokenNamesTheStreamTheFirstBrokenLineAndTheBreakCount`,
+    `TestChainBrokenCountsASingleBreakInTheSingular`,
+    `TestChainBrokenSaysWhatItIsEvidenceOfAndWhatToCheck`,
+    `TestChainBrokenWithHostileValuesStaysSafe`,
+    `TestChainBrokenSaysWhenTheFileNameCannotBePrinted`,
+    `TestChainBrokenKindIsRenderedOnlyThroughTheShapeCheck`,
+    `TestChainUnchainedNamesTheStreamAndTheEventCountAndSaysItIsNotABreak`,
+    `TestChainUnchainedWithHostileValuesStaysSafe`,
+    `TestFileLineBreaksAndEventsAreRenderedOnlyForAgentConformTypes`,
+    `TestAgentConformKeysAreNotInTheGenericAllowlist`,
+    `TestAgentConformSeveritiesAreNotChangedByThisFile`, all in
+    `internal/render/conform_test.go`; scenarios:
+    `features/agent-conform-catalog.feature`, 12 scenarios, each bound to a
+    named test both ways, held by `scripts/features-are-bound.sh`; every test
+    run red against the unfixed code first, and each verified by the mutation
+    that puts the defect back, recorded in the pull request)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

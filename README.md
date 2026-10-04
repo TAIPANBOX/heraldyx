@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-234-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-246-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.3.0-success.svg)
 
@@ -129,7 +129,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 46 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 48 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -166,6 +166,8 @@ for, and the link still opens the console at it.
 | `typed_unanswered` | asked a typed question that came back with no usable answer |
 | `typed_refused` | asked a typed question that never reached a backend (the sentence names typryx's own reason: a cap, an unregistered template, freeform switched off, or a malformed ask; see below) |
 | `calibration_drift` | has a group of typed answers whose calibration crossed a configured bound (the template, backend, model and which metric crossed are all in the mail; see below) |
+| `chain_broken` | has an event stream whose hash chain broke (the subject and the mail name the stream file, the first broken line and how many breaks the file holds; see below) |
+| `chain_unchained` | has an event stream that holds events and no hash chain at all (the stream file and the event count are in the mail; not a break; see below) |
 | `anomaly_triaged` | was given a spend anomaly to investigate |
 | `anomaly_explained` | wrote up what caused a spend anomaly |
 | `anomaly_accepted` | had its explanation of a spend anomaly accepted |
@@ -311,6 +313,37 @@ burst spread across many distinct agents or runs is instead bounded by the
 hourly ceiling itself, which summarises rather than mails each one once the
 default 20-an-hour limit is reached. Neither is new: both already govern
 every other `high` type in this table.
+
+**agent-conform is an optional add-on** (agent-passport SPEC.md 6.2): a stack
+that does not run `agent-conform watch-dir` emits neither of the last two rows.
+That verifier checks the `prev_hash` chain of every stream in the bus directory
+and writes what it finds to its own stream, `agent-conform.ndjson`. Both of its types are
+described here (`@claude 2026-10-04`, asked for by that day's estate audit
+plan), because before this they mailed as the generic fallback, which names no
+stream and no line.
+
+`chain_broken` (high) names the stream file, the first broken line and how many
+breaks the file holds, all read from the event's own `data` and each checked on
+its own: a file name must look like a file name (letters, digits, `_`, `.` and
+`-`, at most 64), a line or a count must be a whole number of at least 1, and a
+value that fails is left out rather than escaped. A file name left out is said
+out loud, so a gap never reads as the verifier naming nothing. The mail calls a
+break what it is: tamper-evidence, not a verdict. The stream was edited after it
+was written, or two writers interleaved in it, and the verifier does not say
+which, or who. It tells the operator to look at the verifier's own stream and at
+the pod or service log of whatever runs the verifier. The two hash strings the
+verifier clips into the event are never rendered. `chain_unchained` (low) is not
+a break: `prev_hash` is optional, and a stream with events and none carrying one
+has no chain to check. What it costs is that an edit to that stream would not
+be seen, and the mail says exactly that and no more.
+
+Not covered: every alert from the verifier shares one subject (its own agent id,
+and it carries no run id), and the dedup key is the type and the subject, so a
+second broken stream reported by the verifier inside one dedup window (ten
+minutes by default) is dropped rather than mailed. @measured `rule.Decide` on two
+`chain_broken` events for different files 30 seconds apart, 2026-10-04: the
+first returned `notify`, the second `drop`. Changing what the key is made of is
+a rule change this rendering change does not make.
 
 `behavior_anomaly` and `excessive_privilege` were listed here until 2026-08-03.
 They were removed because nothing raises them: both are concepts of the identity

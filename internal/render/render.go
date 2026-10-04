@@ -680,6 +680,37 @@ var catalog = map[string]phrasing{
 		did:  "typryx's calibration check measured this template, backend and model group against its own ledger of outcomes and found it crossed the bound configured for it. Nothing about the deployment changed: typryx never turns a calibration verdict into an enforcement.",
 		next: "Nothing automatic. Open the console at this incident to see the group and the numbers behind it.",
 	},
+
+	// ------------------------------------------------------- agent-conform
+	//
+	// agent-conform is the on-box hash-chain verifier
+	// (`agent-conform watch-dir`, agent-stack-go cmd/agent-conform/watchdir.go
+	// at v1.1.0), an optional add-on registered in agent-passport SPEC.md
+	// 6.2: a stack that does not run it emits neither of these. It verifies
+	// the `prev_hash` chain of every stream in the bus directory and writes
+	// what it finds to its own stream, agent-conform.ndjson. Both types are
+	// described here (@claude 2026-10-04, asked for by that day's estate audit
+	// plan), because before this they mailed as the generic fallback, which
+	// names no stream and no line.
+	//
+	// What each one is evidence OF is kept as narrow as the verifier's own
+	// record of it (SPEC 6.2): a break is evidence that the stream was edited
+	// after it was written or that two writers interleaved in it, and the
+	// verifier does not say which or who; an unchained stream is NOT a break,
+	// prev_hash being optional, and what it costs is that an edit to it would
+	// not be seen. Which stream and which line are in the subject and the
+	// fact line, off [conformFacts] and [conformSubject], never from a hash
+	// the verifier clipped.
+	"chain_broken": {
+		what: "found a break in the hash chain of an event stream",
+		did:  "Nothing. agent-conform read the stream and found a line whose prev_hash does not match the hash of the line before it, and reported that. It repairs, quarantines and stops nothing, and this box did not either. The line named is the first break; the count is how many the file holds.",
+		next: "Nothing automatic. A break is tamper-evidence, not a verdict: the stream was edited after it was written, or two writers interleaved in it, and the verifier does not say which, or who. Check the verifier's own stream (agent-conform.ndjson in the same directory) and the pod or service log of whatever runs agent-conform watch-dir, then what wrote to that file around that line.",
+	},
+	"chain_unchained": {
+		what: "found an event stream with no hash chain",
+		did:  "Nothing. agent-conform read the stream and found events but not one carries a prev_hash, so there is no chain to check. It reports that and changes nothing.",
+		next: "Nothing automatic. This is not a break: prev_hash is optional on an event. It does mean an edit to this stream would not be detected, because there is no chain to break. If the writer of this stream is meant to chain it, check that writer's configuration and version; if it is not, this is expected.",
+	},
 }
 
 // qualify adjusts a phrasing where the EVENT carries something that changes
@@ -718,6 +749,8 @@ func qualify(e event.Event, p phrasing) phrasing {
 		return budgetThreshold(e, p)
 	case "typed_refused":
 		return typedRefused(e, p)
+	case "chain_broken", "chain_unchained":
+		return conformSubject(e, p)
 	default:
 		return p
 	}
@@ -1431,6 +1464,10 @@ func factLine(e event.Event) string {
 		return calibrationFacts(e)
 	}
 
+	if e.Type == "chain_broken" || e.Type == "chain_unchained" {
+		return conformFacts(e)
+	}
+
 	if len(e.Data) == 0 {
 		return ""
 	}
@@ -1534,6 +1571,139 @@ func calibrationFacts(e event.Event) string {
 		joined += ", " + strings.Join(parts[1:], ", ")
 	}
 	return strings.ToUpper(joined[:1]) + joined[1:] + " crossed its configured bound."
+}
+
+// `file`, `line`, `breaks` and `events` are deliberately NOT in
+// [dataAllowlist]: `events` is a key verdryx's slo_burn carries and
+// TestTheSLOFieldsAreNotMailedRaw holds it out, and a `file` or `line` an
+// unrelated plane carries must stay unrendered. [conformFacts] reads these
+// four, and only for agent-conform's two types, each through its own shape
+// check below, which is the same discipline [calibrationFacts] applies to
+// `template_version` and `bounds_crossed`.
+//
+// streamFile is the shape a stream's base name must have to be rendered.
+// Stricter than [safeString] on purpose: the name comes off a directory the
+// writers of the bus can create files in, so it is held to what a file name
+// is made of (no space, no colon, no slash, no `@`) and a name that is a
+// sentence, a path or a right-to-left override never becomes mail text.
+var streamFile = regexp.MustCompile(`^[A-Za-z0-9_.\-]{1,64}$`)
+
+// maxCount bounds a count the verifier computed to what a float64 holds
+// exactly, so a number a JSON decoder rounded is not printed as though it
+// were a measurement.
+const maxCount = 1 << 53
+
+// wholeCount accepts only an integer of at least `min` and at most
+// [maxCount]. Text, a fraction, a negative, a non-finite or an overflowing
+// number never becomes message content.
+func wholeCount(v any, min int64) (int64, bool) {
+	var n int64
+	switch t := v.(type) {
+	case float64:
+		if math.IsNaN(t) || math.IsInf(t, 0) || math.Trunc(t) != t || t > maxCount || t < min64 {
+			return 0, false
+		}
+		n = int64(t)
+	case int:
+		n = int64(t)
+	case int64:
+		n = t
+	default:
+		return 0, false
+	}
+	if n < min || n > maxCount {
+		return 0, false
+	}
+	return n, true
+}
+
+// min64 keeps a hostile float far below zero from converting to an int64 in
+// an unspecified way before the range check runs.
+const min64 = -maxCount
+
+// conformFile returns agent-conform's `data.file`, or false when it is absent
+// or not a name this box will print as written.
+func conformFile(e event.Event) (string, bool) {
+	f, ok := e.Data["file"].(string)
+	if !ok || !streamFile.MatchString(f) {
+		return "", false
+	}
+	return f, true
+}
+
+// conformSubject puts the stream into the subject line, because a mailbox is
+// read as a list of subjects before any one is opened and "a break in the
+// chain" with no stream named sends the operator to open every one. A file
+// name that is missing or fails [streamFile] leaves the base wording.
+func conformSubject(e event.Event, p phrasing) phrasing {
+	f, ok := conformFile(e)
+	if !ok {
+		return p
+	}
+	if e.Type == "chain_broken" {
+		p.what = "found a break in the hash chain of " + f
+	} else {
+		p.what = "found no hash chain in " + f
+	}
+	return p
+}
+
+// conformFacts names the stream, the first broken line and how many breaks
+// (chain_broken), or the stream and how many events carry no prev_hash
+// (chain_unchained), off `data.file`, `data.line`, `data.breaks`,
+// `data.events` and `data.kind`, the keys agent-conform's `alertFor` writes.
+//
+// It reads them directly rather than through the generic per-key loop, the
+// same way [calibrationFacts] does, because `line` and `breaks` want a
+// sentence and not `Line 12, breaks 3`. Each value is checked on its own, so
+// one hostile field costs only itself. `expected` and `found`, the two hash
+// strings, are never read: the verifier clips them because the writer of the
+// stream under check controls what they hold. A file name that is present but
+// not one this box will print is said out loud, for the same reason an unusable
+// id is: leaving a gap would look like the verifier named nothing.
+func conformFacts(e event.Event) string {
+	var parts []string
+	file, haveFile := conformFile(e)
+	if haveFile {
+		parts = append(parts, "Stream file "+file)
+	}
+	if e.Type == "chain_broken" {
+		if n, ok := wholeCount(e.Data["line"], 1); ok {
+			parts = append(parts, fmt.Sprintf("first broken line %d", n))
+		}
+		if n, ok := wholeCount(e.Data["breaks"], 1); ok {
+			word := "breaks"
+			if n == 1 {
+				word = "break"
+			}
+			parts = append(parts, fmt.Sprintf("%d %s in all", n, word))
+		}
+	} else if n, ok := wholeCount(e.Data["events"], 1); ok {
+		word := "events"
+		if n == 1 {
+			word = "event"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s and none with a prev_hash", n, word))
+	}
+	if k, ok := e.Data["kind"].(string); ok && safeString.MatchString(k) {
+		parts = append(parts, "kind "+k)
+	}
+
+	var out string
+	if len(parts) > 0 {
+		out = strings.ToUpper(parts[0][:1]) + parts[0][1:]
+		if len(parts) > 1 {
+			out += ", " + strings.Join(parts[1:], ", ")
+		}
+		out += "."
+	}
+	if _, present := e.Data["file"]; present && !haveFile {
+		if out != "" {
+			out += " "
+		}
+		out += "The file name in this event is not one this box can print as written, so it is left out; the verifier's own stream, agent-conform.ndjson, has it."
+	}
+	return out
 }
 
 // calibrationMetric accepts only a finite, non-negative number: a Brier

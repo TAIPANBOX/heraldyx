@@ -45,8 +45,8 @@ gates: lint test-race gosec govulncheck
 # One event in, one message out, no mail server involved.
 demo: build
 	@rm -rf /tmp/heraldyx-demo && mkdir -p /tmp/heraldyx-demo
-	@printf '%s\n' '{"schema":"taipanbox.dev/agent-event/v0.2","ts":"2026-08-02T14:00:00Z","source":"tokenfuse","type":"budget_threshold","agent_id":"agent://acme/biller","run_id":"run-42","severity":"medium","data":{"org":"acme","budget_micros":2000000,"spent_micros":1600000}}' > /tmp/heraldyx-demo/events.ndjson
-	@HERALDYX_EVENTS=/tmp/heraldyx-demo/events.ndjson \
+	@printf '%s\n' '{"schema":"taipanbox.dev/agent-event/v0.2","ts":"2026-08-02T14:00:00Z","source":"tokenfuse","type":"budget_threshold","agent_id":"agent://acme/biller","run_id":"run-42","severity":"medium","data":{"org":"acme","budget_micros":2000000,"spent_micros":1600000}}' > /tmp/heraldyx-demo/tokenfuse.ndjson
+	@HERALDYX_EVENTS=/tmp/heraldyx-demo/tokenfuse.ndjson \
 	 HERALDYX_TO=you@example.com \
 	 HERALDYX_MAIL_FILE=/tmp/heraldyx-demo/mail.txt \
 	 HERALDYX_CONSOLE_URL=https://box.example.com \

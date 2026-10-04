@@ -84,6 +84,9 @@
             "required": false,
             "default": "/var/lib/stack/heraldyx/state.json"
           },
+          "HERALDYX_STREAMS": {
+            "required": false
+          },
           "HERALDYX_TO": {
             "required": false
           }

@@ -19,7 +19,8 @@ mkdir -p "$WORK"
 
 go build -o bin/heraldyx ./cmd/heraldyx
 
-python3 - "$WORK/events.ndjson" <<'PY'
+mkdir -p "$WORK/bus"
+python3 - "$WORK/bus" <<'PY'
 import json
 import sys
 
@@ -32,7 +33,7 @@ def ev(typ, agent, run, sev, source, data):
          "type": typ, "agent_id": agent, "severity": sev, "data": data}
     if run:
         e["run_id"] = run
-    rows.append(json.dumps(e, separators=(",", ":")))
+    rows.append((source, json.dumps(e, separators=(",", ":"))))
 
 
 # One runaway run trips the same condition over and over. This is what the
@@ -57,12 +58,19 @@ for i in range(3):
     ev("quality_drift", "agent://acme/summariser-%d" % i, "run-8%02d" % i,
        "catastrophic", "verdryx", {"org": "acme"})
 
-with open(sys.argv[1], "w") as fh:
-    fh.write("\n".join(rows) + "\n")
+# One file per source, the way the real bus is laid out: a line is only read
+# as the source it claims when the file it sits in may carry that source
+# (invariant 22), so a single mixed file would be mostly refused.
+by_source = {}
+for source, line in rows:
+    by_source.setdefault(source, []).append(line)
+for source, lines in by_source.items():
+    with open("%s/%s.ndjson" % (sys.argv[1], source), "w") as fh:
+        fh.write("\n".join(lines) + "\n")
 print("events in: %d" % len(rows))
 PY
 
-HERALDYX_EVENTS="$WORK/events.ndjson" \
+HERALDYX_EVENTS="$WORK/bus" \
 HERALDYX_TO=ops@example.com \
 HERALDYX_MAIL_FILE="$WORK/mail.txt" \
 HERALDYX_STATE="$WORK/state.json" \

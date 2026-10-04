@@ -84,7 +84,7 @@ const Source = "heraldyx"
 // and that is a decision, not a side effect of this change.
 const TypeAlertSent = "alert_sent"
 
-// Kind distinguishes the three things this process sends, so a reader of the
+// Kind distinguishes the things this process sends, so a reader of the
 // journal can tell "we woke somebody" from "we sent the daily summary".
 type Kind string
 
@@ -92,6 +92,14 @@ const (
 	KindAlert       Kind = "alert"
 	KindDigest      Kind = "digest"
 	KindSuppression Kind = "suppression"
+	// KindForeignSource is the notice that events were refused because the
+	// file they were read from may not carry the source they claimed, and
+	// KindUnknownStream the notice that a file nothing declares was read.
+	// Both are about a file, not an agent: they are filed under no agent id,
+	// which this package never invents, so the dispatch is counted as a gap
+	// in the trail (see [Journal.Sent]) and the mail is unaffected.
+	KindForeignSource Kind = "foreign_source"
+	KindUnknownStream Kind = "unknown_stream"
 )
 
 // maxErrorChars bounds what a delivery failure contributes. An SMTP server's

@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/TAIPANBOX/heraldyx/internal/stream"
 )
 
 // Config is the whole of heraldyx's configuration.
@@ -46,6 +48,11 @@ type Config struct {
 	// sent. Defaults to `sent.ndjson` beside the state file, since both are
 	// this process's own writable place. Empty disables recording.
 	SentPath string
+	// Streams is the operator's declaration of what a stream file may carry,
+	// on top of the convention (<source>.ndjson carries <source>) and the
+	// measured exceptions built into `internal/stream`. Empty for a box whose
+	// files follow the convention.
+	Streams map[string][]string
 
 	SMTPHost string
 	SMTPFrom string
@@ -86,6 +93,11 @@ func FromEnv() (Config, error) {
 	if _, set := os.LookupEnv("HERALDYX_SENT"); !set {
 		c.SentPath = filepath.Join(filepath.Dir(c.StatePath), "sent.ndjson")
 	}
+	streams, err := stream.ParseExtra(os.Getenv("HERALDYX_STREAMS"))
+	if err != nil {
+		return c, fmt.Errorf("config: HERALDYX_STREAMS: %w", err)
+	}
+	c.Streams = streams
 	if len(c.EventPaths) == 0 {
 		return c, fmt.Errorf("config: HERALDYX_EVENTS is empty, there is nothing to watch")
 	}
@@ -93,6 +105,12 @@ func FromEnv() (Config, error) {
 		return c, fmt.Errorf("config: HERALDYX_SMTP_HOST is set but HERALDYX_SMTP_FROM is not, so mail would have no sender")
 	}
 	return c, nil
+}
+
+// StreamPolicy is the rule that decides which sources a stream file may
+// carry: the built-in table plus whatever HERALDYX_STREAMS declared.
+func (c Config) StreamPolicy() stream.Policy {
+	return stream.Default().Extend(c.Streams)
 }
 
 // Enabled reports whether this box will send anything at all.

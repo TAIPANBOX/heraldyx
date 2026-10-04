@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/TAIPANBOX/heraldyx/internal/rule"
 )
@@ -23,6 +24,41 @@ import (
 type Snapshot struct {
 	Rule    *rule.State      `json:"rule"`
 	Offsets map[string]int64 `json:"offsets"`
+	// Raised is notice key -> unix millis it was first raised, for the
+	// notices this process raises about its own input (a refused source, an
+	// unknown stream). One key is raised once, ever: a process that forgot
+	// would mail the same pair on every rollout. Bounded by maxRaised, oldest
+	// first out. Absent in a state file written before it existed.
+	Raised map[string]int64 `json:"raised,omitempty"`
+}
+
+// maxRaised bounds [Snapshot.Raised]. A producer inventing a source per line
+// can mint pairs without limit, so the memory of them has to have one; the
+// cost of the bound is that the oldest pair, once forgotten, can be raised
+// once more, which is the quiet direction to be wrong in.
+const maxRaised = 256
+
+// Raise records that the notice named key is being raised at now, and reports
+// whether this is the first time. False means it was raised before and must
+// not be again.
+func (s *Snapshot) Raise(key string, now time.Time) bool {
+	if s.Raised == nil {
+		s.Raised = map[string]int64{}
+	}
+	if _, seen := s.Raised[key]; seen {
+		return false
+	}
+	if len(s.Raised) >= maxRaised {
+		oldestKey, oldest := "", int64(0)
+		for k, ms := range s.Raised {
+			if oldestKey == "" || ms < oldest || (ms == oldest && k < oldestKey) {
+				oldestKey, oldest = k, ms
+			}
+		}
+		delete(s.Raised, oldestKey)
+	}
+	s.Raised[key] = now.UnixMilli()
+	return true
 }
 
 // New returns an empty snapshot.

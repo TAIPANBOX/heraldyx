@@ -2,6 +2,7 @@ package rule
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -319,5 +320,62 @@ func TestTheWordForARankIsTheOneRankReads(t *testing.T) {
 	}
 	if got := word(rankUnknown); got != "" {
 		t.Errorf("an unknown rank has no word, got %q", got)
+	}
+}
+
+// DecideKey is Decide with the key and the severity named instead of read off
+// an event, and nothing else: the same sequence through both lands in the same
+// verdicts and the same state, so a notice raised under a key of its own is
+// held to exactly the limits an event is.
+func TestDecideKeyIsDecideWithTheKeyNamed(t *testing.T) {
+	cfg := Config{MinRank: rankHigh, DedupWindow: 10 * time.Minute, MaxPerHour: 3}
+	a, b := NewState(), NewState()
+	steps := []struct {
+		kind, severity, run string
+		at                  time.Duration
+	}{
+		{"policy_deny", "high", "r1", 0},
+		{"policy_deny", "high", "r1", time.Minute}, // dedup
+		{"policy_deny", "high", "r2", 2 * time.Minute},
+		{"budget_threshold", "medium", "r3", 3 * time.Minute}, // below the floor
+		{"policy_deny", "high", "r4", 4 * time.Minute},
+		{"policy_deny", "high", "r5", 5 * time.Minute},                // ceiling
+		{"budget_exhausted", "critical", "r6", 6 * time.Minute},       // through it
+		{"policy_deny", "weird", "r7", 7 * time.Minute},               // unknown severity
+		{"policy_deny", "high", "r5", 8*time.Minute + 30*time.Second}, // dedup again
+	}
+	for i, st := range steps {
+		e := ev(st.kind, st.severity, st.run)
+		now := t0.Add(st.at)
+		va := Decide(cfg, a, e, now)
+		vb := DecideKey(cfg, b, Key(e), e.Severity, now)
+		if va != vb {
+			t.Fatalf("step %d (%s %s %s): Decide says %v, DecideKey says %v", i, st.kind, st.severity, st.run, va, vb)
+		}
+	}
+	if !reflect.DeepEqual(a, b) {
+		t.Fatalf("the two paths left different state:\n%+v\n%+v", a, b)
+	}
+}
+
+// A notice under a key of its own is deduplicated, digested below the floor
+// and held by the ceiling like an event: it is not a second way past them.
+func TestANoticeKeyIsHeldToTheFloorTheDedupWindowAndTheCeiling(t *testing.T) {
+	cfg := Config{MinRank: rankHigh, DedupWindow: 10 * time.Minute, MaxPerHour: 1}
+	st := NewState()
+	if v := DecideKey(cfg, st, "unknown_stream:a.ndjson", "medium", t0); v != Digest {
+		t.Fatalf("below the floor: %v, want digest", v)
+	}
+	if st.Digest["unknown_stream:a.ndjson"] != 1 {
+		t.Fatalf("a notice below the floor must land in the digest: %v", st.Digest)
+	}
+	if v := DecideKey(cfg, st, "foreign_source:t.ndjson:w", "high", t0); v != Notify {
+		t.Fatalf("at the floor: %v, want notify", v)
+	}
+	if v := DecideKey(cfg, st, "foreign_source:t.ndjson:w", "high", t0.Add(time.Minute)); v != Drop {
+		t.Fatalf("inside the dedup window: %v, want drop", v)
+	}
+	if v := DecideKey(cfg, st, "foreign_source:t.ndjson:e", "high", t0.Add(2*time.Minute)); v != Suppressed {
+		t.Fatalf("past the ceiling: %v, want suppressed", v)
 	}
 }

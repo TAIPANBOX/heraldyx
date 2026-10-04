@@ -1308,15 +1308,19 @@ one line claiming `source: wardryx`, plus `tokenfuse-cloud.ndjson`,
 `--once --from-now=false`: six messages, one of them `run-forged was denied by
 policy`, the forged line mailed as a wardryx decision.
 
-**The same directory against the fixed binary.** Seven messages: the five
-legitimate alerts (`run-legit`, `run-cloud`, `run-demo-w`, `run-demo-t`,
-`run-np`), one `events in tokenfuse.ndjson claim to be from wardryx`, and one
-`newplane.ndjson is not a stream this box knows`. `run-forged` appears in no
-message. The log carries one `watch: 1 event(s) refused ...` line and one
-`watch: 1 event(s) read from a stream this box has no declaration for ...`
-line. The state file holds both raised keys under `raised`, and `--journal`
-verifies the chain over five alert records (the two notices are filed under no
-agent, so `record: 2 message(s) sent without a record` is printed, as designed).
+**The same directory against the fixed binary.** With no declaration, seven
+messages: the three legitimate alerts (`run-legit`, `run-cloud`, `run-np`), one
+`events in tokenfuse.ndjson claim to be from wardryx`, one `events in
+demo.ndjson claim to be from wardryx`, one `events in demo.ndjson claim to be
+from tokenfuse` (demo.ndjson is not a built-in exception, since any co-tenant
+could create it), and one `newplane.ndjson is not a stream this box knows`.
+`run-forged` and the two demo runs appear in no message. With
+`HERALDYX_STREAMS=demo=tokenfuse|wardryx` the two demo alerts are mailed as
+their own sources and the demo notices go away. The log carries the `watch:`
+lines for the refused and the unrecognised counts. The state file holds the
+raised keys under `raised`, and `--journal` verifies the chain over the alert
+records (the notices are filed under no agent, so `record: N message(s) sent
+without a record` is printed, as designed).
 
 **Tests, red first.** Twelve behavioural tests in `cmd/heraldyx/source_test.go`
 were run against the unfixed code before any implementation: ten failed on

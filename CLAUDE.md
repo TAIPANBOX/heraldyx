@@ -468,8 +468,9 @@ excluded from generic raw data rendering.
     escaped like every other id here.
 
     What a file may carry is the convention (`<source>.ndjson` carries
-    `<source>`, for the thirteen sources agent-passport SPEC 6.2 registers),
-    plus a small table of the measured exceptions in `internal/stream`, plus
+    `<source>`, for the fourteen sources agent-passport SPEC 6.2 registers,
+    `agent-conform` among them), plus a small table of the measured exceptions
+    in `internal/stream`, plus
     what the operator declares in `HERALDYX_STREAMS` (`stem=source|source`,
     comma-separated; widens and never narrows; a malformed entry refuses
     startup, because the rule fails closed and an ignored entry would read as a
@@ -477,8 +478,16 @@ excluded from generic raw data rendering.
     the producers' writer code, estate-gates C4's producer table and the three
     launchers: `tokenfuse-cloud` and `tokenfuse-mcp` (the control plane and the
     MCP broker append to their own files and stamp `tokenfuse`, through the one
-    crate that builds the envelope) and `demo` (`taipan demo` writes one file
-    attributed to six planes). The own-volume journals (`events.ndjson` for
+    crate that builds the envelope). `demo` is deliberately NOT in the table
+    (`@claude 2026-10-04`, from review): `taipan demo` writes one file
+    attributed to six planes, but until each writer owns its own file the
+    events directory is writable by every co-tenant, and a built-in row would
+    let any of them create `demo.ndjson` and speak as any of the six. It is
+    opt-in, declared with `HERALDYX_STREAMS=demo=tokenfuse|wardryx|engram|qryx|verdryx|mockryx`
+    by the operator who runs `taipan demo` against this box (taipan starts no
+    heraldyx, and starts idryx with an empty environment, so nothing there sets
+    it); undeclared it is an unknown stream where only `source: demo` is read.
+    The own-volume journals (`events.ndjson` for
     scopyx in two launchers, `sent.ndjson` for heraldyx) are not on the shared
     bus and are deliberately not in the table.
 
@@ -508,6 +517,7 @@ excluded from generic raw data rendering.
     `TestAForeignSourceIsNotRaisedAgainAfterARestart`,
     `TestADeclaredMultiSourceFileIsProcessedWholeAndRaisesNothing`,
     `TestARenamedFileOfTheSameProducerIsProcessed`,
+    `TestACoTenantsDemoFileIsRefusedByDefault`,
     `TestAnUnknownStreamIsReadAndSaidOnceNotTrustedInSilence`,
     `TestHostileLinesAreUnchangedAndAHostileClaimCannotBreakTheMail`, all in
     `cmd/heraldyx/source_test.go`, and `TestAForeignSourceIsNeverReturnedAndIsCounted`

@@ -42,11 +42,23 @@ Feature: An event is processed as the source it claims only when its file may ca
     Then the tokenfuse line is mailed as an alert and the other is refused with one alert about the refusal
   # @test:TestALegitimateLineBesideAForeignOneIsStillMailed
 
-  Scenario: a file declared to carry several sources is processed whole
-    Given demo.ndjson holds lines from tokenfuse, wardryx and mockryx
+  Scenario: a file nobody declared cannot carry several sources, even one named demo
+    Given a co-tenant creates demo.ndjson holding a line claiming wardryx
+    When heraldyx polls with no declaration
+    Then the line is not processed as wardryx and one alert names demo.ndjson
+  # @test:TestACoTenantsDemoFileIsRefusedByDefault
+
+  Scenario: a file the operator declared to carry several sources is processed whole
+    Given HERALDYX_STREAMS declares demo=tokenfuse|wardryx|mockryx and demo.ndjson holds lines from those three
     When heraldyx polls
     Then all three are mailed as their own sources and nothing is raised about the file
   # @test:TestADeclaredMultiSourceFileIsProcessedWholeAndRaisesNothing
+
+  Scenario: agent-conform's own stream is a known stream
+    Given agent-conform.ndjson holds a line claiming agent-conform
+    When the stream rule decides it
+    Then it is allowed as a known single-source stream and not counted as an unknown stream
+  # @test:TestAgentConformIsAKnownSingleSourceStream
 
   Scenario: the control plane's and the broker's own files carry the tokenfuse source
     Given tokenfuse-cloud.ndjson and tokenfuse-mcp.ndjson each hold a tokenfuse line

@@ -228,8 +228,8 @@ func TestNoStreamDeclarationIsTheBuiltInTable(t *testing.T) {
 	if c.Streams != nil {
 		t.Errorf("Streams = %v, want none", c.Streams)
 	}
-	if got := c.StreamPolicy().AllowedFor("demo"); len(got) != 6 {
-		t.Errorf("demo may carry %v, want the six planes `taipan demo` writes", got)
+	if got := c.StreamPolicy().AllowedFor("demo"); len(got) != 1 || got[0] != "demo" {
+		t.Errorf("demo may carry %v by default, want only itself: it is opt-in", got)
 	}
 }
 

@@ -42,6 +42,13 @@ type streamBench struct {
 
 func newStreamBench(t *testing.T, minSeverity string) *streamBench {
 	t.Helper()
+	return newStreamBenchWith(t, minSeverity, "")
+}
+
+// newStreamBenchWith is a bench whose operator declared what some files may
+// carry (HERALDYX_STREAMS), applied the way run() applies it.
+func newStreamBenchWith(t *testing.T, minSeverity, streams string) *streamBench {
+	t.Helper()
 	dir := t.TempDir()
 	mail := filepath.Join(dir, "mail.out")
 	events := filepath.Join(dir, "bus")
@@ -55,6 +62,7 @@ func newStreamBench(t *testing.T, minSeverity string) *streamBench {
 		"HERALDYX_MIN_SEVERITY": minSeverity,
 		"HERALDYX_BOX":          "prod-box",
 		"HERALDYX_STATE":        filepath.Join(dir, "state.json"),
+		"HERALDYX_STREAMS":      streams,
 	})
 	cfg, err := config.FromEnv()
 	if err != nil {
@@ -72,6 +80,7 @@ func newStreamBench(t *testing.T, minSeverity string) *streamBench {
 	}
 	t.Cleanup(func() { journal.Close() })
 	w := watch.New(cfg.ResolveEventFiles(), snap.Offsets)
+	w.SetPolicy(cfg.StreamPolicy())
 	b := &streamBench{dir: events, mail: mail, snap: snap}
 	b.poll = func(now time.Time) {
 		cycle(cfg, rcfg, render.Config{Box: cfg.Box}, w, snap, deliver.NewFile(mail),
@@ -268,12 +277,30 @@ func TestALegitimateLineBesideAForeignOneIsStillMailed(t *testing.T) {
 	}
 }
 
-// The measured multi-source file: `taipan demo` writes events attributed to
-// tokenfuse, wardryx, engram, qryx, verdryx and mockryx into one demo.ndjson.
-// The exception table declares it, so nothing in it is refused and nothing is
-// raised.
-func TestADeclaredMultiSourceFileIsProcessedWholeAndRaisesNothing(t *testing.T) {
+// `taipan demo` writes events attributed to six planes into one demo.ndjson,
+// but the events directory is writable by every co-tenant until the launchers
+// give each writer its own file, so a built-in exception for demo.ndjson would
+// let any of them create it and speak as wardryx. It is therefore NOT in the
+// default table: undeclared, it is an unknown stream and only `source: demo`
+// would be read from it.
+func TestACoTenantsDemoFileIsRefusedByDefault(t *testing.T) {
 	b := newStreamBench(t, "medium")
+	b.put(t, "demo", lineFrom("wardryx", "policy_deny", "high", "run-cotenant"))
+	b.poll(t0)
+
+	got := b.out(t)
+	if strings.Contains(got, "run-cotenant") {
+		t.Fatalf("a co-tenant's demo.ndjson was processed as wardryx:\n%s", subjects(got))
+	}
+	if n := b.messages(t); n != 1 || !strings.Contains(subjects(got), "demo.ndjson") {
+		t.Fatalf("want one alert naming demo.ndjson, got %d:\n%s", n, subjects(got))
+	}
+}
+
+// An operator who runs `taipan demo` against this box declares the file, and
+// then it is processed whole and nothing is raised.
+func TestADeclaredMultiSourceFileIsProcessedWholeAndRaisesNothing(t *testing.T) {
+	b := newStreamBenchWith(t, "medium", "demo=tokenfuse|wardryx|mockryx")
 	b.put(t, "demo",
 		lineFrom("tokenfuse", "budget_exhausted", "critical", "run-a"),
 		lineFrom("wardryx", "policy_deny", "high", "run-b"),

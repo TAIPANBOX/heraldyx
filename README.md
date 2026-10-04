@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-231-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-234-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.2.5-success.svg)
 
@@ -419,8 +419,10 @@ from may carry that source. By convention `tokenfuse.ndjson` carries
 `tokenfuse`, `wardryx.ndjson` carries `wardryx`, and so on for every source the
 agent-passport registry lists; `tokenfuse-cloud.ndjson` and
 `tokenfuse-mcp.ndjson` (the control plane's and the MCP broker's own files)
-carry `tokenfuse`, and `demo.ndjson` (what `taipan demo` writes) carries the six
-planes it imitates. A line that claims anything else is not processed as that
+carry `tokenfuse`. `demo.ndjson` (what `taipan demo` writes, with lines from six
+planes) is not built in, because any co-tenant could create it: declare it with
+`HERALDYX_STREAMS=demo=tokenfuse|wardryx|engram|qryx|verdryx|mockryx` when you
+run the demo against this box. A line that claims anything else is not processed as that
 source: it is not mailed, not in the daily summary, and it is counted. One alert
 goes per file and claimed source, and a restart does not repeat it. A file whose
 name nothing declares is read when its lines claim the file's own name, and the

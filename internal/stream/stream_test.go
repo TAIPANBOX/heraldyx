@@ -175,3 +175,16 @@ func TestAMalformedDeclarationIsAnErrorNotASkip(t *testing.T) {
 		}
 	}
 }
+
+func TestValidNameIsWhatADeclarationCanCarry(t *testing.T) {
+	for _, ok := range []string{"tokenfuse", "tokenfuse-cloud", "a.b", "Events", "x1"} {
+		if !ValidName(ok) {
+			t.Errorf("%q should be a valid name", ok)
+		}
+	}
+	for _, bad := range []string{"", "a b", "a\nb", "wardryx\r\nBcc: x", "../x", "a|b", "a=b", strings.Repeat("a", 65), "-lead"} {
+		if ValidName(bad) {
+			t.Errorf("%q must not be a valid name", bad)
+		}
+	}
+}

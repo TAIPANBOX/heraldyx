@@ -62,6 +62,13 @@ func TestAHostileClaimedSourceCannotBreakTheNotice(t *testing.T) {
 			if strings.ContainsAny(m.Body, "\x00\x1b") {
 				t.Fatalf("a control byte reached the body: %q", m.Body)
 			}
+			// A hint is only offered for names an operator could type back in.
+			if strings.Contains(m.Body, "HERALDYX_STREAMS=tokenfuse=") {
+				t.Fatalf("a hint was built out of a claimed source that is not a plain name:\n%s", m.Body)
+			}
+			if !strings.Contains(m.Body, "nothing to declare") {
+				t.Fatalf("with no hint to give the notice must say so:\n%s", m.Body)
+			}
 		})
 	}
 }

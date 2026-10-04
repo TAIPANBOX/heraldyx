@@ -1217,9 +1217,20 @@ func ForeignSource(cfg Config, f Foreign, now time.Time) Message {
 	b.WriteString("\nWhat this box already did: refused them and kept reading. This process only reads the event log, so it cannot remove them, and they are still in the file.\n")
 	b.WriteString("\nIf nobody acts: whatever wrote them can keep writing in that name, and this box will not mail about this file and this source again (it counts them in its own log). ")
 	b.WriteString("Either a producer is appending to a file that is not its own, or something that can write to the event directory is writing in another plane's name. This box cannot tell which from the file alone.\n")
-	stem := stream.Stem(f.File)
-	fmt.Fprintf(&b, "\nIf the file is meant to carry that source, declare it and this stops: HERALDYX_STREAMS=%s=%s\n", shownName(stem), claimed)
+	b.WriteString(declareHint(stream.Stem(f.File), f.Claimed, "If the file is meant to carry that source"))
 	return Message{Subject: head, Body: b.String()}
+}
+
+// declareHint is the paragraph that tells an operator how to say a stream is
+// expected. It is built from producer-written names, so it is only offered when
+// they are plain names an operator could type back in; otherwise it says there
+// is nothing to declare, rather than printing text written by whoever the
+// operator is trying to tell apart from a legitimate producer.
+func declareHint(stem, source, lead string) string {
+	if !stream.ValidName(stem) || !stream.ValidName(source) {
+		return "\nThe names involved are not plain names, so there is nothing to declare.\n"
+	}
+	return fmt.Sprintf("\n%s, declare it and this stops: HERALDYX_STREAMS=%s=%s\n", lead, stem, source)
 }
 
 // Unknown is one file of a stream nothing declares, as the renderer needs it.
@@ -1234,14 +1245,14 @@ type Unknown struct {
 // is that this was trusted by convention and not by declaration.
 func UnknownStream(cfg Config, u Unknown, now time.Time) Message {
 	file := shownName(filepath.Base(u.File))
-	stem := shownName(stream.Stem(u.File))
+	stem := stream.Stem(u.File)
 	head := fmt.Sprintf("[%s] %s is not a stream this box knows", boxName(cfg), file)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d event(s) were read from %s, a file this box has no declaration for. They claim the file's own name as their source, so they were processed as that source: a plane that is new here is not ignored.\n", u.Count, file)
 	b.WriteString("\nWhat this box already did: read them and counted them as an unrecognised stream. Events in that file that claim any other source are refused.\n")
 	b.WriteString("\nIf nobody acts: nothing changes, and this box will not mail about this file again. Anything that can create a file in the event directory can start a stream like this one under a name of its choosing and be read, which is why it is said once.\n")
-	fmt.Fprintf(&b, "\nIf the stream is expected, declare it and this stops: HERALDYX_STREAMS=%s=%s\n", stem, stem)
+	b.WriteString(declareHint(stem, stem, "If the stream is expected"))
 	return Message{Subject: head, Body: b.String()}
 }
 

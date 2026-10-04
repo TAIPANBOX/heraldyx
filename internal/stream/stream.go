@@ -180,6 +180,12 @@ func Stem(path string) string {
 // control character into a message.
 var name = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
+// ValidName reports whether s can appear in a declaration, as a stem or as a
+// source. A caller building a hint of the form `stem=source` out of text a
+// producer wrote uses it to refuse to print a hint that could not be typed
+// back in.
+func ValidName(s string) bool { return name.MatchString(s) }
+
 // ParseExtra reads the operator's declaration: comma-separated entries, each
 // `stem=source|source`. For example `events=tokenfuse|wardryx,mix=a|b`.
 //

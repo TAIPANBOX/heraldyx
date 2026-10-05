@@ -27,7 +27,7 @@ small enough to state in a sentence.
 
 <div align="center">
 
-<img src="docs/assets/one-way-out.svg" alt="heraldyx's nine packages in three tiers: rule, render and fleet touch no I/O at all, config, watch, state, record and passport touch files only, and internal/deliver is the single package that may import net/smtp and cross the default-deny egress boundary. scripts/one-way-out.sh fails the build if any of the three rules is broken" width="960">
+<img src="docs/assets/one-way-out.svg" alt="nine of heraldyx's ten internal packages in three tiers: rule, render and fleet touch no I/O at all, config, watch, state, record and passport touch files only, and internal/deliver is the single package that may import net/smtp and cross the default-deny egress boundary. scripts/one-way-out.sh fails the build if any of the three rules is broken" width="960">
 
 <sub>The claim is checked rather than promised: <code>scripts/one-way-out.sh</code> runs in <code>make gates</code> and in CI.</sub>
 
@@ -58,6 +58,10 @@ flowchart LR
   GX["Genaryx: the console"] --> LOG
   ID["Idryx: the identity graph"] --> LOG
   QX["Qryx: the hash chains"] --> LOG
+  CC["CostCrew: the FinOps console"] --> LOG
+  VY["Vouchryx: delegation"] --> LOG
+  TY["Typryx: typed answers"] --> LOG
+  AC["agent-conform: the chain verifier"] --> LOG
   LOG -->|"reads, never writes"| H["heraldyx"]
   LOG -->|"reads it too"| ID
   LOG -->|"reads it too"| QX
@@ -66,7 +70,7 @@ flowchart LR
   M -.->|"one link, a view and never an action"| C["Genaryx console<br/>sign in, then act"]
 ```
 
-**Eight planes write this log and heraldyx is the only pure reader.** Idryx and
+**Twelve planes write this log and heraldyx is the only pure reader.** Idryx and
 Qryx read it as well as write it: Idryx loads it to build an identity graph and
 Qryx walks it to check the `prev_hash` chains and the attestation on each
 passport, and both also emit findings of their own. Two more planes, heraldyx
@@ -87,7 +91,10 @@ far enough: a count copied between pictures is a count nobody measured. This
 one is now taken from `agent-passport/SPEC.md` §6.2, the registry of who emits
 what, which is the only place in the estate that is gated on being true
 (`@measured` 2026-08-10, ten sources, of which eight write here and two keep
-their own journal).
+their own journal). It registers fourteen sources now, and
+`internal/stream/stream.go` lists the same fourteen: twelve write here (the
+original eight, then CostCrew, Vouchryx, Typryx and agent-conform) and the same
+two keep their own journal.
 
 Every plane already speaks one envelope
 ([agent-passport](https://github.com/TAIPANBOX/agent-passport) SPEC.md 6), so
@@ -367,7 +374,7 @@ it happens.
 ## Running it without building it
 
 ```bash
-docker pull ghcr.io/TAIPANBOX/heraldyx:v0.3.0
+docker pull ghcr.io/taipanbox/heraldyx:v0.3.0
 ```
 
 Published on a tag, for `linux/amd64` and `linux/arm64`. **Immutable versions

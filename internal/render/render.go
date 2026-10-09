@@ -407,10 +407,10 @@ var catalog = map[string]phrasing{
 	// dependency it needs died underneath a run that was behaving perfectly,
 	// and the subject of the mail is a run that did nothing wrong.
 	//
-	// It exists because the failure had no event at all. `@yurii 2026-08-25`:
-	// "коли лягає апстрім, шлюз чисто вертає 502, і жоден план цього не
-	// записує; у конверті подій немає типу для того, що зламалась власна
-	// залежність коробки".
+	// It exists because the failure had no event at all. `@decided 2026-08-25`:
+	// when an upstream goes down the gateway answers a clean 502 and no plane
+	// records it, because the event envelope had no type for the box's own
+	// dependency failing, so it gets one.
 	//
 	// The sentences below are the NEUTRAL ones, for an event that does not say
 	// which of three very different things happened. The type alone does not
@@ -1395,7 +1395,7 @@ func AgentLink(cfg Config, agentID string) string {
 // The OWNER, which agent-passport SPEC.md section 4 makes a required passport
 // field, and not the `on_behalf_of` principal, which says who the agent was
 // acting for at that moment. Often the same human, not always, and the two are
-// a different blast radius for a stop (Yurii, 2026-08-02).
+// a different blast radius for a stop (@decided 2026-08-02).
 //
 // [sanitizeOwner] runs here too, not only in [Event]: this function is
 // exported and callable on its own, so it has to be safe to call directly

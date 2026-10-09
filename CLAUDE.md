@@ -72,7 +72,7 @@ an absent invariant.
    `?action=kill` to the link, which fails it)*
 
    **And a coordinate that names an action nobody can take is the same defect
-   one step softer.** `@yurii 2026-08-10`, "прибери підпис". A CLAIMED subject
+   one step softer.** `@decided 2026-08-10`: a claimed subject gets no link. A CLAIMED subject
    (`claimed:agent://...`, agent-passport SPEC 3.3) gets no agent link at all,
    and the mail says why instead of leaving a gap.
 

@@ -582,6 +582,83 @@ excluded from generic raw data rendering.
     run red against the unfixed code first, and each verified by the mutation
     that puts the defect back, recorded in the pull request)*
 
+24. **tokenfuse's two retained types say what is held and who must act, a
+    closure says what was settled and where the person is recorded, and a
+    person's evidence reference reaches a mail only as a sanitised
+    identifier-like line.** tokenfuse retains a call it handed to the provider
+    when the call ended before any answer came back: the money stays reserved,
+    neither settled nor released, until a person closes it with evidence
+    (tokenfuse invariants 50, 88 and 89; agent-passport SPEC.md 6.2 as
+    agent-passport#74 registers the two types). `@decided 2026-10-12`: both
+    events go on the bus so a person is told; `call_retained` (medium) asks a
+    person to act soon, `retained_closed` (high) is high because it lifts a
+    money control. Severities are tokenfuse's own and this file does not choose
+    them. The wording is `@claude 2026-10-12`, read against those three
+    invariants and `crates/gateway/src/closure.rs` at tokenfuse `cb15dc9`;
+    tokenfuse emits neither type yet.
+
+    `call_retained` puts the amount held into the subject (`usdAmount`: an
+    amount above zero and under a cent is written to the micro-dollar, never
+    `$0.00`) and names the reservation and the model; `journaled` and `listed`
+    choose a sentence (a restart keeps it or forgets it; past the list's cap it
+    cannot be closed from the console) only when each is a boolean, and neither
+    is ever printed. `retained_closed` names the reservation, the evidence kind
+    in this file's own words (`observed`, `no charge`; any other kind keeps the
+    neutral sentence and is never printed) and the amount settled, and says
+    that who closed it is not in the event and is in the console's own
+    `console.close_retained` record, joined by the reservation id.
+
+    The allowlist grows by the four values the sentences print,
+    `reservation_id`, `amount_microusd`, `settled_microusd` and `evidence_ref`
+    (`@claude 2026-10-12`, delegated with this change; the escalation question
+    is answered in `render.go` beside them). All four are in
+    `typeSpecificOnly`, so the generic per-key line never prints them for any
+    other type, and the retained path reads them through `allowlisted`, so
+    taking a key out of the allowlist takes its value out of the mail.
+    `journaled`, `listed`, `evidence_kind`, `revision`, `operation_id` and
+    `unit` stay out. `evidence_ref` is typed by a person and treated as
+    hostile: `evidenceText` keeps only `safeString`'s characters, turns every
+    run of anything else into one space and shows at most 64, the mail says
+    when anything was taken out, and `linkFree` leaves out a reference that
+    reads as a link (invariant 2). The model, which on a retained call is the
+    one the agent asked for, and a string reservation id are held to
+    `tokenShape` (no space) and `linkFree`; a numeric id or amount must be a
+    whole number from 0 to 2^53 (`wholeCount`).
+
+    **What it does not cover.** The dedup key is the type and the run, so a
+    second retained call or a second closure on the same run inside one dedup
+    window is dropped, not mailed (@measured `./bin/heraldyx --once` over two
+    `call_retained` and two `retained_closed` events on `run-42`, 2026-10-12:
+    two mails, the first of each); that is a property of the key and is not
+    changed here. A bare host and path in an evidence reference, with no scheme
+    and no `www.`, is shown, and some clients turn it into a link. No event a
+    real tokenfuse wrote has been rendered, because tokenfuse does not write
+    either type yet.
+    *(test: `TestEveryRetainedTypeIsDescribed`,
+    `TestCallRetainedSaysTheCallWasSentAndNeverAnsweredAndWhatStaysReserved`,
+    `TestCallRetainedNotJournaledSaysARestartForgetsIt`,
+    `TestCallRetainedNotListedSaysItCannotBeClosedFromTheConsole`,
+    `TestCallRetainedWithoutJournaledOrListedClaimsNeither`,
+    `TestASubCentReservationIsWrittenOutExactly`,
+    `TestRetainedClosedObservedNamesTheReservationTheEvidenceAndTheAmount`,
+    `TestRetainedClosedNoChargeSaysNothingWasChargedAndTheHoldWasReleased`,
+    `TestRetainedClosedUnknownEvidenceKindStaysNeutral`,
+    `TestHostileEvidenceRefNeverReachesTheMailUnsanitised`,
+    `TestAnEvidenceRefThatIsALinkIsLeftOut`,
+    `TestHostileModelAndReservationIDNeverReachTheMail`,
+    `TestHostileAmountsAreNeverRendered`,
+    `TestRetainedKeysAreRenderedOnlyForTheRetainedTypes`,
+    `TestOnlyTheRetainedKeysTheSentencesPrintJoinTheAllowlist`,
+    `TestRetainedValuesReachTheMailOnlyThroughTheAllowlist`,
+    `TestTheCatalogDescribesFiftyTypes`, all in
+    `internal/render/retained_test.go`; scenarios:
+    `features/tokenfuse-retained-catalog.feature`, 17 scenarios, each bound to
+    a named test both ways, held by `scripts/features-are-bound.sh`; three
+    cases in `scripts/gates-have-teeth.sh`; every test but one run red against
+    the unfixed code first, the one being the guard
+    `TestRetainedKeysAreRenderedOnlyForTheRetainedTypes`, and fifteen mutants
+    each caught by a named test, recorded in the pull request)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

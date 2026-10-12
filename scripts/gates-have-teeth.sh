@@ -351,6 +351,21 @@ run_case "failed-call: absent tests refuse success" fail \
     "$(py 'import os; os.remove("internal/render/dependency_test.go")')" \
     'no such test exists'
 
+# Invariant 24: a person's evidence reference reaches a mail only after this
+# file has taken out what it does not print. The fault keeps every character
+# but the space, so markup and a line break would be mailed as typed.
+run_case "retained: evidence reference mailed unsanitised" fail \
+    './scripts/features-are-bound.sh && go test ./internal/render -run "Retained|Evidence"' \
+    "$(py 'edit("internal/render/render.go", "func evidenceRune(r rune) bool {\n\tswitch {", "func evidenceRune(r rune) bool {\n\treturn r != 0x20\n\tswitch {")')" \
+    'reached the mail'
+run_case "retained: harmless comment" pass \
+    './scripts/features-are-bound.sh && go test ./internal/render -run "Retained|Evidence"' \
+    "$(py 'edit("internal/render/render.go", "func evidenceText(s string)", "// harmless comment\nfunc evidenceText(s string)")')"
+run_case "retained: absent tests refuse success" fail \
+    './scripts/features-are-bound.sh && go test ./internal/render -run "Retained|Evidence"' \
+    "$(py 'import os; os.remove("internal/render/retained_test.go")')" \
+    'no such test exists'
+
 echo
 if [ -n "$(git status --porcelain)" ]; then
 	printf 'FAIL: this script left the tree dirty, so it cannot be trusted about anything above\n'

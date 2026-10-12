@@ -146,8 +146,16 @@ run_case() {
 	# Exit code first, then wording. Checking the needle before the expectation
 	# turns "it did not fail at all" into "it failed for the wrong reason",
 	# which sends the reader to look at prose when the gate is toothless.
+	#
+	# A here-string, not `printf | grep -q`. Under `pipefail` that pipe reports
+	# failure whenever grep finds the needle early and exits before printf has
+	# written a large output: printf gets SIGPIPE, or "write error: Broken
+	# pipe" under the Actions runner, which ignores SIGPIPE, and a needle that
+	# IS there reads as WRONG REASON. Found 2026-10-12 on a case whose failing
+	# test printed about 55 KB; reproduced with GNU grep on 1.2 MB of lines
+	# (PIPESTATUS 141 0, and 1 0 with SIGPIPE ignored), never with this form.
 	if [ "$expect" = fail ] && [ "$rc" -ne 0 ] && [ -n "$needle" ] &&
-		! printf '%s' "$out" | grep -qF -- "$needle"; then
+		! grep -qF -- "$needle" <<<"$out"; then
 		printf 'WRONG REASON  %s\n              it failed, but not saying: %s\n' "$name" "$needle"
 		failures=$((failures + 1))
 		return

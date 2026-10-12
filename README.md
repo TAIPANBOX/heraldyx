@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-246-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-262-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.3.0-success.svg)
 
@@ -136,7 +136,7 @@ plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
 
 <details>
-<summary><b>The 48 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 50 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -156,6 +156,8 @@ for, and the link still opens the console at it.
 | `fanout_explosion` | is driving far more runs at once than it usually does |
 | `breaker_tripped` | was refused by the breaker |
 | `unit_cap_exceeded` | has spent its business unit's monthly cap |
+| `call_retained` | made a call that was sent and never answered, and its money stays reserved until a person closes it (the amount held is in the subject; the mail says whether it survives a restart and whether it can be closed from the console; see below) |
+| `retained_closed` | had a retained reservation closed by a person (the subject names the reservation, observed or no charge, and the amount settled; the person's evidence reference is never mailed; see below) |
 | `dlp_block` | tried to send something that matched a secret pattern |
 | `taint_block` | was refused a tool its taint labels do not allow |
 | `policy_deny` | was denied by policy |
@@ -351,6 +353,46 @@ minutes by default) is dropped rather than mailed. @measured `rule.Decide` on tw
 `chain_broken` events for different files 30 seconds apart, 2026-10-04: the
 first returned `notify`, the second `drop`. Changing what the key is made of is
 a rule change this rendering change does not make.
+
+**A retained call is money waiting for a person.** tokenfuse retains a call it
+handed to the provider when the call ended before any answer came back, because
+the caller left or the connection broke. It cannot tell whether the provider did
+the work, so it neither charges nor releases what it reserved for the call, and
+only a person with evidence closes it. `@decided 2026-10-12`: both events go on
+the bus so a person is told; `call_retained` (medium) asks a person to act soon,
+and `retained_closed` (high) is high because a closure lifts a money control.
+Severities are tokenfuse's own. agent-passport SPEC.md 6.2 registers both, and
+tokenfuse does not emit either yet.
+
+`call_retained` puts the amount held in the subject ("... and $0.42 stays
+reserved until a person closes it"), names the reservation and the model, and
+says, only when the event says so, whether the reservation is in the gateway's
+journal (a restart keeps it, or forgets it) and whether it is on the console's
+list (past the list's cap it is still held and cannot be closed there). An
+amount under a cent is written to the micro-dollar rather than as `$0.00`.
+`retained_closed` names the reservation, whether the evidence was an observed
+charge or no charge, and the amount settled. Who closed it is not in the event,
+by the registry's design, so the mail says so and points at the console's own
+`console.close_retained` record, joined by the reservation id.
+
+**The evidence reference is never mailed, in any form.** `@decided 2026-10-12`:
+of a retained reservation's data, only the three numbers (`reservation_id`,
+`amount_microusd`, `settled_microusd`) may reach a mail. The evidence reference
+is free text typed in the console, and tokenfuse lets a model propose a closure
+with its evidence for a person to accept, so even one that looks like a plain
+invoice number may be text a model wrote. A closure's mail says instead that the
+reference is in the operator console, with the record of the
+`console.close_retained` command. The model, on a retained call the one the agent
+asked for, is shown only as a single token of letters, digits and `_ . : / @ -`,
+with no space and no scheme.
+
+Not covered: the dedup key is the type and the run, so a second retained call on
+the same run inside one dedup window (ten minutes by default) is dropped rather
+than mailed, and so is a second closure. @measured `./bin/heraldyx --once` over
+two `call_retained` and two `retained_closed` events on one run, 2026-10-12: two
+mails, the first of each. The gateway still holds every one of them. And a
+model name that is a bare host and path, with no scheme and no `www.`, is shown,
+and some mail clients turn that into a link.
 
 `behavior_anomaly` and `excessive_privilege` were listed here until 2026-08-03.
 They were removed because nothing raises them: both are concepts of the identity

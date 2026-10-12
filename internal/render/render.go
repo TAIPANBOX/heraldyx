@@ -112,6 +112,42 @@ var dataAllowlist = map[string]bool{
 	"backend":          true,
 	"model":            true,
 	"bounds_crossed":   true,
+	// tokenfuse's retained reservations: the three numbers `call_retained`
+	// and `retained_closed` print, and nothing else of theirs
+	// (@decided 2026-10-12: only these three numeric keys may reach a mail).
+	// `reservation_id` is the gateway's own counter and the two amounts are
+	// micro-dollars the gateway computed, so none of them can hold text a
+	// model wrote. `evidence_ref` is deliberately NOT here and is never
+	// mailed, in any form (same decision): it is free text typed in the
+	// console, and tokenfuse's closure rule lets a model propose a closure
+	// together with its evidence for a person to accept, so it may be text a
+	// model wrote. The mail says where it is instead ([evidenceWhere]). All
+	// three are in [typeSpecificOnly], so the generic per-key line never
+	// prints them and another plane carrying one is not made renderable.
+	// `model` above is shared with typryx and is held to the stricter
+	// [tokenShape] on this path, because on a retained call it is the model
+	// the agent asked for.
+	"reservation_id":   true,
+	"amount_microusd":  true,
+	"settled_microusd": true,
+}
+
+// typeSpecificOnly are allowlisted keys the generic per-key line in
+// [factLine] never prints. Each is read by one type's own fact function,
+// through a check made for that field, and an unrelated plane that happens to
+// carry the same key is not made renderable by the allowlist entry.
+var typeSpecificOnly = map[string]bool{
+	// run_stalled, through observationMillis.
+	"last_call_millis": true,
+	"silence_ms":       true,
+	// calibration_drift, through calibrationFacts.
+	"template_version": true,
+	"bounds_crossed":   true,
+	// call_retained and retained_closed, through retainedFacts and
+	// retainedClosed.
+	"reservation_id":   true,
+	"amount_microusd":  true,
+	"settled_microusd": true,
 }
 
 // safeString is the shape a string value must have to be rendered: short, one
@@ -427,6 +463,49 @@ var catalog = map[string]phrasing{
 		what: "was affected by a failure in one of this box's own dependencies",
 		did:  "The failure is in something this box depends on, underneath a call this run made. Whether the call still went through, and what it cost, is what an operator needs next, and this event does not say.",
 		next: "Nothing automatic. Open the console at this incident to see what the gateway returned for the call: that answer is what decides whether this cost anything and whether any policy saw it.",
+	},
+
+	// --------------------------------------------- tokenfuse: retained calls
+	//
+	// A call the gateway handed to the provider that ended before any answer
+	// came back, because the caller left while the provider held the request
+	// or the connection broke after it was sent. The gateway cannot tell
+	// whether the provider did the work, so it neither settles nor releases
+	// the money (tokenfuse invariant 50), keeps it across a restart when its
+	// journal has it (invariant 88), and only a person with evidence closes
+	// it (invariant 89). Read against tokenfuse's CLAUDE.md for those three
+	// invariants and crates/gateway/src/closure.rs at cb15dc9, and against
+	// agent-passport SPEC 6.2 as agent-passport#74 registers the two types,
+	// per this catalog's rule. tokenfuse emits neither yet: its wire commit
+	// follows the registry.
+	//
+	// @decided 2026-10-12: both go on the bus so a person is told.
+	// `call_retained` (medium) asks a person to act soon rather than now;
+	// `retained_closed` (high) is banded like `taint_cleared`, because it
+	// lifts a money control. Severities are tokenfuse's own and are not
+	// chosen here.
+	//
+	// The sentences below are the NEUTRAL ones, for an event that carries none
+	// of what [callRetained] and [retainedClosed] read: the amount, whether
+	// the reservation is journaled and listed, which kind of evidence closed
+	// it. Written out in full for the reason `dependency_failed` above gives.
+	"call_retained": {
+		what: "made a call that was sent and never answered, and its money stays reserved until a person closes it",
+		did:  "Nothing was charged and nothing was released. The gateway handed the call to the provider and the call ended before any answer came back, because the caller left while the provider held the request or the connection broke after it was sent, so the gateway cannot tell whether the provider did the work or will bill for it. What was reserved for the call stays reserved against the run, and against its business unit when the call charged one.",
+		next: "It stays reserved until a person closes it with evidence in the console: the cost the provider's usage or invoice shows, or the provider's word that nothing was charged. Nothing on the gateway settles or releases it on its own, and while it is held the run and its unit have that much less room.",
+	},
+	// Who closed it is NOT in this event, and that is the registry's boundary
+	// rather than a gap here: the gateway verifies a token, not a person, so
+	// the person is in the console's own `console_command`
+	// (`console.close_retained`), joined to this by `reservation_id`. The
+	// mail says where to look rather than leaving the question open. The
+	// evidence reference IS in the event and is never mailed
+	// (@decided 2026-10-12, see `dataAllowlist`); the fact line says where it
+	// is, without a word of it.
+	"retained_closed": {
+		what: "had a retained reservation closed by a person",
+		did:  "A person closed it with evidence through the operator console, and the gateway applied that closure once: what was held for a call whose outcome was unknown is now settled at the amount the evidence shows, or released when the evidence is that nothing was charged. A money control was lifted on a person's word, which is why this is mailed.",
+		next: "Nothing further happens on its own, and a restart of the gateway does not bring the reservation back. Who closed it is not in this event: the console's own record of the command, console.close_retained, names the person, joined to this one by the reservation id. If nobody you know made this closure, start there. The gateway checks a token signed with a secret it shares with the console, and it is the console that asks for the passkey.",
 	},
 
 	// ---------------------------------------------------------- costcrew
@@ -751,6 +830,10 @@ func qualify(e event.Event, p phrasing) phrasing {
 		return typedRefused(e, p)
 	case "chain_broken", "chain_unchained":
 		return conformSubject(e, p)
+	case "call_retained":
+		return callRetained(e, p)
+	case "retained_closed":
+		return retainedClosed(e, p)
 	default:
 		return p
 	}
@@ -983,6 +1066,72 @@ func budgetThreshold(e event.Event, p phrasing) phrasing {
 	}
 	p.did = "Nothing. The plane that raised this records budgets and does not enforce them."
 	p.next = "Nothing is refused when the budget is gone. This is a record that a guard was passed, not a limit that will bite."
+	return p
+}
+
+// callRetained puts the amount held into the subject, and says what a restart
+// and the console's list do to this one reservation, off
+// `data.amount_microusd`, `data.journaled` and `data.listed`.
+//
+// The two booleans choose a sentence and are never printed, which is why
+// neither is in [dataAllowlist]: the reading [budgetThreshold] gives
+// `enforced`. A value that is absent or not a boolean says nothing either way,
+// because "survives a restart" and "cannot be closed" are claims, and an event
+// that does not make one gets no sentence that does. Read against tokenfuse
+// invariant 88 (a journaled reservation is put back at startup; without the
+// journal a restart forgets the exposure) and invariant 89 (`MAX_RETAINED`
+// bounds what is listed, never what is held, and only a listed one can be
+// closed).
+func callRetained(e event.Event, p phrasing) phrasing {
+	if v, ok := allowlisted(e, "amount_microusd"); ok {
+		if n, ok := wholeCount(v, 0); ok {
+			p.what = "made a call that was sent and never answered, and " + usdAmount(n) + " stays reserved until a person closes it"
+		}
+	}
+	switch journaled, ok := e.Data["journaled"].(bool); {
+	case ok && journaled:
+		p.did += " The reservation is in the gateway's journal, so it survives a restart of the gateway."
+	case ok:
+		p.did += " The reservation did not reach the gateway's journal, so it lasts only as long as this gateway process: a restart forgets it, the money stops being held although the provider may already have billed the call, and there is then nothing left to close."
+	}
+	if listed, ok := e.Data["listed"].(bool); ok && !listed {
+		p.next = "It cannot be closed from the console: the gateway's list of retained calls was full when this one was retained, so it is not on the list a closure is made from, and the money is still held. Nothing on the gateway settles or releases it on its own, and while it is held the run and its unit have that much less room."
+	}
+	return p
+}
+
+// retainedClosed names the reservation, the kind of evidence and the amount
+// settled in the subject, off `data.reservation_id`, `data.evidence_kind` and
+// `data.settled_microusd`.
+//
+// `evidence_kind` is a control for the phrasing, matched against tokenfuse's
+// closed set (`observed`, `no_charge`) and turned into this file's own words,
+// so it is never printed and is not in [dataAllowlist], exactly as
+// [dependencyName] treats `dependency`. A kind this build does not know keeps
+// the neutral sentence and adds no "as ...": guessing which kind a future
+// producer meant is the fallback problem in miniature. An observed closure is
+// spend: tokenfuse settles the run's half at the observed cost and writes it
+// to the trace and the Cloud the way a settled call's row is written; a
+// no-charge closure releases and writes no row.
+func retainedClosed(e event.Event, p phrasing) phrasing {
+	what := "had a retained reservation closed by a person"
+	if id, ok := reservationID(e); ok {
+		what = "had retained reservation " + id + " closed by a person"
+	}
+	switch kind, _ := e.Data["evidence_kind"].(string); kind {
+	case "observed":
+		what += " as observed"
+		p.did = "A person closed it with evidence through the operator console, and the gateway applied that closure once: the evidence showed what the provider charged, so that amount is charged to the run in place of what was held, and recorded as spend the way a settled call is. A money control was lifted on a person's word, which is why this is mailed."
+	case "no_charge":
+		what += " as no charge"
+		p.did = "A person closed it with evidence through the operator console, and the gateway applied that closure once: the evidence was that the provider charged nothing, so nothing is charged and what was held is released. A money control was lifted on a person's word, which is why this is mailed."
+	}
+	if v, ok := allowlisted(e, "settled_microusd"); ok {
+		if n, ok := wholeCount(v, 0); ok {
+			what += ", settling " + usdAmount(n)
+		}
+	}
+	p.what = what
 	return p
 }
 
@@ -1468,6 +1617,10 @@ func factLine(e event.Event) string {
 		return conformFacts(e)
 	}
 
+	if e.Type == "call_retained" || e.Type == "retained_closed" {
+		return retainedFacts(e)
+	}
+
 	if len(e.Data) == 0 {
 		return ""
 	}
@@ -1483,8 +1636,7 @@ func factLine(e event.Event) string {
 
 	keys := make([]string, 0, len(e.Data))
 	for k := range e.Data {
-		if dataAllowlist[k] && k != "last_call_millis" && k != "silence_ms" &&
-			k != "template_version" && k != "bounds_crossed" {
+		if dataAllowlist[k] && !typeSpecificOnly[k] {
 			keys = append(keys, k)
 		}
 	}
@@ -1706,6 +1858,92 @@ func conformFacts(e event.Event) string {
 	return out
 }
 
+// allowlisted returns a `data` value only when its key is in [dataAllowlist].
+// The retained types read their values through it, so the allowlist is what
+// lets one of them into a mail rather than a list kept beside a function that
+// reads `data` on its own: take a key out and its value is gone
+// (TestRetainedValuesReachTheMailOnlyThroughTheAllowlist).
+func allowlisted(e event.Event, key string) (any, bool) {
+	if !dataAllowlist[key] {
+		return nil, false
+	}
+	v, ok := e.Data[key]
+	return v, ok
+}
+
+// tokenShape is the shape a model name or a string reservation id must have to
+// be printed on the retained path: [safeString] without the space. Both sit
+// inside a sentence, and a value with spaces in it can finish that sentence
+// differently ("reservation 1234 was never closed"). On a retained call the
+// model is the one the AGENT asked for, so it is held to this rather than to
+// the looser check `calibrationFacts` gives typryx's operator-configured one.
+var tokenShape = regexp.MustCompile(`^[A-Za-z0-9_.:/@\-]{1,64}$`)
+
+// linkFree reports whether text that passed a shape check still reads as a
+// link to a mail client. The mail carries one kind of link, into the
+// operator's own console (CLAUDE.md invariant 2), and `:` and `/` are
+// identifier characters, so a shape check alone lets `https://...` through.
+// What it does not catch: a bare host and path with no scheme and no `www.`,
+// which some clients still turn into a link.
+func linkFree(s string) bool {
+	l := strings.ToLower(s)
+	return !strings.Contains(l, "://") && !strings.HasPrefix(l, "www.") && !strings.Contains(l, " www.")
+}
+
+// reservationID is tokenfuse's reservation id as it may appear in a sentence.
+// tokenfuse writes a u64, which arrives as a float64; a whole number is printed
+// as one, and a string id (in case a producer ever writes one) only when it
+// passes [tokenShape] and [linkFree]. Anything else is left out, and the
+// sentence says "a retained reservation" instead.
+func reservationID(e event.Event) (string, bool) {
+	v, ok := allowlisted(e, "reservation_id")
+	if !ok {
+		return "", false
+	}
+	if n, ok := wholeCount(v, 0); ok {
+		return strconv.FormatInt(n, 10), true
+	}
+	if s, ok := v.(string); ok && tokenShape.MatchString(s) && linkFree(s) {
+		return s, true
+	}
+	return "", false
+}
+
+// retainedFacts is the fact line for tokenfuse's two retained types: the
+// reservation and the model the call asked for (call_retained), or where the
+// evidence of a closure is (retained_closed). The amount and the reservation
+// of a closure are already in the subject, put there by [callRetained] and
+// [retainedClosed].
+func retainedFacts(e event.Event) string {
+	if e.Type == "retained_closed" {
+		return evidenceWhere
+	}
+	var parts []string
+	if id, ok := reservationID(e); ok {
+		parts = append(parts, "reservation "+id)
+	}
+	if v, ok := allowlisted(e, "model"); ok {
+		if m, ok := v.(string); ok && tokenShape.MatchString(m) && linkFree(m) {
+			parts = append(parts, "model "+m)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	out := strings.Join(parts, ", ")
+	return strings.ToUpper(out[:1]) + out[1:] + "."
+}
+
+// evidenceWhere is all a closure's mail says about its evidence, and it reads
+// nothing from the event. `evidence_ref` is never mailed, in any form
+// (@decided 2026-10-12): it is free text typed in the console, and
+// tokenfuse's closure rule lets a model propose a closure with its evidence
+// for a person to accept, so even a reference that looks like a plain
+// identifier may be text a model wrote. Shaping or cutting it would still be
+// mailing it. So the mail names where the operator reads it instead: the
+// console, and its record of the command that closed the reservation.
+const evidenceWhere = "The evidence reference the person gave is not in this mail: it is in the operator console, with the record of the command, console.close_retained."
+
 // calibrationMetric accepts only a finite, non-negative number: a Brier
 // score or an ECE outside that shape is not one this build's arithmetic
 // could have produced, and rendering it would be trusting bytes typryx never
@@ -1778,6 +2016,18 @@ func micros(v any) (int64, bool) {
 
 func usd(micro int64) string {
 	return fmt.Sprintf("$%.2f", float64(micro)/1_000_000)
+}
+
+// usdAmount is [usd], except that an amount above zero and under one cent is
+// written out to the micro-dollar ("$0.0025") rather than rounded to "$0.00".
+// A single call's reservation is often under a cent, and "$0.00 stays
+// reserved" reads as nothing held, which is the reservation nobody closes.
+// Integer arithmetic, so the digits shown are the ones the event carried.
+func usdAmount(micro int64) string {
+	if micro > 0 && micro < 10_000 {
+		return "$0." + strings.TrimRight(fmt.Sprintf("%06d", micro), "0")
+	}
+	return usd(micro)
 }
 
 // shortID renders one identifier for a human: safe first, then short. Every

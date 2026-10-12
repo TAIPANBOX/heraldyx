@@ -146,8 +146,16 @@ run_case() {
 	# Exit code first, then wording. Checking the needle before the expectation
 	# turns "it did not fail at all" into "it failed for the wrong reason",
 	# which sends the reader to look at prose when the gate is toothless.
+	#
+	# A here-string, not `printf | grep -q`. Under `pipefail` that pipe reports
+	# failure whenever grep finds the needle early and exits before printf has
+	# written a large output: printf gets SIGPIPE, or "write error: Broken
+	# pipe" under the Actions runner, which ignores SIGPIPE, and a needle that
+	# IS there reads as WRONG REASON. Found 2026-10-12 on a case whose failing
+	# test printed about 55 KB; reproduced with GNU grep on 1.2 MB of lines
+	# (PIPESTATUS 141 0, and 1 0 with SIGPIPE ignored), never with this form.
 	if [ "$expect" = fail ] && [ "$rc" -ne 0 ] && [ -n "$needle" ] &&
-		! printf '%s' "$out" | grep -qF -- "$needle"; then
+		! grep -qF -- "$needle" <<<"$out"; then
 		printf 'WRONG REASON  %s\n              it failed, but not saying: %s\n' "$name" "$needle"
 		failures=$((failures + 1))
 		return
@@ -349,6 +357,20 @@ run_case "failed-call: harmless comment" pass \
 run_case "failed-call: absent tests refuse success" fail \
     './scripts/features-are-bound.sh && go test ./internal/render' \
     "$(py 'import os; os.remove("internal/render/dependency_test.go")')" \
+    'no such test exists'
+
+# Invariant 24: a closure's evidence reference is never mailed, in any form.
+# The fault appends it to the one sentence the mail says about the evidence.
+run_case "retained: the evidence reference is mailed" fail \
+    './scripts/features-are-bound.sh && go test ./internal/render -run "Retained|Evidence"' \
+    "$(py 'edit("internal/render/render.go", "\t\treturn evidenceWhere\n", "\t\treturn fmt.Sprint(evidenceWhere, \" \", e.Data[\"evidence_ref\"])\n")')" \
+    'the evidence reference reached the mail'
+run_case "retained: harmless comment" pass \
+    './scripts/features-are-bound.sh && go test ./internal/render -run "Retained|Evidence"' \
+    "$(py 'edit("internal/render/render.go", "func retainedFacts(e event.Event) string {", "// harmless comment\nfunc retainedFacts(e event.Event) string {")')"
+run_case "retained: absent tests refuse success" fail \
+    './scripts/features-are-bound.sh && go test ./internal/render -run "Retained|Evidence"' \
+    "$(py 'import os; os.remove("internal/render/retained_test.go")')" \
     'no such test exists'
 
 echo

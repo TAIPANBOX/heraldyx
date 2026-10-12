@@ -584,8 +584,7 @@ excluded from generic raw data rendering.
 
 24. **tokenfuse's two retained types say what is held and who must act, a
     closure says what was settled and where the person is recorded, and a
-    person's evidence reference reaches a mail only as a sanitised
-    identifier-like line.** tokenfuse retains a call it handed to the provider
+    closure's evidence reference never reaches a mail, in any form.** tokenfuse retains a call it handed to the provider
     when the call ended before any answer came back: the money stays reserved,
     neither settled nor released, until a person closes it with evidence
     (tokenfuse invariants 50, 88 and 89; agent-passport SPEC.md 6.2 as
@@ -608,30 +607,34 @@ excluded from generic raw data rendering.
     that who closed it is not in the event and is in the console's own
     `console.close_retained` record, joined by the reservation id.
 
-    The allowlist grows by the four values the sentences print,
-    `reservation_id`, `amount_microusd`, `settled_microusd` and `evidence_ref`
-    (`@claude 2026-10-12`, delegated with this change; the escalation question
-    is answered in `render.go` beside them). All four are in
+    `@decided 2026-10-12`: of a retained reservation's data, the mail may show
+    only the three numeric keys, `reservation_id`, `amount_microusd` and
+    `settled_microusd`, and the allowlist grows by those three and nothing
+    else. `evidence_ref` is never mailed, whatever it holds: it is free text
+    typed in the console, and tokenfuse's closure rule lets a model propose a
+    closure together with its evidence for a person to accept, so even a
+    reference shaped like a plain invoice number may be text a model wrote.
+    Sanitising or cutting it would still be mailing it. A closure's mail says
+    instead, in one fixed sentence that reads nothing from the event
+    (`evidenceWhere`), that the reference is in the operator console with the
+    record of the `console.close_retained` command. The three numbers are in
     `typeSpecificOnly`, so the generic per-key line never prints them for any
     other type, and the retained path reads them through `allowlisted`, so
     taking a key out of the allowlist takes its value out of the mail.
-    `journaled`, `listed`, `evidence_kind`, `revision`, `operation_id` and
-    `unit` stay out. `evidence_ref` is typed by a person and treated as
-    hostile: `evidenceText` keeps only `safeString`'s characters, turns every
-    run of anything else into one space and shows at most 64, the mail says
-    when anything was taken out, and `linkFree` leaves out a reference that
-    reads as a link (invariant 2). The model, which on a retained call is the
-    one the agent asked for, and a string reservation id are held to
-    `tokenShape` (no space) and `linkFree`; a numeric id or amount must be a
-    whole number from 0 to 2^53 (`wholeCount`).
+    `evidence_ref`, `journaled`, `listed`, `evidence_kind`, `revision`,
+    `operation_id` and `unit` stay out of the allowlist. The model, which on a
+    retained call is the one the agent asked for, and a string reservation id
+    are held to `tokenShape` (no space) and `linkFree` (no scheme, no `www.`,
+    invariant 2); a numeric id or amount must be a whole number from 0 to 2^53
+    (`wholeCount`).
 
     **What it does not cover.** The dedup key is the type and the run, so a
     second retained call or a second closure on the same run inside one dedup
     window is dropped, not mailed (@measured `./bin/heraldyx --once` over two
     `call_retained` and two `retained_closed` events on `run-42`, 2026-10-12:
     two mails, the first of each); that is a property of the key and is not
-    changed here. A bare host and path in an evidence reference, with no scheme
-    and no `www.`, is shown, and some clients turn it into a link. No event a
+    changed here. A model name that is a bare host and path, with no scheme and
+    no `www.`, is shown, and some clients turn it into a link. No event a
     real tokenfuse wrote has been rendered, because tokenfuse does not write
     either type yet.
     *(test: `TestEveryRetainedTypeIsDescribed`,
@@ -643,8 +646,7 @@ excluded from generic raw data rendering.
     `TestRetainedClosedObservedNamesTheReservationTheEvidenceAndTheAmount`,
     `TestRetainedClosedNoChargeSaysNothingWasChargedAndTheHoldWasReleased`,
     `TestRetainedClosedUnknownEvidenceKindStaysNeutral`,
-    `TestHostileEvidenceRefNeverReachesTheMailUnsanitised`,
-    `TestAnEvidenceRefThatIsALinkIsLeftOut`,
+    `TestTheEvidenceRefIsNeverMailed`,
     `TestHostileModelAndReservationIDNeverReachTheMail`,
     `TestHostileAmountsAreNeverRendered`,
     `TestRetainedKeysAreRenderedOnlyForTheRetainedTypes`,
@@ -652,12 +654,14 @@ excluded from generic raw data rendering.
     `TestRetainedValuesReachTheMailOnlyThroughTheAllowlist`,
     `TestTheCatalogDescribesFiftyTypes`, all in
     `internal/render/retained_test.go`; scenarios:
-    `features/tokenfuse-retained-catalog.feature`, 17 scenarios, each bound to
+    `features/tokenfuse-retained-catalog.feature`, 16 scenarios, each bound to
     a named test both ways, held by `scripts/features-are-bound.sh`; three
     cases in `scripts/gates-have-teeth.sh`; every test but one run red against
     the unfixed code first, the one being the guard
-    `TestRetainedKeysAreRenderedOnlyForTheRetainedTypes`, and fifteen mutants
-    each caught by a named test, recorded in the pull request)*
+    `TestRetainedKeysAreRenderedOnlyForTheRetainedTypes`, and
+    `TestTheEvidenceRefIsNeverMailed` run red against the earlier version of
+    this change that printed a sanitised reference; fifteen mutants each
+    caught by a named test, recorded in the pull request)*
 
 ## Decisions that have no gate yet
 

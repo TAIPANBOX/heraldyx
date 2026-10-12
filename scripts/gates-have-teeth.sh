@@ -351,16 +351,15 @@ run_case "failed-call: absent tests refuse success" fail \
     "$(py 'import os; os.remove("internal/render/dependency_test.go")')" \
     'no such test exists'
 
-# Invariant 24: a person's evidence reference reaches a mail only after this
-# file has taken out what it does not print. The fault keeps every character
-# but the space, so markup and a line break would be mailed as typed.
-run_case "retained: evidence reference mailed unsanitised" fail \
+# Invariant 24: a closure's evidence reference is never mailed, in any form.
+# The fault appends it to the one sentence the mail says about the evidence.
+run_case "retained: the evidence reference is mailed" fail \
     './scripts/features-are-bound.sh && go test ./internal/render -run "Retained|Evidence"' \
-    "$(py 'edit("internal/render/render.go", "func evidenceRune(r rune) bool {\n\tswitch {", "func evidenceRune(r rune) bool {\n\treturn r != 0x20\n\tswitch {")')" \
-    'reached the mail'
+    "$(py 'edit("internal/render/render.go", "\t\treturn evidenceWhere\n", "\t\treturn fmt.Sprint(evidenceWhere, \" \", e.Data[\"evidence_ref\"])\n")')" \
+    'the evidence reference reached the mail'
 run_case "retained: harmless comment" pass \
     './scripts/features-are-bound.sh && go test ./internal/render -run "Retained|Evidence"' \
-    "$(py 'edit("internal/render/render.go", "func evidenceText(s string)", "// harmless comment\nfunc evidenceText(s string)")')"
+    "$(py 'edit("internal/render/render.go", "func retainedFacts(e event.Event) string {", "// harmless comment\nfunc retainedFacts(e event.Event) string {")')"
 run_case "retained: absent tests refuse success" fail \
     './scripts/features-are-bound.sh && go test ./internal/render -run "Retained|Evidence"' \
     "$(py 'import os; os.remove("internal/render/retained_test.go")')" \

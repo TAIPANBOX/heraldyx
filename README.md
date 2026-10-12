@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-263-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-262-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.3.0-success.svg)
 
@@ -157,7 +157,7 @@ for, and the link still opens the console at it.
 | `breaker_tripped` | was refused by the breaker |
 | `unit_cap_exceeded` | has spent its business unit's monthly cap |
 | `call_retained` | made a call that was sent and never answered, and its money stays reserved until a person closes it (the amount held is in the subject; the mail says whether it survives a restart and whether it can be closed from the console; see below) |
-| `retained_closed` | had a retained reservation closed by a person (the subject names the reservation, observed or no charge, and the amount settled; the person's evidence reference is shown sanitised; see below) |
+| `retained_closed` | had a retained reservation closed by a person (the subject names the reservation, observed or no charge, and the amount settled; the person's evidence reference is never mailed; see below) |
 | `dlp_block` | tried to send something that matched a secret pattern |
 | `taint_block` | was refused a tool its taint labels do not allow |
 | `policy_deny` | was denied by policy |
@@ -375,22 +375,24 @@ charge or no charge, and the amount settled. Who closed it is not in the event,
 by the registry's design, so the mail says so and points at the console's own
 `console.close_retained` record, joined by the reservation id.
 
-The evidence reference is the one value on this bus a person types freely, so it
-is treated as hostile. Only letters, digits, `_ : @ . / -` and single spaces
-survive; anything else (a line break, markup, an escape sequence, a right-to-left
-override, a non-ASCII letter) becomes a space, at most 64 characters are shown,
-and the mail says when anything was taken out. A reference that reads as a link
-is left out, because the only link this mail carries is into your console. The
-model, on a retained call the one the agent asked for, is shown only as a single
-token of those characters, with no space and no scheme.
+**The evidence reference is never mailed, in any form.** `@decided 2026-10-12`:
+of a retained reservation's data, only the three numbers (`reservation_id`,
+`amount_microusd`, `settled_microusd`) may reach a mail. The evidence reference
+is free text typed in the console, and tokenfuse lets a model propose a closure
+with its evidence for a person to accept, so even one that looks like a plain
+invoice number may be text a model wrote. A closure's mail says instead that the
+reference is in the operator console, with the record of the
+`console.close_retained` command. The model, on a retained call the one the agent
+asked for, is shown only as a single token of letters, digits and `_ . : / @ -`,
+with no space and no scheme.
 
 Not covered: the dedup key is the type and the run, so a second retained call on
 the same run inside one dedup window (ten minutes by default) is dropped rather
 than mailed, and so is a second closure. @measured `./bin/heraldyx --once` over
 two `call_retained` and two `retained_closed` events on one run, 2026-10-12: two
 mails, the first of each. The gateway still holds every one of them. And a
-bare host and path in an evidence reference, with no scheme and no `www.`, is
-shown, and some mail clients turn that into a link.
+model name that is a bare host and path, with no scheme and no `www.`, is shown,
+and some mail clients turn that into a link.
 
 `behavior_anomaly` and `excessive_privilege` were listed here until 2026-08-03.
 They were removed because nothing raises them: both are concepts of the identity

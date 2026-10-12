@@ -8,8 +8,11 @@ Feature: tokenfuse's retained calls and their closures are told to a person in p
   control. heraldyx describes both instead of mailing them as the generic
   fallback. The mail says which run, how much is held and whether it survives a
   restart or can be closed from the console; a closure says which reservation,
-  which kind of evidence and what was settled, and shows the person's evidence
-  reference only as a sanitised identifier-like line, never as trusted text.
+  which kind of evidence and what was settled. Also @decided 2026-10-12: only
+  the three numbers (reservation_id, amount_microusd, settled_microusd) may
+  reach a mail, and the evidence reference never does, in any form, because it
+  is free text typed in the console and tokenfuse lets a model propose a
+  closure with its evidence for a person to accept. The mail says where it is.
 
   Scenario: both types have a sentence
     Given a call_retained and a retained_closed event as tokenfuse writes them
@@ -44,7 +47,7 @@ Feature: tokenfuse's retained calls and their closures are told to a person in p
 
   Scenario: an observed closure names the reservation, the evidence and the amount
     Given a retained_closed event for reservation 1234 on run-42, observed, settling 420000 micro-dollars, evidence INV-2026-4411
-    Then the subject and the first sentence say retained reservation 1234 was closed by a person as observed, settling $0.42, the mail shows the evidence reference, says a money control was lifted, says who closed it is not in the event and points at console.close_retained, and prints neither the revision nor the operation id; a reservation id written as a plain identifier string is named as written
+    Then the subject and the first sentence say retained reservation 1234 was closed by a person as observed, settling $0.42, the mail says the evidence reference is in the operator console with the console.close_retained record without printing it, says a money control was lifted, says who closed it is not in the event and points at console.close_retained, and prints neither the revision nor the operation id; a reservation id written as a plain identifier string is named as written
   # @test:TestRetainedClosedObservedNamesTheReservationTheEvidenceAndTheAmount
 
   Scenario: a no-charge closure says nothing was charged and the hold was released
@@ -57,15 +60,10 @@ Feature: tokenfuse's retained calls and their closures are told to a person in p
     Then the mail says the reservation was closed by a person and the amount settled, and neither prints the kind nor guesses one
   # @test:TestRetainedClosedUnknownEvidenceKindStaysNeutral
 
-  Scenario: a hostile evidence reference never reaches the mail unsanitised
-    Given retained_closed events whose evidence reference holds a line break and a forged header, 5000 characters, markup, a right-to-left override, terminal escapes, invalid UTF-8, only non-ASCII letters, only whitespace, a number or an object
-    Then no control character, markup or override reaches the mail, at most 64 characters of it are shown, the mail says when anything was taken out or nothing could be printed, and the closure itself is still said
-  # @test:TestHostileEvidenceRefNeverReachesTheMailUnsanitised
-
-  Scenario: an evidence reference that is a link is left out
-    Given retained_closed events whose evidence reference is an https, ftp or www address
-    Then the address does not reach the mail, which says the reference is a link and is left out, and every link in the mail is a console view
-  # @test:TestAnEvidenceRefThatIsALinkIsLeftOut
+  Scenario: an evidence reference of any content is never mailed
+    Given retained_closed events whose evidence reference is a plain identifier, a sentence a model could have written, a line break and a forged header, 5000 characters, markup, a link, a bare host and path, a right-to-left override, terminal escapes, invalid UTF-8, a number or an object
+    Then none of it appears in the subject or the body, the mail says the evidence reference is in the operator console with the console.close_retained record, and the closure itself is still said in full
+  # @test:TestTheEvidenceRefIsNeverMailed
 
   Scenario: a hostile model or reservation id never reaches the mail
     Given call_retained and retained_closed events whose model or reservation id carries a line break, is huge, is markup, a sentence, a link, an override, an object, negative, fractional or too large
@@ -82,9 +80,9 @@ Feature: tokenfuse's retained calls and their closures are told to a person in p
     Then none of them is rendered
   # @test:TestRetainedKeysAreRenderedOnlyForTheRetainedTypes
 
-  Scenario: the allowlist grows only by what the sentences print
+  Scenario: the allowlist grows only by the three numbers the sentences print
     Given the data allowlist
-    Then reservation_id, amount_microusd, settled_microusd, evidence_ref and model are in it, and journaled, listed, evidence_kind, revision, operation_id and unit are not
+    Then reservation_id, amount_microusd, settled_microusd and model are in it, and evidence_ref, journaled, listed, evidence_kind, revision, operation_id and unit are not
   # @test:TestOnlyTheRetainedKeysTheSentencesPrintJoinTheAllowlist
 
   Scenario: a retained value reaches the mail only through the allowlist

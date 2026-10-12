@@ -112,25 +112,24 @@ var dataAllowlist = map[string]bool{
 	"backend":          true,
 	"model":            true,
 	"bounds_crossed":   true,
-	// tokenfuse's retained reservations: the four values `call_retained` and
-	// `retained_closed` print (@claude 2026-10-12, delegated together with the
-	// two catalog entries below; putting both types on the bus is
-	// @decided 2026-10-12). The escalation question was answered before they
-	// went in. `reservation_id` is the gateway's own counter and the two
-	// amounts are micro-dollars the gateway computed, so none of the three can
-	// hold text a model wrote. `evidence_ref` is text a PERSON typed into the
-	// console after a passkey assertion, not a model's and not a producer's,
-	// and it is treated as hostile anyway: [evidenceLine] takes out every
-	// character this file does not print, bounds what is left and refuses a
-	// link. All four are in [typeSpecificOnly], so the generic per-key line
-	// never prints them and another plane carrying one is not made
-	// renderable. `model` above is shared with typryx and is held to the
-	// stricter [tokenShape] on this path, because on a retained call it is
-	// the model the agent asked for.
+	// tokenfuse's retained reservations: the three numbers `call_retained`
+	// and `retained_closed` print, and nothing else of theirs
+	// (@decided 2026-10-12: only these three numeric keys may reach a mail).
+	// `reservation_id` is the gateway's own counter and the two amounts are
+	// micro-dollars the gateway computed, so none of them can hold text a
+	// model wrote. `evidence_ref` is deliberately NOT here and is never
+	// mailed, in any form (same decision): it is free text typed in the
+	// console, and tokenfuse's closure rule lets a model propose a closure
+	// together with its evidence for a person to accept, so it may be text a
+	// model wrote. The mail says where it is instead ([evidenceWhere]). All
+	// three are in [typeSpecificOnly], so the generic per-key line never
+	// prints them and another plane carrying one is not made renderable.
+	// `model` above is shared with typryx and is held to the stricter
+	// [tokenShape] on this path, because on a retained call it is the model
+	// the agent asked for.
 	"reservation_id":   true,
 	"amount_microusd":  true,
 	"settled_microusd": true,
-	"evidence_ref":     true,
 }
 
 // typeSpecificOnly are allowlisted keys the generic per-key line in
@@ -149,7 +148,6 @@ var typeSpecificOnly = map[string]bool{
 	"reservation_id":   true,
 	"amount_microusd":  true,
 	"settled_microusd": true,
-	"evidence_ref":     true,
 }
 
 // safeString is the shape a string value must have to be rendered: short, one
@@ -500,7 +498,10 @@ var catalog = map[string]phrasing{
 	// rather than a gap here: the gateway verifies a token, not a person, so
 	// the person is in the console's own `console_command`
 	// (`console.close_retained`), joined to this by `reservation_id`. The
-	// mail says where to look rather than leaving the question open.
+	// mail says where to look rather than leaving the question open. The
+	// evidence reference IS in the event and is never mailed
+	// (@decided 2026-10-12, see `dataAllowlist`); the fact line says where it
+	// is, without a word of it.
 	"retained_closed": {
 		what: "had a retained reservation closed by a person",
 		did:  "A person closed it with evidence through the operator console, and the gateway applied that closure once: what was held for a call whose outcome was unknown is now settled at the amount the evidence shows, or released when the evidence is that nothing was charged. A money control was lifted on a person's word, which is why this is mailed.",
@@ -1909,13 +1910,13 @@ func reservationID(e event.Event) (string, bool) {
 }
 
 // retainedFacts is the fact line for tokenfuse's two retained types: the
-// reservation and the model the call asked for (call_retained), or the
-// evidence reference a person gave (retained_closed). The amount and the
-// reservation of a closure are already in the subject, put there by
-// [callRetained] and [retainedClosed].
+// reservation and the model the call asked for (call_retained), or where the
+// evidence of a closure is (retained_closed). The amount and the reservation
+// of a closure are already in the subject, put there by [callRetained] and
+// [retainedClosed].
 func retainedFacts(e event.Event) string {
 	if e.Type == "retained_closed" {
-		return evidenceLine(e)
+		return evidenceWhere
 	}
 	var parts []string
 	if id, ok := reservationID(e); ok {
@@ -1933,92 +1934,15 @@ func retainedFacts(e event.Event) string {
 	return strings.ToUpper(out[:1]) + out[1:] + "."
 }
 
-// maxEvidenceShown bounds how much of a person's evidence reference a mail
-// repeats: the same 64 [safeString] holds every other value to. tokenfuse
-// accepts up to 512 bytes; the rest is in the gateway's own record of the
-// closure.
-const maxEvidenceShown = 64
-
-// evidenceLine says what evidence the person who closed a reservation gave,
-// as an identifier-like line and never as text this box trusts.
-//
-// `evidence_ref` is the one value on this bus a person typed freely, and
-// tokenfuse's own check on it (1 to 512 bytes, no control characters) is a
-// check in another repository: this file holds it to its own. So it is
-// treated as hostile. [evidenceText] keeps only the characters this file
-// prints, turns every run of anything else (a line break, markup, an escape
-// sequence, a right-to-left override, any non-ASCII letter) into one space,
-// and cuts what is left to [maxEvidenceShown]. A result that reads as a link
-// is left out, because the only link a mail carries is into the operator's
-// own console. When anything was taken out the line says so, so an operator
-// never searches for a reference in a form the person did not type. A value
-// that leaves nothing printable, or is not text, is said out loud rather than
-// left as a gap, the way [conformFacts] says an unprintable file name.
-func evidenceLine(e event.Event) string {
-	if !dataAllowlist["evidence_ref"] {
-		return ""
-	}
-	v, present := e.Data["evidence_ref"]
-	if !present {
-		return "This event carries no evidence reference."
-	}
-	shown, altered := "", false
-	if s, ok := v.(string); ok {
-		shown, altered = evidenceText(s)
-	}
-	switch {
-	case shown == "":
-		return "The evidence reference in this event is not text this box can print, so it is left out; the gateway's own record of the closure has it."
-	case !linkFree(shown):
-		return "The evidence reference is a link, and this mail carries no link but your console's, so it is left out; the gateway's own record of the closure has it."
-	case altered:
-		return "Evidence reference given by the person who closed it, with what this box does not print taken out and at most 64 characters shown: " + shown + "."
-	default:
-		return "Evidence reference given by the person who closed it: " + shown + "."
-	}
-}
-
-// evidenceText reduces s to the characters [safeString] admits, with every run
-// of anything else and every run of spaces made one space, trimmed, and cut to
-// [maxEvidenceShown] with "..." after it. It reports whether the result
-// differs from s. It stops reading once it has more than it will show, so a
-// very long value costs no more than a short one.
-func evidenceText(s string) (string, bool) {
-	var b strings.Builder
-	gap := false
-	for _, r := range s {
-		if !evidenceRune(r) {
-			gap = true
-			continue
-		}
-		if gap && b.Len() > 0 {
-			b.WriteByte(' ')
-		}
-		gap = false
-		b.WriteRune(r)
-		if b.Len() > maxEvidenceShown {
-			break
-		}
-	}
-	out := b.String()
-	altered := out != s
-	if len(out) > maxEvidenceShown {
-		out = strings.TrimRight(out[:maxEvidenceShown], " ") + "..."
-		altered = true
-	}
-	return out, altered
-}
-
-// evidenceRune is [safeString]'s character class without the space, which
-// [evidenceText] handles as a separator.
-func evidenceRune(r rune) bool {
-	switch {
-	case 'a' <= r && r <= 'z', 'A' <= r && r <= 'Z', '0' <= r && r <= '9':
-		return true
-	default:
-		return strings.ContainsRune("_:@./-", r)
-	}
-}
+// evidenceWhere is all a closure's mail says about its evidence, and it reads
+// nothing from the event. `evidence_ref` is never mailed, in any form
+// (@decided 2026-10-12): it is free text typed in the console, and
+// tokenfuse's closure rule lets a model propose a closure with its evidence
+// for a person to accept, so even a reference that looks like a plain
+// identifier may be text a model wrote. Shaping or cutting it would still be
+// mailing it. So the mail names where the operator reads it instead: the
+// console, and its record of the command that closed the reservation.
+const evidenceWhere = "The evidence reference the person gave is not in this mail: it is in the operator console, with the record of the command, console.close_retained."
 
 // calibrationMetric accepts only a finite, non-negative number: a Brier
 // score or an ECE outside that shape is not one this build's arithmetic

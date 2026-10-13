@@ -36,10 +36,11 @@ func TestAKnownStreamRefusesAnotherSourcesName(t *testing.T) {
 }
 
 // The measured exceptions, each by the row that was read from the producers
-// and the launchers.
+// and the launchers. tokenfuse-openai is a second gateway process on the
+// OpenAI wire, appending to its own file for the same one-appender reason.
 func TestTheMeasuredExceptionsAreDeclared(t *testing.T) {
 	p := Default()
-	for _, stem := range []string{"tokenfuse-cloud", "tokenfuse-mcp"} {
+	for _, stem := range []string{"tokenfuse-cloud", "tokenfuse-mcp", "tokenfuse-openai"} {
 		if got := p.Check(stem, "tokenfuse"); got != Allowed {
 			t.Errorf("%s.ndjson carrying tokenfuse: %v, want Allowed", stem, got)
 		}

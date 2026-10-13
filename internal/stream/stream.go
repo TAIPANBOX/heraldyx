@@ -74,6 +74,13 @@ var knownSources = []string{
 //     envelope through one crate whose SOURCE constant is `tokenfuse`
 //     (tokenfuse crates/core/src/agent_event.rs; stack-single compose.yaml,
 //     stack-k8s manifests 00-base and 52, stack-up up.sh).
+//   - tokenfuse-openai: a second gateway process on the OpenAI wire
+//     (TOKENFUSE_WIRE=openai, tokenfuse docs/26), run beside the first one,
+//     so it appends to its own file for the same one-appender reason. It is
+//     the same gateway binary and builds the envelope through the same crate,
+//     so it stamps `tokenfuse` whichever wire it serves (tokenfuse v1.11.0
+//     crates/core/src/agent_event.rs:42; crates/gateway/src/main.rs chooses
+//     the wire from TOKENFUSE_WIRE and does not touch the exporter).
 //
 // Deliberately NOT here: demo. `taipan demo` writes one synthetic file whose
 // lines are attributed to six planes (taipan src/commands/demo.rs,
@@ -89,8 +96,9 @@ var knownSources = []string{
 // state). They are not on the shared bus and no launcher points a reader at
 // them; a reader that is pointed at one declares it with [ParseExtra].
 var exceptions = map[string][]string{
-	"tokenfuse-cloud": {"tokenfuse"},
-	"tokenfuse-mcp":   {"tokenfuse"},
+	"tokenfuse-cloud":  {"tokenfuse"},
+	"tokenfuse-mcp":    {"tokenfuse"},
+	"tokenfuse-openai": {"tokenfuse"},
 }
 
 // Policy maps a stream stem to the sources it may carry.

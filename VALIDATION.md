@@ -132,7 +132,7 @@ still has an entry about mail.
 
 A message sent from the notifier running on a five-node Kubernetes cluster on
 AWS, through the egress NetworkPolicy, through Gmail's submission service on
-587, arrived in a real human mailbox and was read there. Yurii pasted it back
+587, arrived in a real human mailbox and was read there. A copy was pasted back
 verbatim.
 
 That is the whole chain end to end on real infrastructure: an event in the

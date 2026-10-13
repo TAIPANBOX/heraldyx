@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-262-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-263-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.4.0-success.svg)
 
@@ -501,7 +501,8 @@ from may carry that source. By convention `tokenfuse.ndjson` carries
 `tokenfuse`, `wardryx.ndjson` carries `wardryx`, and so on for every source the
 agent-passport registry lists; `tokenfuse-cloud.ndjson` and
 `tokenfuse-mcp.ndjson` (the control plane's and the MCP broker's own files)
-carry `tokenfuse`. `demo.ndjson` (what `taipan demo` writes, with lines from six
+carry `tokenfuse`, and so does `tokenfuse-openai.ndjson` (a second gateway on
+the OpenAI wire, which keeps its own file). `demo.ndjson` (what `taipan demo` writes, with lines from six
 planes) is not built in, because any co-tenant could create it: declare it with
 `HERALDYX_STREAMS=demo=tokenfuse|wardryx|engram|qryx|verdryx|mockryx` when you
 run the demo against this box. A line that claims anything else is not processed as that

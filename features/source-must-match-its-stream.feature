@@ -66,6 +66,13 @@ Feature: An event is processed as the source it claims only when its file may ca
     Then both are mailed and nothing is raised
   # @test:TestARenamedFileOfTheSameProducerIsProcessed
 
+  Scenario: the second gateway's own file carries the tokenfuse source and nothing else
+    Given tokenfuse-openai.ndjson, the file of a second gateway on the OpenAI wire, holds a tokenfuse line
+    When heraldyx polls
+    Then the line is mailed and nothing is raised about the file
+    And a later line in it claiming wardryx is not processed as wardryx and one alert names the file and the claim
+  # @test:TestTheOpenAIGatewaysOwnFileCarriesTheTokenfuseSourceAndNothingElse
+
   Scenario: a stream nothing declares is read and said out loud once
     Given newplane.ndjson, which nothing declares, holds lines claiming newplane
     When heraldyx polls over several polls

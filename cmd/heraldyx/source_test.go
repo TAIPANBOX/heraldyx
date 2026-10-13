@@ -336,6 +336,39 @@ func TestARenamedFileOfTheSameProducerIsProcessed(t *testing.T) {
 	}
 }
 
+// A second gateway on the OpenAI wire appends to its own file, never to the
+// first gateway's (two appenders on one file is a race on a bus with no lock),
+// and stamps source `tokenfuse` through the same crate. Its file carries
+// tokenfuse and nothing else: a line in it claiming another plane is still
+// the forged case.
+func TestTheOpenAIGatewaysOwnFileCarriesTheTokenfuseSourceAndNothingElse(t *testing.T) {
+	b := newStreamBench(t, "medium")
+	b.put(t, "tokenfuse-openai", lineFrom("tokenfuse", "budget_exhausted", "critical", "run-openai"))
+	b.poll(later(0))
+
+	got := b.out(t)
+	if !strings.Contains(subjects(got), "run-openai") {
+		t.Fatalf("a tokenfuse line in tokenfuse-openai.ndjson was refused:\n%s", subjects(got))
+	}
+	if strings.Contains(got, "not a stream this box knows") || strings.Contains(got, "claim to be from") {
+		t.Fatalf("the second gateway's own file must be a known stream, with no notice about it:\n%s", subjects(got))
+	}
+	if n := b.messages(t); n != 1 {
+		t.Fatalf("want the one alert and no notice, got %d:\n%s", n, subjects(got))
+	}
+
+	b.put(t, "tokenfuse-openai", lineFrom("wardryx", "policy_deny", "high", "run-openai-forged"))
+	b.poll(later(1))
+	got = b.out(t)
+	if strings.Contains(got, "run-openai-forged") {
+		t.Fatalf("a line claiming wardryx inside tokenfuse-openai.ndjson was processed as wardryx:\n%s", subjects(got))
+	}
+	sub := subjects(got)
+	if !strings.Contains(sub, "tokenfuse-openai.ndjson") || !strings.Contains(sub, "wardryx") {
+		t.Fatalf("the refusal must name the file and the claimed source:\n%s", sub)
+	}
+}
+
 // A file whose stem nothing declares is not silently trusted: a line whose
 // source equals the stem is still read (a new plane must not go deaf the day
 // it is deployed), and the operator is told once that the box does not know

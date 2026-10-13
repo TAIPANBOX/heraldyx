@@ -10,7 +10,7 @@
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.4.0-success.svg)
 
-<img src="assets/diagram.svg" alt="heraldyx architecture: five planes append to one shared NDJSON event log which idryx and qryx also read, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
+<img src="assets/diagram.svg" alt="heraldyx architecture: seven of the twelve planes that append to one shared NDJSON event log are drawn, idryx and qryx also read it, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
 
 </div>
 
@@ -362,7 +362,7 @@ only a person with evidence closes it. `@decided 2026-10-12`: both events go on
 the bus so a person is told; `call_retained` (medium) asks a person to act soon,
 and `retained_closed` (high) is high because a closure lifts a money control.
 Severities are tokenfuse's own. agent-passport SPEC.md 6.2 registers both, and
-tokenfuse does not emit either yet.
+tokenfuse emits both from v1.10.0.
 
 `call_retained` puts the amount held in the subject ("... and $0.42 stays
 reserved until a person closes it"), names the reservation and the model, and
@@ -615,7 +615,7 @@ leaking.
 
 <div align="center">
 
-<img src="docs/assets/allowlist.svg" alt="An event's data passes two independent gates before any of it reaches a mailbox: the key must be one of eleven allowlisted names, and the value must be a number, a boolean, or a short single-line identifier-shaped string. A live secret is perfectly identifier-shaped, so only the key allowlist stops it" width="960">
+<img src="docs/assets/allowlist.svg" alt="An event's data passes two independent gates before any of it reaches a mailbox: the key must be one of 22 allowlisted names, and the value must be a number, a boolean, or a short single-line identifier-shaped string. A live secret is perfectly identifier-shaped, so only the key allowlist stops it" width="960">
 
 <sub>The <code>matched</code> row is the one that carries the design: a live secret passes the shape check comfortably, so the KEY list is what stops it.</sub>
 

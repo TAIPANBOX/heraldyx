@@ -121,11 +121,16 @@ an absent invariant.
    the set it was handed, and resolving that set comes back short for a moment
    now and then. Persisting a number nothing later honours is not state, it is
    a decoration on a file.
+   A position is also only worth keeping while it belongs to the same FILE,
+   so the state file keeps a digest of each file's first line beside its
+   offset, and a file is read from its start only when that line changed
+   (invariant 25), never because its size looked smaller.
    *(test: `TestDedupSurvivesARestart`, `TestARestartRemembersBothHalves`,
    `TestOneEventBecomesOneMessage`'s second pass,
-   `TestAPathOutOfSightForOnePollKeepsItsPlace`, and
+   `TestAPathOutOfSightForOnePollKeepsItsPlace`,
    `TestAReplacedFileIsStillReadFromTheStart` for the case that makes keeping
-   a position safe)*
+   a position safe, and `TestARestartRemembersWhichFileItWasReading` for the
+   first line surviving a restart)*
 6. **Every limit is a limit on MESSAGES, never on evidence.** Dedup, the
    ceiling and the digest decide what is said, and nothing else. heraldyx never
    suppresses, edits or delays an event in the log, because it cannot: it only
@@ -166,8 +171,10 @@ an absent invariant.
    `TestTheJournalIsAChainAndTheVerifierAgrees`)*
 10. **A partial line is never consumed.** The writer on the other side is
    appending, and half an event parsed now is an event lost forever. The read
-   offset only advances past a newline.
-   *(test: `TestAPartialLineIsNotConsumed`)*
+   offset only advances past a newline, and not past a line with a zero byte
+   in it until the hold window of invariant 25 has passed.
+   *(test: `TestAPartialLineIsNotConsumed`,
+   `TestALineWithAZeroByteIsHeldUntilItFillsIn`)*
 
 11. **What cannot name an agent does not arrive, and must not be made to.**
    The shared envelope requires an `agent_id` (agent-passport SPEC.md section
@@ -676,6 +683,81 @@ excluded from generic raw data rendering.
     `TestTheEvidenceRefIsNeverMailed` run red against the earlier version of
     this change that printed a sanitised reference; fifteen mutants each
     caught by a named test, recorded in the pull request)*
+
+25. **A read position is given up only when the file is shown to be a
+    different file, and a span a writer's bytes have not reached yet is
+    waited for, not parsed.** On Kubernetes the event log sits on a Longhorn
+    RWX volume, which is NFS, and on a GCP cluster on 2026-10-14 a reader saw
+    stale file sizes for about two minutes (stack-k8s GOTCHAS 24 and 70 are
+    the same property). Until this invariant, a size smaller than the read
+    position was taken as a truncation and the whole file was read again,
+    which mails every alert in it a second time (bounded only by the dedup
+    window and the hourly ceiling); a restart onto a node whose view is behind
+    is the ordinary way to get there. And a line of zero bytes, which is what
+    a reader sees where an earlier write has not reached the server while a
+    later one has, was counted malformed and its events were lost for good.
+    The shape below is `@claude 2026-10-14`, asked for by that run's findings.
+
+    Which file a position belongs to is a digest of the file's first line
+    (newline included, bounded at 4 KiB), kept in the state file beside the
+    offset (`Snapshot.Heads`) and learned again on the next read when absent.
+    Not the inode and device: the device number differs per mount, so a pod
+    that moves node would see every file as new, and an inode survives a
+    truncate-and-rewrite in place and is reused after a delete. The first
+    line is read through the data path, which on NFS is what the server holds,
+    and every event line carries its own timestamp and identifiers. A first
+    line that is incomplete or has a zero byte in it says nothing, and is
+    never taken as a change. A first line that changed is a different file,
+    read from its start at once, even when it is already longer than the old
+    position (`Truncations`). A size smaller than the position is checked
+    against the data: if the byte just before the position is there, the size
+    was old and reading goes on from the position; if not, the position is
+    held (`Shorter`, once per stretch) until the file reaches it again. A
+    stretch that lasts `watch.HoldWindow` (five minutes) is given up on and
+    the file read again from its start (`ShorterExpired`): its writer may have
+    lost the tail this process read and carried on below it, and waiting
+    longer would stop reading that file in silence.
+
+    A line with a zero byte in it (no event can hold one raw) is never parsed:
+    reading stops before it, keeping the events before it, and looks again
+    each poll (`ZeroHeld`, once per line held), including inside a line longer
+    than the per-poll cap. A line still zero after `HoldWindow`, counted from
+    when that line was first held, is skipped and counted (`ZeroSkipped`).
+    `cmd/heraldyx` prints the growth of all five counters once per poll
+    (`sayHolds`), so a hold reads as a hold and not as a plane gone quiet.
+
+    **What it does not cover.** The window is measured in memory, so a
+    process restarted during a hold starts it again (no launcher runs this
+    with `--once`). A file cut back to a length that keeps its first line is
+    indistinguishable from a lagging one until the window ends. A co-tenant of
+    the bus that can append to a stream can delay that stream by up to the
+    window per zero byte line it writes; it could already destroy events by
+    interleaving partial lines, and invariant 22 records why each writer
+    should own its file. A skipped zero line is said in the log, not mailed.
+    Nothing here was run against a real NFS volume: the stale size and the
+    zero span are reproduced with a stat seam, truncation and zero bytes on a
+    local file system.
+    *(test: `TestAFileThatLooksShorterButIsTheSameFileIsNotReadAgain`,
+    `TestReadingResumesWhereItStoppedWhenTheFileCatchesUp`,
+    `TestAStaleSizeWithTheDataThereIsReadThroughAtOnce`,
+    `TestAQuietFileWithAStaleSizeIsNeverReadAgain`,
+    `TestAFileReplacedByADifferentOneIsReadFromItsStart`,
+    `TestAFileThatStaysShorterPastTheWindowIsReadAgainFromTheStart`,
+    `TestEachStretchOfLookingShorterGetsItsOwnWindow`,
+    `TestAWatcherRestoredWithItsHeadsTellsAReplacedFileAtOnce`,
+    `TestSkipToEndRemembersEachFilesFirstLine`,
+    `TestAZeroSpanOverTheFirstLineIsNotADifferentFile`,
+    `TestALineWithAZeroByteIsHeldUntilItFillsIn`,
+    `TestAZeroLineStillThereAfterTheWindowIsSkippedAndCounted`,
+    `TestEachHeldLineGetsItsOwnWindow`,
+    `TestAZeroSpanInALineLongerThanTheCapIsHeldNotSkipped`, all in
+    `internal/watch`; `TestARestartOnALaggingVolumeDoesNotMailOldAlertsAgain`,
+    `TestARestartRemembersWhichFileItWasReading`,
+    `TestHoldsAndSkipsAreSaidOncePerGrowth` in `cmd/heraldyx`; scenarios:
+    `features/a-lagging-volume.feature`, 12 scenarios, each bound to a named
+    test both ways, held by `scripts/features-are-bound.sh`; every test but
+    the guards run red against the unfixed code first, and each mutant that
+    puts a defect back caught by a named test, recorded in the pull request)*
 
 ## Decisions that have no gate yet
 

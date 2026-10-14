@@ -462,15 +462,29 @@ func TestPendingNoticesAreBounded(t *testing.T) {
 
 // Hostile bytes are Malformed exactly as before and never reach the source
 // check: the rule adds a count beside theirs and removes none.
+//
+// A line with a zero byte in it is the exception, and only in how long it is
+// looked at: it is held for the hold window as a span the volume may not have
+// filled in yet (invariant 25), then skipped and counted as ZeroSkipped. It
+// still never reaches the source check, and it is never counted twice.
 func TestHostileLinesStillCountAsMalformedNotForeign(t *testing.T) {
+	clk := newClock()
 	p := filepath.Join(t.TempDir(), "tokenfuse.ndjson")
 	write(t, p, "not json\n{\"source\":\"wardryx\"}\n\x00\x01\x02\n"+line("ok"))
 	w := New([]string{p}, nil)
+	w.now = clk.Now
+	if got := w.Poll(); len(got) != 0 {
+		t.Fatalf("nothing after the zero byte line is read before the window ends: %+v", got)
+	}
+	if w.Malformed != 2 || w.ForeignSource != 0 || w.ZeroHeld != 1 {
+		t.Fatalf("Malformed = %d, ForeignSource = %d, ZeroHeld = %d, want 2, 0 and 1", w.Malformed, w.ForeignSource, w.ZeroHeld)
+	}
+	clk.advance(HoldWindow)
 	got := w.Poll()
 	if len(got) != 1 || got[0].RunID != "ok" {
 		t.Fatalf("got %+v", got)
 	}
-	if w.Malformed != 3 || w.ForeignSource != 0 {
-		t.Fatalf("Malformed = %d, ForeignSource = %d, want 3 and 0", w.Malformed, w.ForeignSource)
+	if w.Malformed != 2 || w.ForeignSource != 0 || w.ZeroSkipped != 1 {
+		t.Fatalf("Malformed = %d, ForeignSource = %d, ZeroSkipped = %d, want 2, 0 and 1", w.Malformed, w.ForeignSource, w.ZeroSkipped)
 	}
 }

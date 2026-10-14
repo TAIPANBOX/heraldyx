@@ -30,6 +30,14 @@ type Snapshot struct {
 	// would mail the same pair on every rollout. Bounded by maxRaised, oldest
 	// first out. Absent in a state file written before it existed.
 	Raised map[string]int64 `json:"raised,omitempty"`
+	// Heads is path -> a digest of the first line of the file each read
+	// position belongs to (watch.Heads). An offset says how far into a file
+	// this process had read; this says WHICH file, so a restart onto a
+	// shared volume whose view is behind can tell a file that looks shorter
+	// from one that was replaced. A digest only, never the line itself.
+	// Absent in a state file written before it existed, and then each file's
+	// is learned on the next read.
+	Heads map[string]string `json:"heads,omitempty"`
 }
 
 // maxRaised bounds [Snapshot.Raised]. A producer inventing a source per line
@@ -95,6 +103,10 @@ func Load(path string) (*Snapshot, error) {
 	return &s, nil
 }
 
+// createTemp is os.CreateTemp, a variable so a test can hand Save a file that
+// fails at each step and check the previous state survives every one of them.
+var createTemp = os.CreateTemp
+
 // Save writes the snapshot atomically: a temporary file in the same directory,
 // then a rename. A crash during a write leaves the previous state intact
 // rather than half of the new one.
@@ -106,7 +118,7 @@ func Save(path string, s *Snapshot) error {
 	if err != nil {
 		return fmt.Errorf("state: marshal: %w", err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".heraldyx-state-*")
+	tmp, err := createTemp(filepath.Dir(path), ".heraldyx-state-*")
 	if err != nil {
 		return fmt.Errorf("state: temp file: %w", err)
 	}

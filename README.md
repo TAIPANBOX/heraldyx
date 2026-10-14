@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-263-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-297-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.5.0-success.svg)
 
@@ -481,7 +481,7 @@ other.
 | `HERALDYX_MIN_SEVERITY` | `high` | `info` \| `low` \| `medium` \| `high` \| `critical` |
 | `HERALDYX_BOX` | `agent stack` | the name in the subject line |
 | `HERALDYX_CONSOLE_URL` | (empty) | base URL of your console, for the one link |
-| `HERALDYX_STATE` | `/var/lib/stack/heraldyx/state.json` | offsets and dedup counters |
+| `HERALDYX_STATE` | `/var/lib/stack/heraldyx/state.json` | offsets, a digest of each log's first line, and dedup counters |
 | `HERALDYX_MAIL_FILE` | (empty) | write messages here instead of sending them |
 | `HERALDYX_SMTP_HOST` | (empty) | `host:port` of your mail server |
 | `HERALDYX_SMTP_FROM` | (empty) | envelope sender |

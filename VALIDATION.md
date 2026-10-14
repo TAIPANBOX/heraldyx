@@ -1339,6 +1339,54 @@ bypasses `rule.DecideKey` (1).
 about the launchers' file ownership, which is a different layer. A real bus
 with a hostile co-tenant, as opposed to a directory written by hand.
 
+## 2026-10-14, a lagging shared volume re-mailed old alerts and lost a zero-filled line
+
+`@claude` 2026-10-14, from the findings of that day's infra run: on a GCP
+cluster a reader of the Longhorn RWX event volume saw stale file sizes for
+about two minutes. CLAUDE.md invariant 25.
+
+**The defect and the fix, the same script against both binaries** (built from
+origin/main at `86e7e27` and from this change, `--once --from-now=false`,
+`HERALDYX_DEDUP_SECONDS=0` so a second read shows as a second message, mail to
+a file). Two critical events; a restart with the file cut back to its first
+line (the same first line); the file restored with one new event; the file
+replaced by a different, shorter one; then a file whose second line holds 40
+zero bytes, and then that span filled in.
+
+| step | origin/main, messages in all | fixed, messages in all |
+|---|---|---|
+| two events | 2 | 2 |
+| restart onto a view cut back to the first line | 3 (run-1 again) | 2 |
+| the view catches up, one new event | 5 (run-2 again, run-3) | 3 (run-3) |
+| replaced by a different, shorter file | 6 | 4 |
+| a zero span inside the next line | 7 (run-11; run-10 lost for good) | 4 (held) |
+| the span fills in | 7 | 6 (run-10 and run-11) |
+
+The fixed binary's log carries one `watch:` line each for the file that looked
+shorter, the different file, and the held line; its state file holds
+`heads` with a length and SHA-256 per file.
+
+**Tests, red first.** Against the unfixed logic with only the seams added
+(the `stat` and `now` fields, the new counters, and `Heads`/`SetHeads` that
+store nothing anyone reads), every new behavioural test failed on behaviour,
+for example `poll 0 while the file looks shorter: got runs [r1], want []`,
+`before the span fills in: got runs [r1 r3], want [r1]`, and `a restart onto a
+lagging view mailed 1 message(s) again`. The guards that passed there by
+nature are named in the pull request.
+
+**Twenty mutants on the fixed code, all caught**, each by a named test: among
+them a reset on any smaller size (ten tests), parsing past a zero byte (four),
+ignoring a changed first line (six), holding one byte past the zero line's
+start (four), probing the byte at the position rather than before it (one,
+`TestAQuietFileWithAStaleSizeIsNeverReadAgain`), one hold clock per file
+rather than per line (one), and each window made inclusive (one and four).
+
+**Not verified.** Nothing here ran on an NFS volume: the stale size is a stat
+seam and a truncation, the unflushed span is zero bytes written into a local
+file. Whether Linux's NFS client answers a read past a stale cached size from
+the server or from its cache decides only how soon a held file resumes, not
+whether anything is read twice.
+
 ## What has NOT been verified
 
 - **Deliverability at volume, and what a filter does with these.** A handful of

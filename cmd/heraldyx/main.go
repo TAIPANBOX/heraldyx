@@ -122,6 +122,7 @@ func run(args []string) error {
 	picture := fleet.New()
 
 	w := watch.New(cfg.ResolveEventFiles(), snap.Offsets)
+	w.SetHeads(snap.Heads)
 	w.SetPolicy(cfg.StreamPolicy())
 	if *fromNow && len(snap.Offsets) == 0 {
 		if err := w.SkipToEnd(); err != nil {
@@ -170,6 +171,7 @@ func run(args []string) error {
 	saidVolume := 0
 	saidForeign := 0
 	saidUnknown := 0
+	saidHolds := watch.Holds{}
 
 	for {
 		cycle(cfg, rcfg, rendercfg, w, snap, sender, journal, passports, picture, time.Now())
@@ -177,7 +179,9 @@ func run(args []string) error {
 		saidVolume = sayVolume(w.Capped, w.Oversized, saidVolume)
 		saidForeign = sayForeign(w.ForeignSource, saidForeign)
 		saidUnknown = sayUnknown(w.UnknownStream, saidUnknown)
+		saidHolds = sayHolds(w.Holds(), saidHolds)
 		snap.Offsets = w.Offsets()
+		snap.Heads = w.Heads()
 		if err := state.Save(cfg.StatePath, snap); err != nil {
 			log.Printf("state: %v", err)
 		}
@@ -256,6 +260,39 @@ func sayVolume(capped, oversized, said int) int {
 	}
 	log.Printf("watch: a plane is producing more than one poll reads: %d capped poll(s) and %d oversized line(s) since this process started (%d new). A capped poll is read on the next one; an oversized line is skipped and counted, never delivered.",
 		capped, oversized, now-said)
+	return now
+}
+
+// sayHolds reports reads held, given up on, or started again, and returns
+// what has now been said.
+//
+// Each counter is a different fact and gets its own line, once per growth,
+// for the reason sayVolume gives. Two of them are said because they cost the
+// operator something: a file read again from its start may mail alerts a
+// second time, and a skipped line with a zero byte in it may hold events this
+// process will never see. The other two are said because a hold nobody can
+// see reads, from outside, exactly like a plane that went quiet.
+func sayHolds(now, said watch.Holds) watch.Holds {
+	if n := now.Shorter - said.Shorter; n > 0 {
+		log.Printf("watch: %d file(s) looked shorter than what had already been read (%d since this process started), and nothing shows a different file, so the read position is kept and nothing is read twice. A shared volume can report an old size, and a writer's node can hold bytes the volume has not had yet; reading resumes when the file reaches the position again.",
+			n, now.Shorter)
+	}
+	if n := now.ShorterExpired - said.ShorterExpired; n > 0 {
+		log.Printf("watch: %d file(s) stayed shorter than what had been read for %s and are read again from the start (%d since this process started). Alerts already mailed from them may be mailed again, within the dedup window and the hourly ceiling.",
+			n, watch.HoldWindow, now.ShorterExpired)
+	}
+	if n := now.Truncations - said.Truncations; n > 0 {
+		log.Printf("watch: %d file(s) are a different file from the one being read (its first line changed) and are read from the start (%d since this process started).",
+			n, now.Truncations)
+	}
+	if n := now.ZeroHeld - said.ZeroHeld; n > 0 {
+		log.Printf("watch: %d line(s) with a zero byte in them were met (%d since this process started): a span the volume has not filled in yet. Reading that file stops before it and looks again each poll, for up to %s.",
+			n, now.ZeroHeld, watch.HoldWindow)
+	}
+	if n := now.ZeroSkipped - said.ZeroSkipped; n > 0 {
+		log.Printf("watch: %d line(s) with a zero byte in them were still there after %s and were skipped (%d since this process started). Any event in that span is lost to this process: a defect of the volume or of a writer, and the file itself is not changed.",
+			n, watch.HoldWindow, now.ZeroSkipped)
+	}
 	return now
 }
 

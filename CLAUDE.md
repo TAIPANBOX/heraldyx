@@ -590,14 +590,25 @@ excluded from generic raw data rendering.
     closure's evidence reference never reaches a mail, in any form.** tokenfuse retains a call it handed to the provider
     when the call ended before any answer came back: the money stays reserved,
     neither settled nor released, until a person closes it with evidence
-    (tokenfuse invariants 50, 88 and 89; agent-passport SPEC.md 6.2 as
+    (tokenfuse invariants 50, 88, 89 and 90; agent-passport SPEC.md 6.2 as
     agent-passport#74 registers the two types). `@decided 2026-10-12`: both
     events go on the bus so a person is told; `call_retained` (medium) asks a
     person to act soon, `retained_closed` (high) is high because it lifts a
     money control. Severities are tokenfuse's own and this file does not choose
     them. The wording is `@claude 2026-10-12`, read against those three
-    invariants and `crates/gateway/src/closure.rs` at tokenfuse `cb15dc9`;
-    tokenfuse emits neither type yet.
+    invariants and `crates/gateway/src/closure.rs` at tokenfuse `cb15dc9`.
+
+    tokenfuse emits both types from v1.10.0 (commit `46cf8a5`, tokenfuse
+    invariant 90, its D10). `@claude 2026-10-14`, read at tokenfuse origin/main
+    `dc45172` with `git grep -n 'RetainedClosed\|CallRetained' -- crates/gateway/src`:
+    `call_retained` is written by `report_retained` in
+    `crates/gateway/src/settle.rs`, once per reservation the guard retains, and
+    `retained_closed` by `closure::apply` in `crates/gateway/src/closure.rs`,
+    once per closure applied, a replay excluded. Both go through `events.emit`
+    with source `tokenfuse` (`crates/core/src/agent_event.rs:42`). On this side
+    the two types are accepted from any stream file that may carry `tokenfuse`
+    (`internal/stream`) and have catalog entries (`internal/render/render.go`,
+    `call_retained` and `retained_closed`).
 
     `call_retained` puts the amount held into the subject (`usdAmount`: an
     amount above zero and under a cent is written to the micro-dollar, never

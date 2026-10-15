@@ -1317,6 +1317,12 @@ func TestEndingAMaintenanceWindowClosesItAndSaysSo(t *testing.T) {
 	if got := read(t, b.mail); !strings.Contains(got, "maintenance window closed: 0 alert(s) held") {
 		t.Fatalf("ending the window early did not send its close:\n%s", subjects(got))
 	}
+	// And nothing is still holding: an alert after the end is mailed as usual.
+	write(t, b.events, ndjson("policy_deny", "high", "run-1", ""))
+	b.poll(t0.Add(3 * time.Minute))
+	if got := subjects(read(t, b.mail)); !strings.Contains(got, "] run-1 ") {
+		t.Fatalf("an alert after the window was ended was held:\n%s", got)
+	}
 }
 
 func TestEndingWhenNoWindowIsOpenIsRefused(t *testing.T) {

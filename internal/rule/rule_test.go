@@ -445,3 +445,13 @@ func TestPulseCountersSurviveARestart(t *testing.T) {
 		t.Fatalf("pulse counters lost across a restart: %s", raw)
 	}
 }
+
+// A window no poll opened still reports from the moment it was taken.
+func TestTakingAPulseBeforeAnyPollStillDatesTheWindow(t *testing.T) {
+	st := NewState()
+	t0 := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	p := st.TakePulse(t0)
+	if !p.Since.Equal(t0) || p.Read != 0 || !p.LastEventAt.IsZero() {
+		t.Fatalf("a window no poll opened: %+v", p)
+	}
+}

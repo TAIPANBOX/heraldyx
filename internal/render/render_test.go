@@ -794,3 +794,16 @@ func TestAPulseWithNoEventSaysNoneWasRead(t *testing.T) {
 		t.Fatalf("a window with no event did not say so:\n%s", got)
 	}
 }
+
+// The pulse's one link goes to the console's own address and nowhere else
+// (invariant 2): a view, with no query string.
+func TestThePulseLinksOnlyToTheConsoleView(t *testing.T) {
+	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	m := Pulse(Config{Box: "prod-box", ConsoleURL: "https://box.example.com/"}, rule.Pulse{Since: since}, 1, 24*time.Hour, since)
+	if !strings.HasSuffix(strings.TrimSpace(m.Body), "https://box.example.com") {
+		t.Fatalf("the pulse does not end with the console link:\n%s", m.Body)
+	}
+	if strings.Contains(m.Body, "?") {
+		t.Fatalf("the pulse link carries a query string:\n%s", m.Body)
+	}
+}

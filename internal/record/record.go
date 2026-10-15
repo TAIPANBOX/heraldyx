@@ -104,6 +104,10 @@ const (
 	// in the trail (see [Journal.Sent]) and the mail is unaffected.
 	KindForeignSource Kind = "foreign_source"
 	KindUnknownStream Kind = "unknown_stream"
+	// KindAckRelease is the report of alerts an acknowledgement held, sent
+	// when it ended. About a key, not an agent: filed under no agent id, so it
+	// is counted as a gap in the trail like the other notices here.
+	KindAckRelease Kind = "ack_release"
 )
 
 // maxErrorChars bounds what a delivery failure contributes. An SMTP server's

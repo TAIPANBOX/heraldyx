@@ -772,7 +772,7 @@ func TestACadenceReadsAsASentence(t *testing.T) {
 func TestThePulseSaysAliveInNumbersOnly(t *testing.T) {
 	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
 	p := rule.Pulse{Since: since, Read: 42, Sent: 3, Held: 1, LastEventAt: since.Add(5 * time.Hour)}
-	m := Pulse(Config{Box: "prod-box"}, p, 2, 24*time.Hour, since.Add(24*time.Hour))
+	m := Pulse(Config{Box: "prod-box"}, p, 2, 24*time.Hour, since.Add(24*time.Hour), nil)
 	if !strings.Contains(m.Subject, "[prod-box] daily pulse: notifier alive, 42 events read, 3 alerts") {
 		t.Fatalf("subject: %q", m.Subject)
 	}
@@ -789,7 +789,7 @@ func TestThePulseSaysAliveInNumbersOnly(t *testing.T) {
 // A window with no event says so, rather than printing a zero time.
 func TestAPulseWithNoEventSaysNoneWasRead(t *testing.T) {
 	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
-	got := PulseLines(rule.Pulse{Since: since}, 1, 24*time.Hour)
+	got := PulseLines(rule.Pulse{Since: since}, 1, 24*time.Hour, nil)
 	if !strings.Contains(got, "No event was read in this period") {
 		t.Fatalf("a window with no event did not say so:\n%s", got)
 	}
@@ -799,7 +799,7 @@ func TestAPulseWithNoEventSaysNoneWasRead(t *testing.T) {
 // (invariant 2): a view, with no query string.
 func TestThePulseLinksOnlyToTheConsoleView(t *testing.T) {
 	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
-	m := Pulse(Config{Box: "prod-box", ConsoleURL: "https://box.example.com/"}, rule.Pulse{Since: since}, 1, 24*time.Hour, since)
+	m := Pulse(Config{Box: "prod-box", ConsoleURL: "https://box.example.com/"}, rule.Pulse{Since: since}, 1, 24*time.Hour, since, nil)
 	if !strings.HasSuffix(strings.TrimSpace(m.Body), "https://box.example.com") {
 		t.Fatalf("the pulse does not end with the console link:\n%s", m.Body)
 	}
@@ -822,5 +822,43 @@ func TestAPulsePeriodReadsAsHours(t *testing.T) {
 		if got := pulseEvery(c.d); got != c.want {
 			t.Errorf("pulseEvery(%s) = %q, want %q", c.d, got, c.want)
 		}
+	}
+}
+
+// An acknowledged operator can copy the key from the mail rather than work it
+// out from the subject line, so the key is on a line of its own.
+func TestTheMailNamesItsKey(t *testing.T) {
+	e := ev("policy_deny", map[string]any{})
+	e.RunID = "run-1"
+	m := Event(cfg(), e, now, "", nil)
+	if !strings.Contains(m.Body, "\nKey: policy_deny:run-1\n") {
+		t.Fatalf("the mail does not name the key it is acknowledged by:\n%s", m.Body)
+	}
+}
+
+// The end of an acknowledgement says what it held, and says the next alert
+// about the same key is mailed as usual.
+func TestTheEndOfAnAckSaysWhatItHeld(t *testing.T) {
+	rel := rule.AckRelease{Key: "policy_deny:run-1", HeldCount: rule.HeldCount{Count: 2, Worst: "high", First: time.Date(2026, 10, 16, 9, 1, 0, 0, time.UTC).UnixMilli()}}
+	m := AckReleased(Config{Box: "prod-box"}, rel, time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC))
+	if !strings.Contains(m.Subject, "[prod-box] acknowledgement ended: 2 alert(s) held about") {
+		t.Fatalf("subject: %q", m.Subject)
+	}
+	if !strings.Contains(m.Body, "the worst high") {
+		t.Fatalf("body lacks the worst severity:\n%s", m.Body)
+	}
+}
+
+func TestAnAcknowledgedCriticalSaysWhyItIsStillSent(t *testing.T) {
+	got := AckedCritical(rule.Ack{Key: "budget_exhausted:run-9", By: "ops", Until: time.Date(2026, 10, 16, 13, 0, 0, 0, time.UTC).UnixMilli()})
+	if !strings.Contains(got, "acknowledged by ops") || !strings.Contains(got, "still sent because it is critical") {
+		t.Fatalf("line: %q", got)
+	}
+}
+
+func TestAnUnsafeAckerNameIsNotRendered(t *testing.T) {
+	got := AckedCritical(rule.Ack{Key: "budget_exhausted:run-9", By: "ops<script>", Until: 1})
+	if strings.Contains(got, "<script>") {
+		t.Fatalf("operator text reached the mail unchecked: %q", got)
 	}
 }

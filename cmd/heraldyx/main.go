@@ -465,7 +465,7 @@ func cycle(
 		if cfg.PulsePeriod > 0 {
 			// The digest is itself a mail that proves the path works, so it
 			// carries the pulse and resets its window: one mail, never two.
-			m.Body += "\n" + render.PulseLines(snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod)
+			m.Body += "\n" + render.PulseLines(snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, nil)
 		}
 		deliver_(cfg, sender, journal, m, record.Dispatch{
 			Kind:    record.KindDigest,
@@ -477,7 +477,7 @@ func cycle(
 		// No digest carried the pulse in a whole period. Filed like the
 		// digest: under the last agent that caused a message this cycle, or
 		// counted as a gap when none did (invariants 11 and 13).
-		deliver_(cfg, sender, journal, render.Pulse(rendercfg, snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, now), record.Dispatch{
+		deliver_(cfg, sender, journal, render.Pulse(rendercfg, snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, now, nil), record.Dispatch{
 			Kind:    record.KindPulse,
 			AgentID: lastAgent,
 			RunID:   lastRun,
@@ -644,6 +644,8 @@ const envHelp = `  HERALDYX_EVENTS         files and/or directories of NDJSON ag
   HERALDYX_BOX            name of this deployment, used in the subject line
   HERALDYX_CONSOLE_URL    base URL of the operator's console, for deep links
   HERALDYX_STATE          state file (default /var/lib/stack/heraldyx/state.json)
+  HERALDYX_CONTROL        acknowledgements file, written by --ack (default:
+                          control.json beside HERALDYX_STATE)
   HERALDYX_MAIL_FILE      write messages to this file instead of sending them
   HERALDYX_SMTP_HOST      host:port of the mail server, e.g. smtp.example.com:587
   HERALDYX_SMTP_FROM      envelope sender address

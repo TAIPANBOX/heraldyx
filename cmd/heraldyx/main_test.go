@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/TAIPANBOX/heraldyx/internal/config"
+	"github.com/TAIPANBOX/heraldyx/internal/control"
 	"github.com/TAIPANBOX/heraldyx/internal/deliver"
 	"github.com/TAIPANBOX/heraldyx/internal/fleet"
 	"github.com/TAIPANBOX/heraldyx/internal/passport"
@@ -642,6 +643,7 @@ func env(t *testing.T, kv map[string]string) {
 		"HERALDYX_SMTP_HOST", "HERALDYX_SMTP_FROM", "HERALDYX_SMTP_USER", "HERALDYX_SMTP_PASS",
 		"HERALDYX_DEDUP_SECONDS", "HERALDYX_MAX_PER_HOUR", "HERALDYX_DIGEST_HOURS", "HERALDYX_POLL_MS",
 		"HERALDYX_SENT", "HERALDYX_STREAMS", "HERALDYX_PULSE_HOURS", "HERALDYX_CONTROL",
+		"HERALDYX_QUIET", "HERALDYX_TZ",
 	} {
 		t.Setenv(k, kv[k])
 	}
@@ -1102,6 +1104,17 @@ func TestTheLoopNeverWritesTheControlFile(t *testing.T) {
 	if err := run([]string{"--ack", "policy_deny:run-1", "--for", "1m"}); err != nil {
 		t.Fatal(err)
 	}
+	// A maintenance window that has also ended: the loop must not prune it either.
+	f, err := control.Load(b.control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SetMaintenance(rule.Maintenance{At: t0.Add(-2 * time.Hour).UnixMilli(), Until: t0.Add(-time.Hour).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := control.Save(b.control, f); err != nil {
+		t.Fatal(err)
+	}
 	before := read(t, b.control)
 	b.poll(t0.Add(2 * time.Hour)) // the ack has ended; the loop must not prune it
 	if after := read(t, b.control); after != before {
@@ -1209,5 +1222,81 @@ func TestAMalformedControlFileHoldsNothingAndSaysSo(t *testing.T) {
 	}
 	if n := strings.Count(out.String(), "no acknowledgement is honoured"); n != 1 {
 		t.Fatalf("the malformed file was said %d times, want once:\n%s", n, out.String())
+	}
+}
+
+// A maintenance window says when it opens, holds what is below critical, and
+// says when it closes, with what it held.
+func TestAMaintenanceWindowSaysWhenItOpensAndWhenItCloses(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Now().UTC()
+	if err := run([]string{"--maintenance", "30m", "--note", "upgrade", "--by", "ops"}); err != nil {
+		t.Fatal(err)
+	}
+	b.poll(t0.Add(time.Minute))
+	if got := mailOrEmpty(t, b.mail); !strings.Contains(got, "maintenance window open") {
+		t.Fatalf("no mail when the window opened:\n%s", subjects(got))
+	}
+	write(t, b.events, ndjson("policy_deny", "high", "run-1", ""))
+	b.poll(t0.Add(2 * time.Minute))
+	if got := subjects(read(t, b.mail)); strings.Contains(got, "] run-1 ") {
+		t.Fatalf("an alert inside the window was mailed:\n%s", got)
+	}
+	b.poll(t0.Add(31 * time.Minute))
+	if got := read(t, b.mail); !strings.Contains(got, "maintenance window closed: 1 alert(s) held") {
+		t.Fatalf("the close did not report what it held:\n%s", subjects(got))
+	}
+}
+
+func TestAMaintenanceWithNothingHeldStillSaysItClosed(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Now().UTC()
+	_ = run([]string{"--maintenance", "10m"})
+	b.poll(t0.Add(time.Minute))
+	b.poll(t0.Add(11 * time.Minute))
+	if got := mailOrEmpty(t, b.mail); !strings.Contains(got, "maintenance window closed: 0 alert(s) held") {
+		t.Fatalf("a window that held nothing closed silently:\n%s", subjects(got))
+	}
+}
+
+func TestACriticalIsSentDuringMaintenance(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Now().UTC()
+	_ = run([]string{"--maintenance", "30m", "--note", "upgrade"})
+	write(t, b.events, ndjson("budget_exhausted", "critical", "run-9", ""))
+	b.poll(t0.Add(time.Minute))
+	got := mailOrEmpty(t, b.mail)
+	if !strings.Contains(subjects(got), "] run-9 ") || !strings.Contains(got, "a critical is never held") {
+		t.Fatalf("a critical in a maintenance window was held or unmarked:\n%s", got)
+	}
+}
+
+func TestQuietHoursHoldAndReportWhenTheyEnd(t *testing.T) {
+	b := newBenchWith(t, "high", map[string]string{"HERALDYX_QUIET": "22:00-07:00", "HERALDYX_TZ": "Europe/London"})
+	night := time.Date(2026, 10, 16, 22, 0, 0, 0, time.UTC)  // 23:00 BST
+	morning := time.Date(2026, 10, 17, 6, 0, 0, 0, time.UTC) // 07:00 BST
+	write(t, b.events, ndjson("policy_deny", "high", "run-1", ""))
+	b.poll(night)
+	if got := subjects(mailOrEmpty(t, b.mail)); strings.Contains(got, "] run-1 ") {
+		t.Fatalf("an alert in quiet hours was mailed:\n%s", got)
+	}
+	write(t, b.events, ndjson("budget_exhausted", "critical", "run-9", ""))
+	b.poll(night.Add(time.Hour))
+	if got := mailOrEmpty(t, b.mail); !strings.Contains(subjects(got), "] run-9 ") {
+		t.Fatalf("a critical in quiet hours was held:\n%s", subjects(got))
+	}
+	b.poll(morning)
+	if got := read(t, b.mail); !strings.Contains(got, "quiet hours over: 1 alert(s) held") {
+		t.Fatalf("the end of quiet hours did not report what they held:\n%s", subjects(got))
+	}
+}
+
+func TestAMaintenanceLongerThanADayIsRefused(t *testing.T) {
+	b := newBench(t, "high")
+	if err := run([]string{"--maintenance", "25h"}); err == nil {
+		t.Fatal("a 25 hour window was accepted")
+	}
+	if _, err := os.Stat(b.control); err == nil {
+		t.Fatal("a refused window wrote the control file")
 	}
 }

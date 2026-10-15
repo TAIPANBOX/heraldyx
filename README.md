@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-347-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-380-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.6.0-success.svg)
 
@@ -501,6 +501,8 @@ other.
 | `HERALDYX_MAX_PER_HOUR` | `20` | ceiling on immediate messages, `0` for none; a `critical` is sent regardless, and what is held is summarised every ten minutes |
 | `HERALDYX_DIGEST_HOURS` | `24` | how often the below-the-floor summary goes out, `0` for never |
 | `HERALDYX_PULSE_HOURS` | `24` | how often a box says the notifier is alive, unless the daily summary carried it in that period, `0` for never; see "A quiet day" above |
+| `HERALDYX_QUIET` | (empty, off) | daily quiet hours as `HH:MM-HH:MM`, for example `22:00-07:00`; alerts below critical are held and reported when the hours end; see "Quiet hours and maintenance windows" |
+| `HERALDYX_TZ` | (empty, the process's own zone) | the IANA zone `HERALDYX_QUIET` is read in, for example `Europe/London` |
 | `HERALDYX_POLL_MS` | `2000` | how often to read the log |
 | `HERALDYX_SENT` | beside the state file | the dispatch journal; empty disables recording |
 | `HERALDYX_PASSPORTS` | (empty) | a directory of agent-passport JSON, read to name who is answerable; empty means alerts carry no owner |
@@ -654,6 +656,60 @@ and not an agent, so the dispatch journal counts it as a gap rather than
 writing a record under an invented agent. The acknowledgement itself is not
 written to the journal in this version.
 
+## Quiet hours and maintenance windows
+
+Two kinds of window hold alerts below critical. Neither one holds a `critical`.
+
+**Quiet hours** repeat every day on your own clock:
+
+```
+HERALDYX_QUIET=22:00-07:00
+HERALDYX_TZ=Europe/London
+```
+
+`HERALDYX_TZ` is an IANA zone name, and the hours follow the clocks, so they
+stay on your wall time across a change to summer time. Without it the hours run
+in the process's own zone, and the start-up log says so. A value that cannot be
+read turns quiet hours off, the log says why, and the notifier still starts. The
+zone database is compiled into the binary, so the image needs no tzdata.
+
+**A maintenance window** is opened by hand, for work you are doing on the stack:
+
+```bash
+docker compose exec heraldyx /usr/local/bin/service --maintenance 30m --note "upgrading tokenfuse" --by ops
+```
+
+On Kubernetes, the same command runs in the notifier's container:
+
+```bash
+kubectl -n agent-stack exec deploy/heraldyx -c heraldyx -- /usr/local/bin/service --maintenance 30m --note "upgrading tokenfuse" --by ops
+```
+
+- `--scope <source>` holds only the alerts of one source, for example
+  `--scope tokenfuse` while only that plane is being upgraded.
+- `--maintenance-end` closes the window now.
+- A window runs at most 24 hours. `--maintenance 25h` is refused. Opening a new
+  window replaces the one in force.
+
+What you will see:
+
+- When a window opens, one mail says what it holds and until when, and that a
+  critical is still sent at once.
+- While a window is open, alerts below critical are counted instead of mailed.
+  Every event stays in the log and the console.
+- When a window or quiet hours end, one mail says how many alerts were held, the
+  worst severity among them and when the first arrived. A maintenance window
+  always sends its closing mail, even when nothing was held: that mail is how
+  you know alerting is back.
+- A critical sent during a window says so in its body, so it reads as a
+  deliberate send and not as a hold that failed.
+
+Held alerts do not count toward the hourly ceiling, because nothing was sent.
+Like `--by` and `--note` for an acknowledgement, the window's text is reported
+as you entered it, not verified. The window itself is not written to the
+dispatch journal in this version, so its opening and closing count as gaps in
+the trail, the same as the daily summary.
+
 ## What is in the mail, and what is not
 
 Four short paragraphs: what happened with its numbers, what the box already did
@@ -758,8 +814,9 @@ log is mounted read-only here on purpose, and it stays that way.
   into the dispatch journal as a refusal, and dropped. A retry queue inside the
   one process with a way out is the opposite of the design, and the event itself
   is still in the log, which outlives this process.
-- **It does not know your working hours.** Quiet hours are designed and not
-  built; the ceiling and the digest are the only volume controls.
+- **It knows one daily quiet period, not your calendar.** `HERALDYX_QUIET` holds
+  alerts below critical at the same hours every day, and a maintenance window is
+  opened by hand. The ceiling and the digest are the other volume controls.
 - **It does not go quiet at the ceiling.** While the ceiling holds alerts
   back, a summary goes out every ten minutes naming how many, since when and
   the worst severity among them (sooner for a burst of fifty, never inside a

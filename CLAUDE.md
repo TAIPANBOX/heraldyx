@@ -788,8 +788,10 @@ excluded from generic raw data rendering.
     it was acknowledged. When the acknowledgement ends, or is removed, one mail
     says how many were held, the worst severity and when the first was held.
     The hold is a limit on messages, not on evidence (invariant 6): every event
-    stays in the log. The hold does not count toward the hourly ceiling. The
-    wording is `@claude 2026-10-15`.
+    stays in the log. The hold does not count toward the hourly ceiling. Quiet
+    hours and maintenance windows hold by the same rule, below critical only and
+    reported when they end; invariant 29 covers a window's close. The wording is
+    `@claude 2026-10-15`.
     *(test: `TestAnAckHoldsItsAlertsAndTheirCountIsMailedWhenItEnds`,
     `TestACriticalIsSentWhileItsKeyIsAcknowledged`,
     `TestAnAckNeverHoldsACritical`, `TestAnExpiredAckHoldsNothing`,
@@ -800,8 +802,16 @@ excluded from generic raw data rendering.
     zero, which lets the span overflow), `TestAHandEditedAckWithAFarFutureEndIsNotHonoured`
     (a hand-edited end more than seven days out),
     `TestValidateAckRefusesWhatMustNotBeHonoured`,
-    `TestAnAckLongerThanSevenDaysIsRefused`, `TestAnUnackEndsTheHoldAtOnce`;
-    scenarios: `features/ack.feature`, five scenarios bound both ways by
+    `TestAnAckLongerThanSevenDaysIsRefused`, `TestAnUnackEndsTheHoldAtOnce`,
+    and for quiet hours and maintenance windows (`@claude 2026-10-15`, from the
+    same design) `TestQuietHoursHoldAndReportWhenTheyEnd`,
+    `TestACriticalIsSentDuringMaintenance`,
+    `TestAWindowHoldsBelowCriticalAndNeverACritical`,
+    `TestAQuietHoldIsReleasedWhenTheWindowEnds`,
+    `TestWindowHeldAlertsDoNotCountTowardTheCeiling`,
+    `TestAScopedMaintenanceHoldsOnlyItsSource`;
+    scenarios: `features/ack.feature`, five scenarios, and
+    `features/hold-windows.feature`, twelve, bound both ways by
     `scripts/features-are-bound.sh`; the mutants that put each defect back are
     recorded in the pull request)*
 
@@ -814,6 +824,23 @@ excluded from generic raw data rendering.
     *(partly gated: `TestTheLoopNeverWritesTheControlFile` holds the loop's
     half. Nothing checks that the command line never writes `state.json`, and
     nothing checks that only the loop does.)*
+
+29. **A maintenance window says when it opens and always says when it closes,
+    even with nothing held.** `@decided 2026-10-15`: a window the operator opens
+    from the box is announced once when it opens, with what it holds and until
+    when, and announced again when it closes, with the count it held. The close
+    is sent whatever the count, because that mail is how the operator learns
+    that alerting is back. The announcement is kept in the state file, so a
+    restart inside a window does not announce it again, and a close owed across
+    a restart is still sent. The wording is `@claude 2026-10-15`.
+    *(test: `TestAMaintenanceWindowSaysWhenItOpensAndWhenItCloses`,
+    `TestAMaintenanceWithNothingHeldStillSaysItClosed`,
+    `TestAMaintenanceWindowOpensOnceAndAlwaysCloses`,
+    `TestAMaintenanceCloseIsSentEvenWithNothingHeld`,
+    `TestAMaintenanceOpenSaysWhatIsHeldAndThatACriticalIsNot`; scenarios:
+    `features/hold-windows.feature`, bound both ways by
+    `scripts/features-are-bound.sh`; the mutants that remove the open and the
+    close are recorded in the pull request)*
 
 ## Decisions that have no gate yet
 
@@ -901,9 +928,6 @@ small would make this process the thing that edits its own evidence.
   mapping: a follow-up with trailryx, not a change here. The mail that reports
   what an acknowledgement held goes the way the other notices about a condition
   go: it names no agent, so the journal counts a gap and writes no record.
-- Quiet hours are designed (see `heraldyx-plan.md` section 5) and not built.
-  Do not half-build them: a quiet window that silences a `critical` is a bug
-  with a friendly name.
 
 ## Standing rule
 

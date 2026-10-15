@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TAIPANBOX/heraldyx/internal/rule"
 	"github.com/TAIPANBOX/heraldyx/internal/stream"
 )
 
@@ -68,6 +69,13 @@ type Config struct {
 	DigestPeriod time.Duration
 	PulsePeriod  time.Duration
 	PollInterval time.Duration
+
+	// Quiet is the recurring quiet window from HERALDYX_QUIET, nil when off.
+	// QuietWhy says why it is off when the setting was given but cannot be
+	// honoured, or what zone it runs in when HERALDYX_TZ is not set; empty
+	// otherwise.
+	Quiet    *rule.QuietHours
+	QuietWhy string
 }
 
 // FromEnv reads the configuration.
@@ -108,6 +116,7 @@ func FromEnv() (Config, error) {
 		return c, fmt.Errorf("config: HERALDYX_STREAMS: %w", err)
 	}
 	c.Streams = streams
+	c.Quiet, c.QuietWhy = parseQuiet(os.Getenv("HERALDYX_QUIET"), os.Getenv("HERALDYX_TZ"))
 	if len(c.EventPaths) == 0 {
 		return c, fmt.Errorf("config: HERALDYX_EVENTS is empty, there is nothing to watch")
 	}
@@ -248,4 +257,53 @@ func millis(k string, def int) time.Duration {
 		n = 100
 	}
 	return time.Duration(n) * time.Millisecond
+}
+
+// parseQuiet reads HERALDYX_QUIET ("HH:MM-HH:MM") and HERALDYX_TZ. A value
+// that cannot be honoured turns quiet hours off and says why, and the process
+// still starts: a notifier that refuses to run over a convenience setting
+// leaves the operator with no alerts at all (invariant 4's reasoning).
+func parseQuiet(spec, zone string) (*rule.QuietHours, string) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return nil, ""
+	}
+	parts := strings.Split(spec, "-")
+	if len(parts) != 2 {
+		return nil, fmt.Sprintf("HERALDYX_QUIET=%q is not HH:MM-HH:MM, so quiet hours are off", spec)
+	}
+	start, ok1 := clockMinutes(parts[0])
+	end, ok2 := clockMinutes(parts[1])
+	if !ok1 || !ok2 {
+		return nil, fmt.Sprintf("HERALDYX_QUIET=%q is not HH:MM-HH:MM, so quiet hours are off", spec)
+	}
+	if start == end {
+		return nil, fmt.Sprintf("HERALDYX_QUIET=%q starts and ends at the same minute, so quiet hours are off", spec)
+	}
+	loc, note := time.Local, ""
+	if zone = strings.TrimSpace(zone); zone != "" {
+		l, err := time.LoadLocation(zone)
+		if err != nil {
+			return nil, fmt.Sprintf("HERALDYX_TZ=%q is not a time zone (%v), so quiet hours are off", zone, err)
+		}
+		loc = l
+	} else {
+		abbrev, _ := time.Now().In(loc).Zone()
+		note = fmt.Sprintf("HERALDYX_TZ is not set, so quiet hours %s run in this process's local zone (%s): set HERALDYX_TZ", spec, abbrev)
+	}
+	return &rule.QuietHours{Start: start, End: end, Loc: loc}, note
+}
+
+// clockMinutes turns "HH:MM" into minutes after midnight.
+func clockMinutes(s string) (int, bool) {
+	hh, mm, ok := strings.Cut(strings.TrimSpace(s), ":")
+	if !ok || len(hh) != 2 || len(mm) != 2 {
+		return 0, false
+	}
+	h, err1 := strconv.Atoi(hh)
+	m, err2 := strconv.Atoi(mm)
+	if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+		return 0, false
+	}
+	return h*60 + m, true
 }

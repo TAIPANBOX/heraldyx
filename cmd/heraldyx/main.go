@@ -20,6 +20,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	// The zone database is compiled in so a distroless image can load a zone
+	// such as Europe/London for HERALDYX_QUIET, with no /usr/share/zoneinfo.
+	_ "time/tzdata"
 
 	"github.com/TAIPANBOX/heraldyx/internal/config"
 	"github.com/TAIPANBOX/heraldyx/internal/control"
@@ -171,6 +174,13 @@ func run(args []string) error {
 	if len(files) == 0 {
 		log.Printf("no event log exists yet under %s: this process will keep looking, and until one appears there is nothing to notify about",
 			strings.Join(cfg.EventPaths, ", "))
+	}
+	if cfg.QuietWhy != "" {
+		log.Printf("quiet hours: %s", cfg.QuietWhy)
+	}
+	if q := cfg.Quiet; q != nil {
+		log.Printf("quiet hours: %02d:%02d to %02d:%02d in %s; alerts below critical are held and reported when the hours end, a critical is always sent",
+			q.Start/60, q.Start%60, q.End/60, q.End%60, q.Loc)
 	}
 
 	if reason := cfg.Why(); reason != "" {
@@ -800,6 +810,9 @@ const envHelp = `  HERALDYX_EVENTS         files and/or directories of NDJSON ag
                           (default 24, 0 = never)
   HERALDYX_PULSE_HOURS    how often a box says the notifier is alive, even
                           when nothing happened (default 24, 0 = never)
+  HERALDYX_QUIET          daily quiet hours, HH:MM-HH:MM; alerts below
+                          critical are held and summarised when they end
+  HERALDYX_TZ             IANA zone for HERALDYX_QUIET, e.g. Europe/London
   HERALDYX_POLL_MS        how often to read the log (default 2000)
   HERALDYX_STREAMS        what a stream file may carry beyond the built-in
                           table, as stem=source|source,... (default none)`

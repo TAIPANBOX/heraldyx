@@ -34,6 +34,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/TAIPANBOX/agent-stack-go/event"
 	"github.com/TAIPANBOX/agent-stack-go/passport"
@@ -1526,12 +1527,131 @@ func AckedCritical(a rule.Ack) string {
 		by, stampTime(time.UnixMilli(a.Until)))
 }
 
+// safeNote returns operator text (--note) as it may appear in a mail: one
+// printable line, at most 200 bytes, with no angle brackets. Anything else is
+// withheld, and the caller says so rather than printing it. The operator typed
+// it, but it reaches an inbox, and a note is not an identifier, so it gets its
+// own check instead of [safeID]'s, which refuses ordinary punctuation.
+func safeNote(s string) (string, bool) {
+	if s == "" || len(s) > 200 || strings.ContainsAny(s, "<>") {
+		return "", false
+	}
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			return "", false
+		}
+	}
+	return s, true
+}
+
+// scopeText says which alerts a window holds, in words an operator reads.
+func scopeText(m rule.Maintenance) string {
+	if m.Scope == "" {
+		return "every source"
+	}
+	s, _ := safeID(m.Scope)
+	return s
+}
+
+// MaintenanceOpened is the mail sent when a maintenance window opens: what it
+// holds, until when, and that a critical is still sent. Sent once, at the
+// opening, so an operator who opened it is not left wondering whether it took.
+func MaintenanceOpened(cfg Config, m rule.Maintenance, now time.Time) Message {
+	until := stampTime(time.UnixMilli(m.Until))
+	var b strings.Builder
+	fmt.Fprintf(&b, "A maintenance window is open until %s. Alerts below critical from %s are held until then and reported when the window closes; a critical is still sent at once, one message per condition.\n",
+		until, scopeText(m))
+	if by, ok := safeID(m.By); ok && m.By != "" {
+		fmt.Fprintf(&b, "\nOpened by %s", by)
+	} else {
+		b.WriteString("\nOpened")
+	}
+	if note, ok := safeNote(m.Note); ok {
+		fmt.Fprintf(&b, ": %s", note)
+	}
+	b.WriteString(".\n")
+	if cfg.ConsoleURL != "" {
+		fmt.Fprintf(&b, "\n%s\n", strings.TrimRight(cfg.ConsoleURL, "/"))
+	}
+	return Message{
+		Subject: fmt.Sprintf("[%s] maintenance window open until %s", boxName(cfg), until),
+		Body:    b.String(),
+	}
+}
+
+// MaintenanceClosed is the mail sent when a maintenance window closes. It is
+// sent even when nothing was held: that mail is how the operator knows alerting
+// is back.
+func MaintenanceClosed(cfg Config, m rule.Maintenance, h rule.HeldCount, now time.Time) Message {
+	var b strings.Builder
+	if note, ok := safeNote(m.Note); ok {
+		fmt.Fprintf(&b, "The maintenance window (%s) has closed. ", note)
+	} else {
+		b.WriteString("The maintenance window has closed. ")
+	}
+	fmt.Fprintf(&b, "%d alert(s) below critical were held while it was open", h.Count)
+	if h.Count > 0 {
+		if h.First > 0 {
+			fmt.Fprintf(&b, ", the first at %s", stampTime(time.UnixMilli(h.First)))
+		}
+		if h.Worst != "" {
+			fmt.Fprintf(&b, ", the worst %s", h.Worst)
+		}
+	}
+	b.WriteString(".\n\nAlerting is back to normal from now on. Every held event is still in the log and the console.\n")
+	if cfg.ConsoleURL != "" {
+		fmt.Fprintf(&b, "\n%s\n", strings.TrimRight(cfg.ConsoleURL, "/"))
+	}
+	return Message{
+		Subject: fmt.Sprintf("[%s] maintenance window closed: %d alert(s) held", boxName(cfg), h.Count),
+		Body:    b.String(),
+	}
+}
+
+// QuietEnded is the mail sent when quiet hours end, if anything was held in
+// them. It says what was held, and that the events are still in the log.
+func QuietEnded(cfg Config, h rule.HeldCount, now time.Time) Message {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Quiet hours have ended. %d alert(s) below critical arrived during them and were held instead of mailed", h.Count)
+	if h.First > 0 {
+		fmt.Fprintf(&b, ", the first at %s", stampTime(time.UnixMilli(h.First)))
+	}
+	if h.Worst != "" {
+		fmt.Fprintf(&b, ", the worst %s", h.Worst)
+	}
+	b.WriteString(".\n\nEvery held event is still in the log and the console.\n")
+	if cfg.ConsoleURL != "" {
+		fmt.Fprintf(&b, "\n%s\n", strings.TrimRight(cfg.ConsoleURL, "/"))
+	}
+	return Message{
+		Subject: fmt.Sprintf("[%s] quiet hours over: %d alert(s) held", boxName(cfg), h.Count),
+		Body:    b.String(),
+	}
+}
+
+// WindowCritical is the line a critical carries when it is sent while a hold
+// window is open. It names the window, and says what the window has held so
+// far, so the operator reads a critical that arrived in a quiet period as
+// deliberate rather than as the hold failing.
+func WindowCritical(window string, m *rule.Maintenance, held int) string {
+	what := "during quiet hours"
+	if window == rule.WindowMaintenance {
+		what = "during a maintenance window"
+		if m != nil {
+			if note, ok := safeNote(m.Note); ok {
+				what += " (" + note + ")"
+			}
+		}
+	}
+	return fmt.Sprintf("\nSent %s: a critical is never held. %d alert(s) below critical are held so far.\n", what, held)
+}
+
 // Pulse is the mail that says this notifier is alive, sent when no digest
 // went out in the period. Numbers and the box name only (invariant 1).
-func Pulse(cfg Config, p rule.Pulse, files int, every time.Duration, now time.Time, acks []rule.Ack) Message {
+func Pulse(cfg Config, p rule.Pulse, files int, every time.Duration, now time.Time, acks []rule.Ack, m *rule.Maintenance) Message {
 	var b strings.Builder
 	b.WriteString("This notifier is running, and this mail is the proof that its mail path works.\n\n")
-	b.WriteString(PulseLines(p, files, every, acks))
+	b.WriteString(PulseLines(p, files, every, acks, m))
 	if cfg.ConsoleURL != "" {
 		fmt.Fprintf(&b, "\n%s\n", strings.TrimRight(cfg.ConsoleURL, "/"))
 	}
@@ -1543,10 +1663,11 @@ func Pulse(cfg Config, p rule.Pulse, files int, every time.Duration, now time.Ti
 
 // PulseLines is the pulse's report, shared by the standalone pulse and the
 // digest that carries it, so the two cannot say different things.
-func PulseLines(p rule.Pulse, files int, every time.Duration, acks []rule.Ack) string {
+func PulseLines(p rule.Pulse, files int, every time.Duration, acks []rule.Ack, m *rule.Maintenance) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Since %s: %d events read from %d file(s), %d alerts handed to the mail transport, %d held at the hourly limit, %d held by acknowledgement.\n",
 		stampTime(p.Since), p.Read, files, p.Sent, p.Held, p.AckHeld)
+	fmt.Fprintf(&b, "%d held by a quiet or maintenance window.\n", p.WindowHeld)
 	if p.LastEventAt.IsZero() {
 		b.WriteString("No event was read in this period. A quiet fleet and a stopped producer look the same from here.\n")
 	} else {
@@ -1561,6 +1682,9 @@ func PulseLines(p rule.Pulse, files int, every time.Duration, acks []rule.Ack) s
 			by = " by " + s
 		}
 		fmt.Fprintf(&b, "Acknowledged now: %s until %s%s.\n", key, stampTime(time.UnixMilli(a.Until)), by)
+	}
+	if m != nil {
+		fmt.Fprintf(&b, "A maintenance window is in force until %s.\n", stampTime(time.UnixMilli(m.Until)))
 	}
 	fmt.Fprintf(&b, "If this report stops arriving every %s, this notifier or its mail path is down. HERALDYX_PULSE_HOURS=0 turns it off.\n", pulseEvery(every))
 	return b.String()

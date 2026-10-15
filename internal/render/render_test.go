@@ -772,7 +772,7 @@ func TestACadenceReadsAsASentence(t *testing.T) {
 func TestThePulseSaysAliveInNumbersOnly(t *testing.T) {
 	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
 	p := rule.Pulse{Since: since, Read: 42, Sent: 3, Held: 1, LastEventAt: since.Add(5 * time.Hour)}
-	m := Pulse(Config{Box: "prod-box"}, p, 2, 24*time.Hour, since.Add(24*time.Hour), nil)
+	m := Pulse(Config{Box: "prod-box"}, p, 2, 24*time.Hour, since.Add(24*time.Hour), nil, nil)
 	if !strings.Contains(m.Subject, "[prod-box] daily pulse: notifier alive, 42 events read, 3 alerts") {
 		t.Fatalf("subject: %q", m.Subject)
 	}
@@ -789,7 +789,7 @@ func TestThePulseSaysAliveInNumbersOnly(t *testing.T) {
 // A window with no event says so, rather than printing a zero time.
 func TestAPulseWithNoEventSaysNoneWasRead(t *testing.T) {
 	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
-	got := PulseLines(rule.Pulse{Since: since}, 1, 24*time.Hour, nil)
+	got := PulseLines(rule.Pulse{Since: since}, 1, 24*time.Hour, nil, nil)
 	if !strings.Contains(got, "No event was read in this period") {
 		t.Fatalf("a window with no event did not say so:\n%s", got)
 	}
@@ -799,7 +799,7 @@ func TestAPulseWithNoEventSaysNoneWasRead(t *testing.T) {
 // (invariant 2): a view, with no query string.
 func TestThePulseLinksOnlyToTheConsoleView(t *testing.T) {
 	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
-	m := Pulse(Config{Box: "prod-box", ConsoleURL: "https://box.example.com/"}, rule.Pulse{Since: since}, 1, 24*time.Hour, since, nil)
+	m := Pulse(Config{Box: "prod-box", ConsoleURL: "https://box.example.com/"}, rule.Pulse{Since: since}, 1, 24*time.Hour, since, nil, nil)
 	if !strings.HasSuffix(strings.TrimSpace(m.Body), "https://box.example.com") {
 		t.Fatalf("the pulse does not end with the console link:\n%s", m.Body)
 	}
@@ -871,7 +871,7 @@ func TestThePulseListsWhatIsAcknowledged(t *testing.T) {
 		{Key: "policy_deny:run-1", By: "ops", Until: since.Add(4 * time.Hour).UnixMilli()},
 		{Key: "budget_threshold:run-2", Until: since.Add(2 * time.Hour).UnixMilli()},
 	}
-	got := PulseLines(rule.Pulse{Since: since, Read: 3, AckHeld: 2}, 1, 24*time.Hour, acks)
+	got := PulseLines(rule.Pulse{Since: since, Read: 3, AckHeld: 2}, 1, 24*time.Hour, acks, nil)
 	for _, want := range []string{
 		"2 held by acknowledgement.",
 		"Acknowledged now: policy_deny:run-1 until 2026-10-14 13:00:00 UTC by ops.",
@@ -903,5 +903,62 @@ func TestAKeyTheCommandWouldRefuseIsNotOffered(t *testing.T) {
 	m := Event(cfg(), e, now, "", nil)
 	if strings.Contains(m.Body, "\nKey: ") {
 		t.Fatalf("the mail offers a key the command refuses:\n%s", m.Body)
+	}
+}
+
+func TestAMaintenanceOpenSaysWhatIsHeldAndThatACriticalIsNot(t *testing.T) {
+	m := rule.Maintenance{At: 1, Until: time.Date(2026, 10, 16, 10, 30, 0, 0, time.UTC).UnixMilli(), Scope: "tokenfuse", Note: "upgrade", By: "ops"}
+	got := MaintenanceOpened(Config{Box: "prod-box"}, m, time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC))
+	if !strings.Contains(got.Subject, "[prod-box] maintenance window open") {
+		t.Fatalf("subject: %q", got.Subject)
+	}
+	for _, want := range []string{"tokenfuse", "a critical is still sent", "upgrade"} {
+		if !strings.Contains(got.Body, want) {
+			t.Fatalf("body lacks %q:\n%s", want, got.Body)
+		}
+	}
+}
+
+func TestAMaintenanceCloseIsSentEvenWithNothingHeld(t *testing.T) {
+	got := MaintenanceClosed(Config{Box: "prod-box"}, rule.Maintenance{Note: "upgrade"}, rule.HeldCount{}, time.Date(2026, 10, 16, 10, 30, 0, 0, time.UTC))
+	if !strings.Contains(got.Subject, "maintenance window closed: 0 alert(s) held") || !strings.Contains(got.Body, "back to normal") {
+		t.Fatalf("subject %q body:\n%s", got.Subject, got.Body)
+	}
+}
+
+func TestQuietHoursOverSaysWhatWasHeld(t *testing.T) {
+	got := QuietEnded(Config{Box: "prod-box"}, rule.HeldCount{Count: 3, Worst: "high", First: 1}, time.Date(2026, 10, 17, 6, 0, 0, 0, time.UTC))
+	if !strings.Contains(got.Subject, "quiet hours over: 3 alert(s) held") {
+		t.Fatalf("subject: %q", got.Subject)
+	}
+}
+
+func TestAnUnsafeMaintenanceNoteIsNotRendered(t *testing.T) {
+	got := MaintenanceOpened(Config{Box: "b"}, rule.Maintenance{Until: 1, Note: "x<script>"}, time.Unix(0, 0))
+	if strings.Contains(got.Body, "<script>") {
+		t.Fatalf("operator text reached the mail unchecked:\n%s", got.Body)
+	}
+}
+
+// Written after the rendering it checks, and run against a mutant that drops
+// the window's own sentence before it was trusted (see the PR's mutant table).
+func TestAWindowCriticalSaysItWasSentAndThatNothingHoldsACritical(t *testing.T) {
+	got := WindowCritical(rule.WindowMaintenance, &rule.Maintenance{Note: "upgrade"}, 2)
+	for _, want := range []string{"during a maintenance window (upgrade)", "a critical is never held", "2 alert(s) below critical are held so far"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("window critical lacks %q: %q", want, got)
+		}
+	}
+	if q := WindowCritical(rule.WindowQuiet, nil, 0); !strings.Contains(q, "during quiet hours") {
+		t.Fatalf("quiet-hours critical does not name the hours: %q", q)
+	}
+}
+
+func TestThePulseCountsWhatAWindowHeldAndNamesAnOpenWindow(t *testing.T) {
+	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	m := &rule.Maintenance{At: since.UnixMilli(), Until: since.Add(time.Hour).UnixMilli()}
+	got := PulseLines(rule.Pulse{Since: since, WindowHeld: 4}, 1, 24*time.Hour, nil, m)
+	if !strings.Contains(got, "4 held by a quiet or maintenance window") || !strings.Contains(got, "A maintenance window is in force until") {
+		t.Fatalf("pulse lines lack the window facts:\n%s", got)
 	}
 }

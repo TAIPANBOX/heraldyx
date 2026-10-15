@@ -108,6 +108,13 @@ const (
 	// when it ended. About a key, not an agent: filed under no agent id, so it
 	// is counted as a gap in the trail like the other notices here.
 	KindAckRelease Kind = "ack_release"
+	// KindMaintenance is a maintenance window opening or closing. About a
+	// window, not an agent: filed under no agent id, so it is counted as a gap
+	// in the trail like the other notices here.
+	KindMaintenance Kind = "maintenance"
+	// KindQuietRelease is the report of what quiet hours held, sent when they
+	// end. About the hours, not an agent: filed under no agent id.
+	KindQuietRelease Kind = "quiet_release"
 )
 
 // maxErrorChars bounds what a delivery failure contributes. An SMTP server's

@@ -616,7 +616,7 @@ func cycle(
 		if cfg.PulsePeriod > 0 {
 			// The digest is itself a mail that proves the path works, so it
 			// carries the pulse and resets its window: one mail, never two.
-			m.Body += "\n" + render.PulseLines(snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, sortedAcks(acks))
+			m.Body += "\n" + render.PulseLines(snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, sortedAcks(acks), nil)
 		}
 		deliver_(cfg, sender, journal, m, record.Dispatch{
 			Kind:    record.KindDigest,
@@ -628,7 +628,7 @@ func cycle(
 		// No digest carried the pulse in a whole period. Filed like the
 		// digest: under the last agent that caused a message this cycle, or
 		// counted as a gap when none did (invariants 11 and 13).
-		deliver_(cfg, sender, journal, render.Pulse(rendercfg, snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, now, sortedAcks(acks)), record.Dispatch{
+		deliver_(cfg, sender, journal, render.Pulse(rendercfg, snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, now, sortedAcks(acks), nil), record.Dispatch{
 			Kind:    record.KindPulse,
 			AgentID: lastAgent,
 			RunID:   lastRun,

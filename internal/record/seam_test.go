@@ -55,11 +55,12 @@ func journalOf(t *testing.T, ds ...Dispatch) []map[string]any {
 }
 
 func kindsOfDispatch() []Dispatch {
-	alert, digest, suppression, pulse := dispatch(), dispatch(), dispatch(), dispatch()
+	alert, digest, suppression, pulse, release := dispatch(), dispatch(), dispatch(), dispatch(), dispatch()
 	digest.Kind, digest.About = KindDigest, "digest:4"
 	suppression.Kind, suppression.About = KindSuppression, "suppressed:9"
 	pulse.Kind, pulse.About = KindPulse, "pulse"
-	return []Dispatch{alert, digest, suppression, pulse}
+	release.Kind, release.About = KindAckRelease, "ack_release:2"
+	return []Dispatch{alert, digest, suppression, pulse, release}
 }
 
 // Every record, of every kind, satisfies the four door rules this package

@@ -44,6 +44,10 @@ type Config struct {
 	// owner line, which is the honest default: the owner lives in the passport
 	// and nothing else in this process knows it.
 	PassportsPath string
+	// ControlPath is the acknowledgements file. Written only by the command
+	// line (--ack, --unack); the loop only reads it. Beside the state file by
+	// default, so it lands on the volume the deployment already made writable.
+	ControlPath string
 	// SentPath is the dispatch journal: one chained agent-event per message
 	// sent. Defaults to `sent.ndjson` beside the state file, since both are
 	// this process's own writable place. Empty disables recording.
@@ -92,6 +96,10 @@ func FromEnv() (Config, error) {
 	// derived from another field the operator may have set. An explicitly
 	// empty HERALDYX_SENT stays empty: turning recording off is a choice, and
 	// a default that quietly reinstates it is not a default.
+	c.ControlPath = os.Getenv("HERALDYX_CONTROL")
+	if c.ControlPath == "" {
+		c.ControlPath = filepath.Join(filepath.Dir(c.StatePath), "control.json")
+	}
 	if _, set := os.LookupEnv("HERALDYX_SENT"); !set {
 		c.SentPath = filepath.Join(filepath.Dir(c.StatePath), "sent.ndjson")
 	}

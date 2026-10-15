@@ -641,7 +641,7 @@ func env(t *testing.T, kv map[string]string) {
 		"HERALDYX_CONSOLE_URL", "HERALDYX_STATE", "HERALDYX_MAIL_FILE",
 		"HERALDYX_SMTP_HOST", "HERALDYX_SMTP_FROM", "HERALDYX_SMTP_USER", "HERALDYX_SMTP_PASS",
 		"HERALDYX_DEDUP_SECONDS", "HERALDYX_MAX_PER_HOUR", "HERALDYX_DIGEST_HOURS", "HERALDYX_POLL_MS",
-		"HERALDYX_SENT", "HERALDYX_STREAMS", "HERALDYX_PULSE_HOURS",
+		"HERALDYX_SENT", "HERALDYX_STREAMS", "HERALDYX_PULSE_HOURS", "HERALDYX_CONTROL",
 	} {
 		t.Setenv(k, kv[k])
 	}
@@ -672,9 +672,9 @@ func read(t *testing.T, path string) string {
 // above does, so a ten-minute cadence can be tested without waiting ten
 // minutes. Each poll is one pass over whatever has been appended to events.
 type bench struct {
-	events, mail string
-	snap         *state.Snapshot
-	poll         func(now time.Time)
+	events, mail, control string
+	snap                  *state.Snapshot
+	poll                  func(now time.Time)
 }
 
 func newBench(t *testing.T, minSeverity string) *bench {
@@ -689,6 +689,8 @@ func newBenchWith(t *testing.T, minSeverity string, more map[string]string) *ben
 	dir := t.TempDir()
 	events := filepath.Join(dir, "tokenfuse.ndjson")
 	mail := filepath.Join(dir, "mail.txt")
+	control := filepath.Join(dir, "control.json")
+	controlSaid = controlMemory{}
 	kv := map[string]string{
 		"HERALDYX_EVENTS":       events,
 		"HERALDYX_TO":           "ops@example.com",
@@ -696,6 +698,7 @@ func newBenchWith(t *testing.T, minSeverity string, more map[string]string) *ben
 		"HERALDYX_MIN_SEVERITY": minSeverity,
 		"HERALDYX_BOX":          "prod-box",
 		"HERALDYX_STATE":        filepath.Join(dir, "state.json"),
+		"HERALDYX_CONTROL":      control,
 	}
 	for k, v := range more {
 		kv[k] = v
@@ -720,7 +723,7 @@ func newBenchWith(t *testing.T, minSeverity string, more map[string]string) *ben
 	// The file exists before the first poll, so the watcher has something to
 	// hold an offset for even when the first poll's events are appended later.
 	write(t, events, "")
-	b := &bench{events: events, mail: mail, snap: snap}
+	b := &bench{events: events, mail: mail, control: control, snap: snap}
 	b.poll = func(now time.Time) {
 		cycle(cfg, rcfg, render.Config{Box: cfg.Box}, w, snap, deliver.NewFile(mail),
 			journal, passport.Open(""), fleet.New(), now)
@@ -1041,5 +1044,170 @@ func TestTheDigestRestartsThePulsePeriod(t *testing.T) {
 	b.poll(t0.Add(25 * time.Hour))
 	if n := pulses(t, b); n != 0 {
 		t.Fatalf("a pulse went out an hour after a digest that carried one: %d", n)
+	}
+}
+
+func mailOrEmpty(t *testing.T, path string) string {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return read(t, path)
+}
+
+func TestAnAckHoldsItsAlertsAndTheirCountIsMailedWhenItEnds(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Now().UTC() // the command stamps the ack with the real clock
+	if err := run([]string{"--ack", "policy_deny:run-1", "--for", "1h", "--by", "ops"}); err != nil {
+		t.Fatal(err)
+	}
+	write(t, b.events, ndjson("policy_deny", "high", "run-1", ""))
+	b.poll(t0.Add(time.Minute))
+	write(t, b.events, ndjson("policy_deny", "high", "run-1", ""))
+	b.poll(t0.Add(2 * time.Minute))
+	if got := subjects(mailOrEmpty(t, b.mail)); strings.Contains(got, "] run-1 ") {
+		t.Fatalf("an acknowledged alert was mailed:\n%s", got)
+	}
+	b.poll(t0.Add(61 * time.Minute))
+	if got := mailOrEmpty(t, b.mail); !strings.Contains(got, "acknowledgement ended: 2 alert(s) held about") {
+		t.Fatalf("the end of the ack did not report what it held:\n%s", subjects(got))
+	}
+	write(t, b.events, ndjson("policy_deny", "high", "run-1", ""))
+	b.poll(t0.Add(62 * time.Minute))
+	if got := subjects(read(t, b.mail)); !strings.Contains(got, "] run-1 ") {
+		t.Fatalf("after the ack ended the alert was not mailed again:\n%s", got)
+	}
+}
+
+func TestACriticalIsSentWhileItsKeyIsAcknowledged(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Now().UTC()
+	if err := run([]string{"--ack", "budget_exhausted:run-9", "--for", "1h", "--by", "ops"}); err != nil {
+		t.Fatal(err)
+	}
+	write(t, b.events, ndjson("budget_exhausted", "critical", "run-9", ""))
+	b.poll(t0.Add(time.Minute))
+	got := mailOrEmpty(t, b.mail)
+	if !strings.Contains(subjects(got), "] run-9 ") {
+		t.Fatalf("an acknowledged critical was held:\n%s", subjects(got))
+	}
+	if !strings.Contains(got, "still sent because it is critical") {
+		t.Fatalf("the critical does not say it was acknowledged:\n%s", got)
+	}
+}
+
+func TestTheLoopNeverWritesTheControlFile(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Now().UTC()
+	if err := run([]string{"--ack", "policy_deny:run-1", "--for", "1m"}); err != nil {
+		t.Fatal(err)
+	}
+	before := read(t, b.control)
+	b.poll(t0.Add(2 * time.Hour)) // the ack has ended; the loop must not prune it
+	if after := read(t, b.control); after != before {
+		t.Fatalf("the loop rewrote control.json:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+func TestAnAckLongerThanSevenDaysIsRefused(t *testing.T) {
+	b := newBench(t, "high")
+	if err := run([]string{"--ack", "policy_deny:run-1", "--for", "169h"}); err == nil {
+		t.Fatal("an ack over seven days was accepted")
+	}
+	if _, err := os.Stat(b.control); err == nil {
+		t.Fatal("a refused ack wrote the control file")
+	}
+}
+
+func TestAnUnackEndsTheHoldAtOnce(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Now().UTC()
+	_ = run([]string{"--ack", "policy_deny:run-1", "--for", "1h"})
+	write(t, b.events, ndjson("policy_deny", "high", "run-1", ""))
+	b.poll(t0.Add(time.Minute))
+	if err := run([]string{"--unack", "policy_deny:run-1"}); err != nil {
+		t.Fatal(err)
+	}
+	b.poll(t0.Add(2 * time.Minute))
+	if got := mailOrEmpty(t, b.mail); !strings.Contains(got, "acknowledgement ended: 1 alert(s) held about") {
+		t.Fatalf("removing the ack did not report what it held:\n%s", subjects(got))
+	}
+}
+
+// The list is what an operator reads before deciding what to remove, so it is
+// sorted by key and says plainly when nothing is in force.
+func TestTheAcksListShowsWhatIsInForceAndSaysWhenNothing(t *testing.T) {
+	newBench(t, "high")
+	out, _ := capture(t, func() {
+		if err := run([]string{"--acks"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "no acknowledgement is in force") {
+		t.Fatalf("an empty list did not say so: %q", out)
+	}
+	if err := run([]string{"--ack", "policy_deny:run-2", "--for", "1h", "--by", "ops"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"--ack", "policy_deny:run-1", "--for", "1h", "--note", "deploy"}); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = capture(t, func() {
+		if err := run([]string{"--acks"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	first, second := strings.Index(out, "policy_deny:run-1"), strings.Index(out, "policy_deny:run-2")
+	if first < 0 || second < 0 || first > second {
+		t.Fatalf("the list is missing a key or is not in key order:\n%s", out)
+	}
+	if !strings.Contains(out, `by "ops"`) || !strings.Contains(out, `note "deploy"`) {
+		t.Fatalf("the list does not carry who acknowledged and why:\n%s", out)
+	}
+}
+
+func TestAnUnackOfAKeyNotInForceSaysSo(t *testing.T) {
+	newBench(t, "high")
+	err := run([]string{"--unack", "policy_deny:run-9"})
+	if err == nil || !strings.Contains(err.Error(), "no acknowledgement of policy_deny:run-9 is in force") {
+		t.Fatalf("an unack of nothing did not say so: %v", err)
+	}
+}
+
+// A control file that cannot be read is not an empty one: a command refuses to
+// write over it, and says nothing changed.
+func TestACommandThatCannotReadTheControlFileChangesNothing(t *testing.T) {
+	b := newBench(t, "high")
+	if err := os.MkdirAll(b.control, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"--ack", "policy_deny:run-1", "--for", "1h"},
+		{"--unack", "policy_deny:run-1"},
+	} {
+		err := run(args)
+		if err == nil || !strings.Contains(err.Error(), "nothing was changed") {
+			t.Fatalf("%v over an unreadable control file: %v", args, err)
+		}
+	}
+}
+
+// A malformed control file holds nothing, so every alert is mailed as usual,
+// and the log says why once rather than on every poll.
+func TestAMalformedControlFileHoldsNothingAndSaysSo(t *testing.T) {
+	b := newBench(t, "high")
+	write(t, b.control, "{not json")
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	t0 := time.Now().UTC()
+	write(t, b.events, ndjson("policy_deny", "high", "run-1", ""))
+	b.poll(t0.Add(time.Minute))
+	b.poll(t0.Add(2 * time.Minute))
+	if got := subjects(read(t, b.mail)); strings.Count(got, "] run-1 ") != 1 {
+		t.Fatalf("a malformed control file held or repeated an alert:\n%s", got)
+	}
+	if n := strings.Count(out.String(), "no acknowledgement is honoured"); n != 1 {
+		t.Fatalf("the malformed file was said %d times, want once:\n%s", n, out.String())
 	}
 }

@@ -1181,6 +1181,13 @@ func Event(cfg Config, e event.Event, now time.Time, owner string, around []Arou
 	if facts := factLine(e); facts != "" {
 		fmt.Fprintf(&b, "%s\n", facts)
 	}
+	// The key an operator acknowledges this condition by, copied from here.
+	// Only when it is shape-safe and the command would accept it: --ack
+	// refuses a key with a space, so a line offering one is a line to a dead
+	// end.
+	if key, ok := safeID(rule.Key(e)); ok && !strings.Contains(key, " ") {
+		fmt.Fprintf(&b, "Key: %s\n", key)
+	}
 	if !identifiersAreSafe(e) {
 		b.WriteString(unusableIDNote)
 	}
@@ -1488,12 +1495,43 @@ func Digest(cfg Config, entries []rule.DigestEntry, since time.Time, now time.Ti
 	}
 }
 
+// AckReleased reports what an acknowledgement held back, sent when it ends.
+func AckReleased(cfg Config, rel rule.AckRelease, now time.Time) Message {
+	key, _ := safeID(rel.Key)
+	var b strings.Builder
+	fmt.Fprintf(&b, "The acknowledgement of %s has ended. While it was in force, %d further alert(s) about it were held instead of mailed", key, rel.Count)
+	if rel.First > 0 {
+		fmt.Fprintf(&b, ", the first at %s", stampTime(time.UnixMilli(rel.First)))
+	}
+	if rel.Worst != "" {
+		fmt.Fprintf(&b, ", the worst %s", rel.Worst)
+	}
+	b.WriteString(".\n\nFrom now on alerts about it are mailed again as usual. Every held event is still in the log and the console.\n")
+	if cfg.ConsoleURL != "" {
+		fmt.Fprintf(&b, "\n%s\n", strings.TrimRight(cfg.ConsoleURL, "/"))
+	}
+	return Message{
+		Subject: fmt.Sprintf("[%s] acknowledgement ended: %d alert(s) held about %s", boxName(cfg), rel.Count, shortID(rel.Key)),
+		Body:    b.String(),
+	}
+}
+
+// AckedCritical is the line a critical carries when its key is acknowledged.
+func AckedCritical(a rule.Ack) string {
+	by := "an operator"
+	if s, ok := safeID(a.By); ok && a.By != "" {
+		by = s
+	}
+	return fmt.Sprintf("\nThis condition is acknowledged by %s until %s. It is still sent because it is critical: nothing holds a critical.\n",
+		by, stampTime(time.UnixMilli(a.Until)))
+}
+
 // Pulse is the mail that says this notifier is alive, sent when no digest
 // went out in the period. Numbers and the box name only (invariant 1).
-func Pulse(cfg Config, p rule.Pulse, files int, every time.Duration, now time.Time) Message {
+func Pulse(cfg Config, p rule.Pulse, files int, every time.Duration, now time.Time, acks []rule.Ack) Message {
 	var b strings.Builder
 	b.WriteString("This notifier is running, and this mail is the proof that its mail path works.\n\n")
-	b.WriteString(PulseLines(p, files, every))
+	b.WriteString(PulseLines(p, files, every, acks))
 	if cfg.ConsoleURL != "" {
 		fmt.Fprintf(&b, "\n%s\n", strings.TrimRight(cfg.ConsoleURL, "/"))
 	}
@@ -1505,14 +1543,24 @@ func Pulse(cfg Config, p rule.Pulse, files int, every time.Duration, now time.Ti
 
 // PulseLines is the pulse's report, shared by the standalone pulse and the
 // digest that carries it, so the two cannot say different things.
-func PulseLines(p rule.Pulse, files int, every time.Duration) string {
+func PulseLines(p rule.Pulse, files int, every time.Duration, acks []rule.Ack) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Since %s: %d events read from %d file(s), %d alerts handed to the mail transport, %d held at the hourly limit.\n",
-		stampTime(p.Since), p.Read, files, p.Sent, p.Held)
+	fmt.Fprintf(&b, "Since %s: %d events read from %d file(s), %d alerts handed to the mail transport, %d held at the hourly limit, %d held by acknowledgement.\n",
+		stampTime(p.Since), p.Read, files, p.Sent, p.Held, p.AckHeld)
 	if p.LastEventAt.IsZero() {
 		b.WriteString("No event was read in this period. A quiet fleet and a stopped producer look the same from here.\n")
 	} else {
 		fmt.Fprintf(&b, "The last event was read at %s.\n", stampTime(p.LastEventAt))
+	}
+	// The acknowledgements in force now, in the order the loop gives them. An
+	// operator reading the pulse sees what is being held on purpose.
+	for _, a := range acks {
+		key, _ := safeID(a.Key)
+		by := ""
+		if s, ok := safeID(a.By); ok && a.By != "" {
+			by = " by " + s
+		}
+		fmt.Fprintf(&b, "Acknowledged now: %s until %s%s.\n", key, stampTime(time.UnixMilli(a.Until)), by)
 	}
 	fmt.Fprintf(&b, "If this report stops arriving every %s, this notifier or its mail path is down. HERALDYX_PULSE_HOURS=0 turns it off.\n", pulseEvery(every))
 	return b.String()

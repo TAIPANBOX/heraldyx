@@ -39,6 +39,9 @@
           "HERALDYX_CONSOLE_URL": {
             "required": false
           },
+          "HERALDYX_CONTROL": {
+            "required": false
+          },
           "HERALDYX_DEDUP_SECONDS": {
             "required": false
           },

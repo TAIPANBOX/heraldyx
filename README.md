@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-309-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-347-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.6.0-success.svg)
 
@@ -492,6 +492,7 @@ other.
 | `HERALDYX_BOX` | `agent stack` | the name in the subject line |
 | `HERALDYX_CONSOLE_URL` | (empty) | base URL of your console, for the one link |
 | `HERALDYX_STATE` | `/var/lib/stack/heraldyx/state.json` | offsets, a digest of each log's first line, and dedup counters |
+| `HERALDYX_CONTROL` | beside the state file, `control.json` | the acknowledgements file, written by `--ack` and `--unack`; see "Acknowledging an alert" |
 | `HERALDYX_MAIL_FILE` | (empty) | write messages here instead of sending them |
 | `HERALDYX_SMTP_HOST` | (empty) | `host:port` of your mail server |
 | `HERALDYX_SMTP_FROM` | (empty) | envelope sender |
@@ -612,6 +613,46 @@ passport gets no owner line. This process does not invent one.
 **The three links** are the three things an operator wants at two in the
 morning, and all three are views. The action happens in the console after a
 sign-in, and a destructive one after a passkey.
+
+## Acknowledging an alert
+
+Every alert mail has a `Key:` line near its top, the identifier of the condition,
+for example `Key: policy_deny:run-1`. If you already know about a condition and
+do not want its repeats for a while, acknowledge that key on the box:
+
+```bash
+docker compose exec heraldyx /usr/local/bin/service --ack policy_deny:run-1 --for 4h --by ops
+```
+
+On Kubernetes, the same command runs in the notifier's container:
+
+```bash
+kubectl -n agent-stack exec deploy/heraldyx -c heraldyx -- /usr/local/bin/service --ack policy_deny:run-1 --for 4h --by ops
+```
+
+For the next four hours, alerts below critical about that key are not mailed.
+Each one that would have been mailed is counted instead. When the acknowledgement ends, one mail says how
+many were held, the worst severity among them and when the first was held. A
+`critical` about an acknowledged key is always sent at once, with one line
+saying it was acknowledged. Nothing holds a critical.
+
+- `--for` sets the length. The default is `4h`, and the most is `168h`, seven
+  days; a longer one is refused. There is no forever.
+- `--by` and `--note` record who acknowledged and why. They are kept as text
+  and reported as entered, not verified.
+- `--unack <key>` ends an acknowledgement at once. What it held is mailed on the
+  next poll.
+- `--acks` lists the acknowledgements in force and exits.
+
+The commands write one file, `control.json`, beside the state file
+(`HERALDYX_CONTROL` moves it). The running process only reads that file, so a
+command never races the loop's own state. The daily pulse lists the
+acknowledgements in force.
+
+Like the daily summary, the mail that reports a held count is about a condition
+and not an agent, so the dispatch journal counts it as a gap rather than
+writing a record under an invented agent. The acknowledgement itself is not
+written to the journal in this version.
 
 ## What is in the mail, and what is not
 

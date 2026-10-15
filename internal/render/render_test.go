@@ -862,3 +862,34 @@ func TestAnUnsafeAckerNameIsNotRendered(t *testing.T) {
 		t.Fatalf("operator text reached the mail unchecked: %q", got)
 	}
 }
+
+// The pulse lists what is being held on purpose, in the order the loop gives it,
+// with who acknowledged it when that is known.
+func TestThePulseListsWhatIsAcknowledged(t *testing.T) {
+	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	acks := []rule.Ack{
+		{Key: "policy_deny:run-1", By: "ops", Until: since.Add(4 * time.Hour).UnixMilli()},
+		{Key: "budget_threshold:run-2", Until: since.Add(2 * time.Hour).UnixMilli()},
+	}
+	got := PulseLines(rule.Pulse{Since: since, Read: 3, AckHeld: 2}, 1, 24*time.Hour, acks)
+	for _, want := range []string{
+		"2 held by acknowledgement.",
+		"Acknowledged now: policy_deny:run-1 until 2026-10-14 13:00:00 UTC by ops.",
+		"Acknowledged now: budget_threshold:run-2 until 2026-10-14 11:00:00 UTC.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("pulse lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+// An ack end with no start to report and no console still reads as a mail.
+func TestAnAckEndWithoutAStartOrConsoleStillReads(t *testing.T) {
+	m := AckReleased(Config{Box: "prod-box", ConsoleURL: "https://box.example.com/"}, rule.AckRelease{Key: "policy_deny:run-1", HeldCount: rule.HeldCount{Count: 1}}, now)
+	if strings.Contains(m.Body, "the first at") || strings.Contains(m.Body, ", the worst") {
+		t.Fatalf("the mail names a start or a worst it does not know:\n%s", m.Body)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(m.Body), "https://box.example.com") {
+		t.Fatalf("the mail does not end with the console link:\n%s", m.Body)
+	}
+}

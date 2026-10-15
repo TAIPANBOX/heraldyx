@@ -2,6 +2,7 @@ package rule
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -113,5 +114,46 @@ func TestAckHeldCountsSurviveARestart(t *testing.T) {
 	}
 	if back.AckHeld["policy_deny:run-1"].Count != 1 {
 		t.Fatalf("held counts lost across a restart: %s", raw)
+	}
+}
+
+func TestIsCriticalIsOnlyTheTopOfTheLadder(t *testing.T) {
+	for sev, want := range map[string]bool{"critical": true, "CRITICAL ": true, "high": false, "nonsense": false, "": false} {
+		if got := IsCritical(sev); got != want {
+			t.Errorf("IsCritical(%q) = %v, want %v", sev, got, want)
+		}
+	}
+}
+
+// Past the bound, a new condition is counted under one label rather than
+// growing the map, and nothing is lost from the count.
+func TestAHeldKeyPastTheBoundIsCountedUnderOneLabel(t *testing.T) {
+	st := NewState()
+	for i := 0; i < maxAckHeld; i++ {
+		st.NoteHeldByAck(fmt.Sprintf("policy_deny:run-%d", i), "high", ackT0)
+	}
+	st.NoteHeldByAck("policy_deny:run-overflow", "medium", ackT0)
+	st.NoteHeldByAck("policy_deny:run-overflow-2", "high", ackT0)
+	if h := st.AckHeld["(more, not listed)"]; h.Count != 2 || h.Worst != "high" {
+		t.Fatalf("the overflow was not counted under one label: %+v", h)
+	}
+	if len(st.AckHeld) != maxAckHeld+1 {
+		t.Fatalf("the map grew past its bound: %d entries", len(st.AckHeld))
+	}
+	if st.PulseAckHeld != maxAckHeld+2 {
+		t.Fatalf("the pulse count lost holds: %d", st.PulseAckHeld)
+	}
+}
+
+// Two conditions that end together are reported in key order, not map order.
+func TestReleasesComeOutInKeyOrder(t *testing.T) {
+	st := NewState()
+	cfg := ackedCfg("policy_deny:run-2", ackT0.Add(time.Hour))
+	cfg.Acks["policy_deny:run-1"] = Ack{Key: "policy_deny:run-1", At: ackT0.UnixMilli(), Until: ackT0.Add(time.Hour).UnixMilli()}
+	DecideKey(cfg, st, "policy_deny:run-2", "high", ackT0)
+	DecideKey(cfg, st, "policy_deny:run-1", "high", ackT0)
+	rel := st.TakeAckReleases(nil, ackT0.Add(2*time.Hour))
+	if len(rel) != 2 || rel[0].Key != "policy_deny:run-1" || rel[1].Key != "policy_deny:run-2" {
+		t.Fatalf("releases not in key order: %+v", rel)
 	}
 }

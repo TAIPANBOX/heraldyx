@@ -1133,3 +1133,81 @@ func TestAnUnackEndsTheHoldAtOnce(t *testing.T) {
 		t.Fatalf("removing the ack did not report what it held:\n%s", subjects(got))
 	}
 }
+
+// The list is what an operator reads before deciding what to remove, so it is
+// sorted by key and says plainly when nothing is in force.
+func TestTheAcksListShowsWhatIsInForceAndSaysWhenNothing(t *testing.T) {
+	newBench(t, "high")
+	out, _ := capture(t, func() {
+		if err := run([]string{"--acks"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(out, "no acknowledgement is in force") {
+		t.Fatalf("an empty list did not say so: %q", out)
+	}
+	if err := run([]string{"--ack", "policy_deny:run-2", "--for", "1h", "--by", "ops"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"--ack", "policy_deny:run-1", "--for", "1h", "--note", "deploy"}); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = capture(t, func() {
+		if err := run([]string{"--acks"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	first, second := strings.Index(out, "policy_deny:run-1"), strings.Index(out, "policy_deny:run-2")
+	if first < 0 || second < 0 || first > second {
+		t.Fatalf("the list is missing a key or is not in key order:\n%s", out)
+	}
+	if !strings.Contains(out, `by "ops"`) || !strings.Contains(out, `note "deploy"`) {
+		t.Fatalf("the list does not carry who acknowledged and why:\n%s", out)
+	}
+}
+
+func TestAnUnackOfAKeyNotInForceSaysSo(t *testing.T) {
+	newBench(t, "high")
+	err := run([]string{"--unack", "policy_deny:run-9"})
+	if err == nil || !strings.Contains(err.Error(), "no acknowledgement of policy_deny:run-9 is in force") {
+		t.Fatalf("an unack of nothing did not say so: %v", err)
+	}
+}
+
+// A control file that cannot be read is not an empty one: a command refuses to
+// write over it, and says nothing changed.
+func TestACommandThatCannotReadTheControlFileChangesNothing(t *testing.T) {
+	b := newBench(t, "high")
+	if err := os.MkdirAll(b.control, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"--ack", "policy_deny:run-1", "--for", "1h"},
+		{"--unack", "policy_deny:run-1"},
+	} {
+		err := run(args)
+		if err == nil || !strings.Contains(err.Error(), "nothing was changed") {
+			t.Fatalf("%v over an unreadable control file: %v", args, err)
+		}
+	}
+}
+
+// A malformed control file holds nothing, so every alert is mailed as usual,
+// and the log says why once rather than on every poll.
+func TestAMalformedControlFileHoldsNothingAndSaysSo(t *testing.T) {
+	b := newBench(t, "high")
+	write(t, b.control, "{not json")
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	t0 := time.Now().UTC()
+	write(t, b.events, ndjson("policy_deny", "high", "run-1", ""))
+	b.poll(t0.Add(time.Minute))
+	b.poll(t0.Add(2 * time.Minute))
+	if got := subjects(read(t, b.mail)); strings.Count(got, "] run-1 ") != 1 {
+		t.Fatalf("a malformed control file held or repeated an alert:\n%s", got)
+	}
+	if n := strings.Count(out.String(), "no acknowledgement is honoured"); n != 1 {
+		t.Fatalf("the malformed file was said %d times, want once:\n%s", n, out.String())
+	}
+}

@@ -72,3 +72,42 @@ func TestActiveLeavesOutWhatHasEnded(t *testing.T) {
 		t.Fatalf("an ended ack is still active: %+v", got)
 	}
 }
+
+func TestRemoveReportsWhetherThereWasAnAck(t *testing.T) {
+	var f File
+	_ = f.Put(ack("policy_deny:run-1", time.Hour))
+	if f.Remove("policy_deny:run-9") {
+		t.Fatal("removed an ack that was not there")
+	}
+	if !f.Remove("policy_deny:run-1") || len(f.Acks) != 0 {
+		t.Fatalf("the ack was not removed: %+v", f.Acks)
+	}
+}
+
+func TestPruneDropsWhatEndedAndKeepsWhatIsInForce(t *testing.T) {
+	var f File
+	_ = f.Put(ack("policy_deny:run-1", time.Hour))
+	_ = f.Put(ack("policy_deny:run-2", 3*time.Hour))
+	f.Prune(t0.Add(2 * time.Hour))
+	if len(f.Acks) != 1 || f.Acks[0].Key != "policy_deny:run-2" {
+		t.Fatalf("prune kept the wrong acks: %+v", f.Acks)
+	}
+}
+
+// A path that exists but is not a readable file is an error, not an empty file
+// that a command would then overwrite.
+func TestAnUnreadableControlFileIsAnErrorNotAnEmptyOne(t *testing.T) {
+	if _, err := Load(t.TempDir()); err == nil {
+		t.Fatal("a directory was read as an empty control file")
+	}
+}
+
+func TestASaveThatCannotCreateItsDirectoryIsAnError(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(parent, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(filepath.Join(parent, "control.json"), File{}); err == nil {
+		t.Fatal("a save under a regular file reported success")
+	}
+}

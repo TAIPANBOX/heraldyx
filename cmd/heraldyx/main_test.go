@@ -1029,3 +1029,17 @@ func pulses(t *testing.T, b *bench) int {
 	}
 	return strings.Count(read(t, b.mail), "daily pulse:")
 }
+
+// The digest carries the pulse and restarts its period, so the next standalone
+// pulse is a full period after the digest, not a period after the last poll.
+func TestTheDigestRestartsThePulsePeriod(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	write(t, b.events, ndjson("policy_deny", "medium", "run-1", "")) // below the floor: digest
+	b.poll(t0)
+	b.poll(t0.Add(24 * time.Hour)) // the digest, carrying the pulse
+	b.poll(t0.Add(25 * time.Hour))
+	if n := pulses(t, b); n != 0 {
+		t.Fatalf("a pulse went out an hour after a digest that carried one: %d", n)
+	}
+}

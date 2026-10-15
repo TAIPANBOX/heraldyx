@@ -634,6 +634,8 @@ const envHelp = `  HERALDYX_EVENTS         files and/or directories of NDJSON ag
   HERALDYX_MAX_PER_HOUR   ceiling on immediate messages (default 20, 0 = none)
   HERALDYX_DIGEST_HOURS   how often the below-threshold summary goes out
                           (default 24, 0 = never)
+  HERALDYX_PULSE_HOURS    how often a box says the notifier is alive, even
+                          when nothing happened (default 24, 0 = never)
   HERALDYX_POLL_MS        how often to read the log (default 2000)
   HERALDYX_STREAMS        what a stream file may carry beyond the built-in
                           table, as stem=source|source,... (default none)`

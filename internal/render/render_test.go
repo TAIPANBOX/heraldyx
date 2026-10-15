@@ -766,3 +766,31 @@ func TestACadenceReadsAsASentence(t *testing.T) {
 		}
 	}
 }
+
+// The pulse proves the path works and says, in numbers only, what this
+// process saw. It never claims delivery (invariant 8).
+func TestThePulseSaysAliveInNumbersOnly(t *testing.T) {
+	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	p := rule.Pulse{Since: since, Read: 42, Sent: 3, Held: 1, LastEventAt: since.Add(5 * time.Hour)}
+	m := Pulse(Config{Box: "prod-box"}, p, 2, 24*time.Hour, since.Add(24*time.Hour))
+	if !strings.Contains(m.Subject, "[prod-box] daily pulse: notifier alive, 42 events read, 3 alerts") {
+		t.Fatalf("subject: %q", m.Subject)
+	}
+	for _, want := range []string{"42 events read from 2 file(s)", "3 alerts handed to the mail transport", "1 held at the hourly limit", "HERALDYX_PULSE_HOURS=0"} {
+		if !strings.Contains(m.Body, want) {
+			t.Fatalf("body lacks %q:\n%s", want, m.Body)
+		}
+	}
+	if strings.Contains(strings.ToLower(m.Body), "delivered") {
+		t.Fatalf("the pulse claims delivery:\n%s", m.Body)
+	}
+}
+
+// A window with no event says so, rather than printing a zero time.
+func TestAPulseWithNoEventSaysNoneWasRead(t *testing.T) {
+	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	got := PulseLines(rule.Pulse{Since: since}, 1, 24*time.Hour)
+	if !strings.Contains(got, "No event was read in this period") {
+		t.Fatalf("a window with no event did not say so:\n%s", got)
+	}
+}

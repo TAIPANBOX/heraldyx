@@ -62,6 +62,7 @@ type Config struct {
 	DedupWindow  time.Duration
 	MaxPerHour   int
 	DigestPeriod time.Duration
+	PulsePeriod  time.Duration
 	PollInterval time.Duration
 }
 
@@ -84,6 +85,7 @@ func FromEnv() (Config, error) {
 		DedupWindow:   seconds("HERALDYX_DEDUP_SECONDS", 600),
 		MaxPerHour:    integer("HERALDYX_MAX_PER_HOUR", 20),
 		DigestPeriod:  hours("HERALDYX_DIGEST_HOURS", 24),
+		PulsePeriod:   hours("HERALDYX_PULSE_HOURS", 24),
 		PollInterval:  millis("HERALDYX_POLL_MS", 2000),
 	}
 	// Defaulted here rather than in the struct literal above, because it is

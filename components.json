@@ -65,6 +65,9 @@
           "HERALDYX_POLL_MS": {
             "required": false
           },
+          "HERALDYX_PULSE_HOURS": {
+            "required": false
+          },
           "HERALDYX_SENT": {
             "required": false
           },

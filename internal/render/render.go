@@ -1475,6 +1475,36 @@ func Digest(cfg Config, entries []rule.DigestEntry, since time.Time, now time.Ti
 	}
 }
 
+// Pulse is the mail that says this notifier is alive, sent when no digest
+// went out in the period. Numbers and the box name only (invariant 1).
+func Pulse(cfg Config, p rule.Pulse, files int, every time.Duration, now time.Time) Message {
+	var b strings.Builder
+	b.WriteString("This notifier is running, and this mail is the proof that its mail path works.\n\n")
+	b.WriteString(PulseLines(p, files, every))
+	if cfg.ConsoleURL != "" {
+		fmt.Fprintf(&b, "\n%s\n", strings.TrimRight(cfg.ConsoleURL, "/"))
+	}
+	return Message{
+		Subject: fmt.Sprintf("[%s] daily pulse: notifier alive, %d events read, %d alerts", boxName(cfg), p.Read, p.Sent),
+		Body:    b.String(),
+	}
+}
+
+// PulseLines is the pulse's report, shared by the standalone pulse and the
+// digest that carries it, so the two cannot say different things.
+func PulseLines(p rule.Pulse, files int, every time.Duration) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Since %s: %d events read from %d file(s), %d alerts handed to the mail transport, %d held at the hourly limit.\n",
+		stampTime(p.Since), p.Read, files, p.Sent, p.Held)
+	if p.LastEventAt.IsZero() {
+		b.WriteString("No event was read in this period. A quiet fleet and a stopped producer look the same from here.\n")
+	} else {
+		fmt.Fprintf(&b, "The last event was read at %s.\n", stampTime(p.LastEventAt))
+	}
+	fmt.Fprintf(&b, "If this report stops arriving every %s, this notifier or its mail path is down. HERALDYX_PULSE_HOURS=0 turns it off.\n", plainDuration(every))
+	return b.String()
+}
+
 // Link returns the console deep link for an event, or "" when no console
 // address is configured.
 //

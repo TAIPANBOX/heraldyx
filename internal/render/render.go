@@ -1453,6 +1453,19 @@ func plainDuration(d time.Duration) string {
 	}
 }
 
+// pulseEvery says the pulse period the way a sentence would. The period is set
+// in hours, so a day reads as "24 hours" and not as "1440 minutes". plainDuration
+// stays about cadences, which are minutes.
+func pulseEvery(d time.Duration) string {
+	if d%time.Hour == 0 {
+		if h := int(d / time.Hour); h != 1 {
+			return fmt.Sprintf("%d hours", h)
+		}
+		return "hour"
+	}
+	return plainDuration(d)
+}
+
 // Digest renders the daily summary of everything below the immediate floor.
 func Digest(cfg Config, entries []rule.DigestEntry, since time.Time, now time.Time) Message {
 	var b strings.Builder
@@ -1501,7 +1514,7 @@ func PulseLines(p rule.Pulse, files int, every time.Duration) string {
 	} else {
 		fmt.Fprintf(&b, "The last event was read at %s.\n", stampTime(p.LastEventAt))
 	}
-	fmt.Fprintf(&b, "If this report stops arriving every %s, this notifier or its mail path is down. HERALDYX_PULSE_HOURS=0 turns it off.\n", plainDuration(every))
+	fmt.Fprintf(&b, "If this report stops arriving every %s, this notifier or its mail path is down. HERALDYX_PULSE_HOURS=0 turns it off.\n", pulseEvery(every))
 	return b.String()
 }
 

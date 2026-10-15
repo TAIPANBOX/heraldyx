@@ -776,7 +776,7 @@ func TestThePulseSaysAliveInNumbersOnly(t *testing.T) {
 	if !strings.Contains(m.Subject, "[prod-box] daily pulse: notifier alive, 42 events read, 3 alerts") {
 		t.Fatalf("subject: %q", m.Subject)
 	}
-	for _, want := range []string{"42 events read from 2 file(s)", "3 alerts handed to the mail transport", "1 held at the hourly limit", "HERALDYX_PULSE_HOURS=0"} {
+	for _, want := range []string{"42 events read from 2 file(s)", "3 alerts handed to the mail transport", "1 held at the hourly limit", "HERALDYX_PULSE_HOURS=0", "stops arriving every 24 hours"} {
 		if !strings.Contains(m.Body, want) {
 			t.Fatalf("body lacks %q:\n%s", want, m.Body)
 		}

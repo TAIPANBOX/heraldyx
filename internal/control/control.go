@@ -24,6 +24,9 @@ const maxAcks = 200
 // File is the whole control file.
 type File struct {
 	Acks []rule.Ack `json:"acks"`
+	// Maintenance is the one maintenance window opened by the command line,
+	// nil when none. Written only by --maintenance; the loop only reads it.
+	Maintenance *rule.Maintenance `json:"maintenance,omitempty"`
 }
 
 // Load reads the file. Missing is empty and not an error. Unreadable or
@@ -119,6 +122,43 @@ func (f *File) Prune(now time.Time) {
 		}
 	}
 	f.Acks = keep
+	if f.Maintenance != nil && now.UnixMilli() >= f.Maintenance.Until {
+		f.Maintenance = nil
+	}
+}
+
+// SetMaintenance opens a maintenance window, replacing any other.
+func (f *File) SetMaintenance(m rule.Maintenance) error {
+	if err := rule.ValidateMaintenance(m); err != nil {
+		return err
+	}
+	f.Maintenance = &m
+	return nil
+}
+
+// EndMaintenance removes the window and reports whether there was one.
+func (f *File) EndMaintenance() bool {
+	if f.Maintenance == nil {
+		return false
+	}
+	f.Maintenance = nil
+	return true
+}
+
+// ActiveMaintenance returns the window in force at now, or nil. A window that
+// fails validation, has not started, has ended, or ends further away than
+// MaxMaintenance (a hand-edited file) is not honoured.
+func (f File) ActiveMaintenance(now time.Time) *rule.Maintenance {
+	m := f.Maintenance
+	if m == nil || rule.ValidateMaintenance(*m) != nil {
+		return nil
+	}
+	n := now.UnixMilli()
+	if n < m.At || n >= m.Until || m.Until > n+rule.MaxMaintenance.Milliseconds() {
+		return nil
+	}
+	c := *m
+	return &c
 }
 
 // Active returns the acknowledgements in force at now, by key. An entry that

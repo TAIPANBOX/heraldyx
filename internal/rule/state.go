@@ -66,6 +66,17 @@ type State struct {
 	// the acknowledgement was in force. Persisted with the rest of the state
 	// (invariant 5), so a restart does not lose what the operator is owed.
 	AckHeld map[string]HeldCount `json:"ack_held,omitempty"`
+	// QuietHeld and MaintHeld count what each kind of hold window kept back
+	// since it opened. Persisted (invariant 5): a restart inside a window does
+	// not lose what the operator is owed when it ends.
+	QuietHeld HeldCount `json:"quiet_held"`
+	MaintHeld HeldCount `json:"maint_held"`
+	// MaintAnnounced is the maintenance window this process announced as open,
+	// nil when none; its close is owed while it is set.
+	MaintAnnounced *Maintenance `json:"maint_announced,omitempty"`
+	// PulseWindowHeld counts alerts a hold window (quiet hours or maintenance)
+	// held since PulseSince.
+	PulseWindowHeld int `json:"pulse_window_held,omitempty"`
 }
 
 // Cadence bounds how often the ceiling's own summary goes out while alerts
@@ -288,6 +299,7 @@ type Pulse struct {
 	Sent        int
 	Held        int
 	AckHeld     int       // alerts an acknowledgement held in the window
+	WindowHeld  int       // alerts quiet hours or a maintenance window held
 	LastEventAt time.Time // zero when no event was read in the window
 }
 
@@ -319,12 +331,12 @@ func (s *State) TakePulse(now time.Time) Pulse {
 	if since == 0 {
 		since = now.UnixMilli()
 	}
-	p := Pulse{Since: time.UnixMilli(since), Read: s.PulseRead, Sent: s.PulseSent, Held: s.PulseHeld, AckHeld: s.PulseAckHeld}
+	p := Pulse{Since: time.UnixMilli(since), Read: s.PulseRead, Sent: s.PulseSent, Held: s.PulseHeld, AckHeld: s.PulseAckHeld, WindowHeld: s.PulseWindowHeld}
 	if s.PulseLastEventAt > 0 {
 		p.LastEventAt = time.UnixMilli(s.PulseLastEventAt)
 	}
 	s.PulseSince = now.UnixMilli()
-	s.PulseRead, s.PulseSent, s.PulseHeld, s.PulseLastEventAt, s.PulseAckHeld = 0, 0, 0, 0, 0
+	s.PulseRead, s.PulseSent, s.PulseHeld, s.PulseLastEventAt, s.PulseAckHeld, s.PulseWindowHeld = 0, 0, 0, 0, 0, 0
 	return p
 }
 

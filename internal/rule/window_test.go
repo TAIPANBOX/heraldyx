@@ -159,3 +159,24 @@ func TestValidateMaintenanceRefusesWhatMustNotBeHonoured(t *testing.T) {
 		}
 	}
 }
+
+// A window holds nothing before it opens or after it closes, and a quiet
+// window with no zone, or with equal start and end, holds nothing at all.
+func TestAWindowHoldsOnlyItsOwnSpan(t *testing.T) {
+	m := maint("", time.Hour)
+	if m.Covers("wardryx", winT0.Add(-time.Second)) {
+		t.Error("a window held an alert before it opened")
+	}
+	if m.Covers("wardryx", winT0.Add(time.Hour)) {
+		t.Error("a window held an alert at the moment it closed")
+	}
+	if !m.Covers("wardryx", winT0.Add(time.Hour-time.Millisecond)) {
+		t.Error("a window did not hold an alert a millisecond before it closed")
+	}
+	if (QuietHours{Start: 60, End: 60, Loc: time.UTC}).Contains(winT0) {
+		t.Error("quiet hours with equal start and end held an alert")
+	}
+	if (QuietHours{Start: 0, End: 23 * 60, Loc: nil}).Contains(winT0) {
+		t.Error("quiet hours with no zone held an alert")
+	}
+}

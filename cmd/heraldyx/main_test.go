@@ -1300,3 +1300,59 @@ func TestAMaintenanceLongerThanADayIsRefused(t *testing.T) {
 		t.Fatal("a refused window wrote the control file")
 	}
 }
+
+// --maintenance-end closes the window now, and the loop reports the close on
+// its next poll, the same as a window that ran out.
+func TestEndingAMaintenanceWindowClosesItAndSaysSo(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Now().UTC()
+	if err := run([]string{"--maintenance", "30m", "--note", "upgrade"}); err != nil {
+		t.Fatal(err)
+	}
+	b.poll(t0.Add(time.Minute))
+	if err := run([]string{"--maintenance-end"}); err != nil {
+		t.Fatal(err)
+	}
+	b.poll(t0.Add(2 * time.Minute))
+	if got := read(t, b.mail); !strings.Contains(got, "maintenance window closed: 0 alert(s) held") {
+		t.Fatalf("ending the window early did not send its close:\n%s", subjects(got))
+	}
+}
+
+func TestEndingWhenNoWindowIsOpenIsRefused(t *testing.T) {
+	newBench(t, "high")
+	if err := run([]string{"--maintenance-end"}); err == nil || !strings.Contains(err.Error(), "no maintenance window is open") {
+		t.Fatalf("ending a window that is not open: %v", err)
+	}
+}
+
+// The scope of a window is written with it, so the loop holds only that source.
+func TestTheScopeOfAMaintenanceWindowIsKeptInTheControlFile(t *testing.T) {
+	b := newBench(t, "high")
+	if err := run([]string{"--maintenance", "30m", "--scope", "tokenfuse"}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := control.Load(b.control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Maintenance == nil || f.Maintenance.Scope != "tokenfuse" {
+		t.Fatalf("the scope did not reach the control file: %+v", f.Maintenance)
+	}
+}
+
+// A control file that cannot be read is not overwritten by a window command,
+// the same rule the acknowledgement commands keep.
+func TestAMaintenanceCommandRefusesToOverwriteAnUnreadableControlFile(t *testing.T) {
+	b := newBench(t, "high")
+	write(t, b.control, "{not json")
+	if err := run([]string{"--maintenance", "30m"}); err == nil {
+		t.Fatal("a window was opened over an unreadable control file")
+	}
+	if err := run([]string{"--maintenance-end"}); err == nil {
+		t.Fatal("a window was ended in an unreadable control file")
+	}
+	if got := read(t, b.control); got != "{not json" {
+		t.Fatalf("the unreadable control file was rewritten: %q", got)
+	}
+}

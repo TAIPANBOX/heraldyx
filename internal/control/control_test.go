@@ -188,3 +188,13 @@ func TestPruneDropsAnEndedMaintenanceWindow(t *testing.T) {
 		t.Fatalf("an ended window survived a prune: %+v", f.Maintenance)
 	}
 }
+
+func TestSettingAWindowRefusesAnInvalidOneAndEndingNothingSaysSo(t *testing.T) {
+	var f File
+	if err := f.SetMaintenance(rule.Maintenance{At: t0.UnixMilli(), Until: t0.UnixMilli()}); err == nil {
+		t.Fatal("a window that ends when it starts was accepted")
+	}
+	if f.EndMaintenance() {
+		t.Fatal("ending a window that was never set reported one")
+	}
+}

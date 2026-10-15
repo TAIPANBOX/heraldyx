@@ -962,3 +962,16 @@ func TestThePulseCountsWhatAWindowHeldAndNamesAnOpenWindow(t *testing.T) {
 		t.Fatalf("pulse lines lack the window facts:\n%s", got)
 	}
 }
+
+func TestAMaintenanceCloseNamesTheFirstAndTheWorstWhenSomethingWasHeld(t *testing.T) {
+	first := time.Date(2026, 10, 16, 10, 5, 0, 0, time.UTC)
+	got := MaintenanceClosed(Config{Box: "prod-box"}, rule.Maintenance{Note: "<b>upgrade</b>"}, rule.HeldCount{Count: 2, Worst: "high", First: first.UnixMilli()}, first.Add(time.Hour))
+	for _, want := range []string{"2 alert(s) below critical were held", "the first at", "the worst high", "Alerting is back to normal"} {
+		if !strings.Contains(got.Body, want) {
+			t.Fatalf("close lacks %q:\n%s", want, got.Body)
+		}
+	}
+	if strings.Contains(got.Body, "<b>") {
+		t.Fatalf("an unsafe note reached the close:\n%s", got.Body)
+	}
+}

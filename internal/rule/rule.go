@@ -57,6 +57,9 @@ func Rank(severity string) int {
 	}
 }
 
+// IsCritical reports whether severity is the top of the ladder.
+func IsCritical(severity string) bool { return Rank(severity) == rankCrit }
+
 // word is the canonical spelling of a known rank, the inverse of [Rank] for
 // everything Rank knows. An unknown rank has no word and gets an empty one.
 func word(rank int) string {
@@ -100,6 +103,10 @@ const (
 	// [Cadence], never the events themselves, and [State.SuppressedSince]
 	// carries the count.
 	Suppressed
+	// Held: it would have been a Notify, but an acknowledgement covers its key
+	// and it is not a critical. Counted in [State.AckHeld] and reported when
+	// the acknowledgement ends.
+	Held
 )
 
 func (v Verdict) String() string {
@@ -112,6 +119,8 @@ func (v Verdict) String() string {
 		return "notify"
 	case Suppressed:
 		return "suppressed"
+	case Held:
+		return "held"
 	default:
 		return "unknown"
 	}
@@ -129,6 +138,9 @@ type Config struct {
 	// MaxPerHour caps immediate messages. Zero means no ceiling, which is a
 	// choice an operator can make and not a default.
 	MaxPerHour int
+	// Acks are the acknowledgements in force, by key, as the loop read them
+	// from the control file this poll. Read only here; nil means none.
+	Acks map[string]Ack
 }
 
 // DefaultConfig is a floor of `high`, a 10 minute dedup window, and 20
@@ -190,6 +202,16 @@ func DecideKey(cfg Config, st *State, key, severity string, now time.Time) Verdi
 	// crowd out the one different thing that happened.
 	if st.SentWithin(key, cfg.DedupWindow, now) {
 		return Drop
+	}
+
+	// An acknowledgement holds its own key, below critical only, until it
+	// ends. Before the ceiling: an alert the operator already acknowledged
+	// must not spend the hour's budget, and it is counted, never lost.
+	if r < rankCrit {
+		if a, ok := cfg.Acks[key]; ok && now.UnixMilli() < a.Until {
+			st.NoteHeldByAck(key, severity, now)
+			return Held
+		}
 	}
 
 	// The ceiling holds everything below critical. A critical goes through

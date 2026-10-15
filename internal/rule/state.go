@@ -60,6 +60,12 @@ type State struct {
 	// PulseLastEventAt is the unix millis of the last poll that read at least
 	// one event in this window, zero when none did.
 	PulseLastEventAt int64 `json:"pulse_last_event_at,omitempty"`
+	// PulseAckHeld counts alerts an acknowledgement held since PulseSince.
+	PulseAckHeld int `json:"pulse_ack_held,omitempty"`
+	// AckHeld is dedup key -> what an acknowledgement has held under it since
+	// the acknowledgement was in force. Persisted with the rest of the state
+	// (invariant 5), so a restart does not lose what the operator is owed.
+	AckHeld map[string]HeldCount `json:"ack_held,omitempty"`
 }
 
 // Cadence bounds how often the ceiling's own summary goes out while alerts
@@ -281,6 +287,7 @@ type Pulse struct {
 	Read        int
 	Sent        int
 	Held        int
+	AckHeld     int       // alerts an acknowledgement held in the window
 	LastEventAt time.Time // zero when no event was read in the window
 }
 
@@ -312,12 +319,12 @@ func (s *State) TakePulse(now time.Time) Pulse {
 	if since == 0 {
 		since = now.UnixMilli()
 	}
-	p := Pulse{Since: time.UnixMilli(since), Read: s.PulseRead, Sent: s.PulseSent, Held: s.PulseHeld}
+	p := Pulse{Since: time.UnixMilli(since), Read: s.PulseRead, Sent: s.PulseSent, Held: s.PulseHeld, AckHeld: s.PulseAckHeld}
 	if s.PulseLastEventAt > 0 {
 		p.LastEventAt = time.UnixMilli(s.PulseLastEventAt)
 	}
 	s.PulseSince = now.UnixMilli()
-	s.PulseRead, s.PulseSent, s.PulseHeld, s.PulseLastEventAt = 0, 0, 0, 0
+	s.PulseRead, s.PulseSent, s.PulseHeld, s.PulseLastEventAt, s.PulseAckHeld = 0, 0, 0, 0, 0
 	return p
 }
 

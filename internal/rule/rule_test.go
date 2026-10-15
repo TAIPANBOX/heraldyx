@@ -1,6 +1,7 @@
 package rule
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -377,5 +378,70 @@ func TestANoticeKeyIsHeldToTheFloorTheDedupWindowAndTheCeiling(t *testing.T) {
 	}
 	if v := DecideKey(cfg, st, "foreign_source:t.ndjson:e", "high", t0.Add(2*time.Minute)); v != Suppressed {
 		t.Fatalf("past the ceiling: %v, want suppressed", v)
+	}
+}
+
+// The pulse window opens on the first poll, counts what this process read,
+// sent and held, is due once the period has passed, and resets when taken.
+func TestPulseIsDueAfterThePeriodAndCarriesTheCounts(t *testing.T) {
+	st := NewState()
+	t0 := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+
+	st.NotePoll(3, t0)
+	st.NoteSent("policy_deny:run-1", t0)
+	st.NoteSuppressed("high", t0)
+	st.NotePoll(0, t0.Add(time.Hour))
+
+	if st.PulseDue(day, t0.Add(day-time.Second)) {
+		t.Fatal("a pulse was due before its period had passed")
+	}
+	if !st.PulseDue(day, t0.Add(day)) {
+		t.Fatal("no pulse due after a full period")
+	}
+	p := st.TakePulse(t0.Add(day))
+	if p.Read != 3 || p.Sent != 1 || p.Held != 1 {
+		t.Fatalf("want read 3, sent 1, held 1; have read %d, sent %d, held %d", p.Read, p.Sent, p.Held)
+	}
+	if !p.Since.Equal(t0) {
+		t.Fatalf("want since %s, have %s", t0, p.Since)
+	}
+	if !p.LastEventAt.Equal(t0) {
+		t.Fatalf("the last poll that read events was at %s, have %s", t0, p.LastEventAt)
+	}
+	if st.PulseDue(day, t0.Add(day+time.Minute)) {
+		t.Fatal("taking the pulse did not open a new window")
+	}
+	if q := st.TakePulse(t0.Add(2 * day)); q.Read != 0 || q.Sent != 0 || q.Held != 0 || !q.LastEventAt.IsZero() {
+		t.Fatalf("taking the pulse did not reset its counters: %+v", q)
+	}
+}
+
+// Zero means off, and off is never due.
+func TestAPulseOfZeroIsNeverDue(t *testing.T) {
+	st := NewState()
+	t0 := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	st.NotePoll(1, t0)
+	if st.PulseDue(0, t0.Add(1000*time.Hour)) {
+		t.Fatal("a pulse period of zero was due")
+	}
+}
+
+// Invariant 5: the counters are state, and state survives a restart.
+func TestPulseCountersSurviveARestart(t *testing.T) {
+	st := NewState()
+	t0 := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	st.NotePoll(7, t0)
+	st.NoteSent("policy_deny:run-1", t0)
+	raw, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back := NewState()
+	if err := json.Unmarshal(raw, back); err != nil {
+		t.Fatal(err)
+	}
+	if back.PulseSince != t0.UnixMilli() || back.PulseRead != 7 || back.PulseSent != 1 || back.PulseLastEventAt != t0.UnixMilli() {
+		t.Fatalf("pulse counters lost across a restart: %s", raw)
 	}
 }

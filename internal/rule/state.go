@@ -46,6 +46,20 @@ type State struct {
 	// SuppressNoticeAt is the unix millis of the last summary, so the summary
 	// itself cannot become the flood it warns about.
 	SuppressNoticeAt int64 `json:"suppress_notice_at"`
+	// PulseSince is the unix millis the current pulse window opened: the
+	// previous pulse, or the first poll this state saw. Zero in a state file
+	// written before the pulse existed; the next poll opens it.
+	PulseSince int64 `json:"pulse_since,omitempty"`
+	// PulseRead counts events read since PulseSince.
+	PulseRead int `json:"pulse_read,omitempty"`
+	// PulseSent counts alerts handed to the mail transport since PulseSince
+	// (every NoteSent). Handed over, not delivered: invariant 8.
+	PulseSent int `json:"pulse_sent,omitempty"`
+	// PulseHeld counts alerts the hourly ceiling held since PulseSince.
+	PulseHeld int `json:"pulse_held,omitempty"`
+	// PulseLastEventAt is the unix millis of the last poll that read at least
+	// one event in this window, zero when none did.
+	PulseLastEventAt int64 `json:"pulse_last_event_at,omitempty"`
 }
 
 // Cadence bounds how often the ceiling's own summary goes out while alerts
@@ -138,6 +152,7 @@ func (s *State) NoteSent(key string, now time.Time) {
 	s.ensure()
 	ms := now.UnixMilli()
 	s.LastSent[key] = ms
+	s.PulseSent++
 	s.SentTimes = append(s.SentTimes, ms)
 	s.trimSentTimes(now)
 	s.trimLastSent(now)
@@ -167,6 +182,7 @@ func (s *State) NoteSuppressed(severity string, now time.Time) {
 		s.SuppressedWorst = ""
 	}
 	s.SuppressedSince++
+	s.PulseHeld++
 	if r := Rank(severity); r > Rank(s.SuppressedWorst) {
 		s.SuppressedWorst = word(r)
 	}
@@ -256,6 +272,53 @@ func (s *State) TakeDigest(now time.Time) []DigestEntry {
 	s.Digest = map[string]int{}
 	s.DigestSince = now.UnixMilli()
 	return out
+}
+
+// Pulse is what one daily pulse carries: proof the notifier ran, with the
+// numbers that let an operator tell a quiet fleet from a blind notifier.
+type Pulse struct {
+	Since       time.Time
+	Read        int
+	Sent        int
+	Held        int
+	LastEventAt time.Time // zero when no event was read in the window
+}
+
+// NotePoll records one poll that read n events at now. The first poll a state
+// sees opens the pulse window.
+func (s *State) NotePoll(n int, now time.Time) {
+	if s.PulseSince == 0 {
+		s.PulseSince = now.UnixMilli()
+	}
+	if n > 0 {
+		s.PulseRead += n
+		s.PulseLastEventAt = now.UnixMilli()
+	}
+}
+
+// PulseDue reports whether period has passed since the pulse window opened.
+// A period of zero or less means the pulse is off. A window stamped in the
+// future counts as just opened, as SentWithin treats a future stamp.
+func (s *State) PulseDue(period time.Duration, now time.Time) bool {
+	if period <= 0 || s.PulseSince == 0 {
+		return false
+	}
+	return now.UnixMilli()-s.PulseSince >= period.Milliseconds()
+}
+
+// TakePulse returns what the pulse carries and opens the next window at now.
+func (s *State) TakePulse(now time.Time) Pulse {
+	since := s.PulseSince
+	if since == 0 {
+		since = now.UnixMilli()
+	}
+	p := Pulse{Since: time.UnixMilli(since), Read: s.PulseRead, Sent: s.PulseSent, Held: s.PulseHeld}
+	if s.PulseLastEventAt > 0 {
+		p.LastEventAt = time.UnixMilli(s.PulseLastEventAt)
+	}
+	s.PulseSince = now.UnixMilli()
+	s.PulseRead, s.PulseSent, s.PulseHeld, s.PulseLastEventAt = 0, 0, 0, 0
+	return p
 }
 
 // trimSentTimes drops stamps older than an hour: the ceiling never looks

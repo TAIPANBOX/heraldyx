@@ -16,11 +16,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/TAIPANBOX/heraldyx/internal/config"
+	"github.com/TAIPANBOX/heraldyx/internal/control"
 	"github.com/TAIPANBOX/heraldyx/internal/deliver"
 	"github.com/TAIPANBOX/heraldyx/internal/fleet"
 	"github.com/TAIPANBOX/heraldyx/internal/passport"
@@ -54,6 +56,12 @@ func run(args []string) error {
 		fromNow   = fs.Bool("from-now", true, "on a first run, start at the end of the event log rather than mailing its history")
 		showVer   = fs.Bool("version", false, "print the version and exit")
 		journalOn = fs.Bool("journal", false, "print what has been sent, verify the record chain, and exit non-zero if it is broken")
+		ackKey    = fs.String("ack", "", "acknowledge the condition with this key (the Key line of a mail): alerts below critical about it are held until --for passes and reported when it ends; a critical is always sent")
+		ackFor    = fs.Duration("for", rule.DefaultAck, "how long --ack holds, at most 168h")
+		ackBy     = fs.String("by", "", "who acknowledges; recorded as reported, not verified")
+		ackNote   = fs.String("note", "", "a short note kept with the acknowledgement")
+		unackKey  = fs.String("unack", "", "remove the acknowledgement of this key now")
+		listAcks  = fs.Bool("acks", false, "list the acknowledgements in force and exit")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "heraldyx: mail the operator when an agent needs them\n\nflags:\n")
@@ -71,6 +79,17 @@ func run(args []string) error {
 	cfg, err := config.FromEnv()
 	if err != nil {
 		return err
+	}
+
+	// The acknowledgement commands come before senderFor: they only touch the
+	// control file, and they must work on a box whose mail is not set up.
+	switch {
+	case *ackKey != "":
+		return ackCommand(cfg, *ackKey, *ackFor, *ackBy, *ackNote, time.Now())
+	case *unackKey != "":
+		return unackCommand(cfg, *unackKey, time.Now())
+	case *listAcks:
+		return listAcksCommand(cfg, time.Now())
 	}
 
 	sender, err := senderFor(cfg)
@@ -345,6 +364,106 @@ func sayCeiling(maxPerHour int, first string, c rule.Cadence) {
 		maxPerHour, first, c.Every, c.Every, c.Burst)
 }
 
+// ackCommand writes one acknowledgement to the control file. It is the only
+// writer of that file besides --unack: the loop only reads it.
+func ackCommand(cfg config.Config, key string, d time.Duration, by, note string, now time.Time) error {
+	f, err := control.Load(cfg.ControlPath)
+	if err != nil {
+		return fmt.Errorf("nothing was changed, because the control file cannot be read: %w", err)
+	}
+	f.Prune(now)
+	a := rule.Ack{Key: key, At: now.UnixMilli(), Until: now.Add(d).UnixMilli(), By: by, Note: note}
+	if err := f.Put(a); err != nil {
+		return err
+	}
+	if err := control.Save(cfg.ControlPath, f); err != nil {
+		return err
+	}
+	fmt.Printf("acknowledged %s until %s: alerts below critical about it are held and reported when this ends; a critical is still sent\n",
+		key, now.Add(d).UTC().Format(time.RFC3339))
+	return nil
+}
+
+func unackCommand(cfg config.Config, key string, now time.Time) error {
+	f, err := control.Load(cfg.ControlPath)
+	if err != nil {
+		return fmt.Errorf("nothing was changed, because the control file cannot be read: %w", err)
+	}
+	f.Prune(now)
+	if !f.Remove(key) {
+		return fmt.Errorf("no acknowledgement of %s is in force", key)
+	}
+	if err := control.Save(cfg.ControlPath, f); err != nil {
+		return err
+	}
+	fmt.Printf("acknowledgement of %s removed; what it held is reported on the next poll\n", key)
+	return nil
+}
+
+func listAcksCommand(cfg config.Config, now time.Time) error {
+	f, err := control.Load(cfg.ControlPath)
+	if err != nil {
+		return err
+	}
+	active := f.Active(now)
+	if len(active) == 0 {
+		fmt.Println("no acknowledgement is in force")
+		return nil
+	}
+	for _, a := range sortedAcks(active) {
+		fmt.Printf("%s until %s by %q note %q\n", a.Key, time.UnixMilli(a.Until).UTC().Format(time.RFC3339), a.By, a.Note)
+	}
+	return nil
+}
+
+// controlMemory is what the loop last logged about the control file: the error
+// text and the set of keys in force. Package level because cycle is called
+// with a fresh argument list each poll and this is a log de-duplicator, not
+// state; nothing decides on it. newBench resets it.
+type controlMemory struct{ err, keys string }
+
+var controlSaid controlMemory
+
+// loadAcks reads the acknowledgements in force for this poll. A file that
+// cannot be read holds nothing, and says so once per distinct error.
+func loadAcks(path string, now time.Time) map[string]rule.Ack {
+	f, err := control.Load(path)
+	if err != nil {
+		if err.Error() != controlSaid.err {
+			log.Printf("control: %v; no acknowledgement is honoured until it is fixed", err)
+			controlSaid.err = err.Error()
+		}
+		return nil
+	}
+	controlSaid.err = ""
+	active := f.Active(now)
+	keys := make([]string, 0, len(active))
+	for k := range active {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if joined := strings.Join(keys, ","); joined != controlSaid.keys {
+		log.Printf("control: %d acknowledgement(s) in force: %s", len(keys), joined)
+		controlSaid.keys = joined
+	}
+	return active
+}
+
+// sortedAcks returns the acknowledgements ordered by key, so the pulse lists
+// them the same way on every poll.
+func sortedAcks(acks map[string]rule.Ack) []rule.Ack {
+	keys := make([]string, 0, len(acks))
+	for k := range acks {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]rule.Ack, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, acks[k])
+	}
+	return out
+}
+
 // cycle is one pass: read what is new, decide, send. Split out so a test can
 // drive it with a fixed clock and no timers.
 func cycle(
@@ -374,6 +493,10 @@ func cycle(
 	var heldAgent, heldRun string
 	events := w.Poll()
 	snap.Rule.NotePoll(len(events), now)
+	// The acknowledgements in force this poll. rcfg is this call's own copy,
+	// so setting Acks here reaches only the decisions made in this cycle.
+	acks := loadAcks(cfg.ControlPath, now)
+	rcfg.Acks = acks
 	// What the watcher refused or did not recognise is raised BEFORE the events
 	// are decided, so a poll full of ordinary alerts cannot spend the hour's
 	// ceiling ahead of the one notice that says a plane's name is being used.
@@ -391,7 +514,11 @@ func cycle(
 				around = append(around, render.Around{Label: a.Kind.Label(), AgentID: fleet.Short(a.AgentID), What: a.What})
 			}
 			owner := passports.OwnerOf(e.AgentID, now)
-			deliver_(cfg, sender, journal, render.Event(rendercfg, e, now, owner, around), record.Dispatch{
+			m := render.Event(rendercfg, e, now, owner, around)
+			if a, ok := acks[rule.Key(e)]; ok && rule.IsCritical(e.Severity) {
+				m.Body += render.AckedCritical(a)
+			}
+			deliver_(cfg, sender, journal, m, record.Dispatch{
 				Kind:    record.KindAlert,
 				AgentID: e.AgentID,
 				RunID:   e.RunID,
@@ -418,9 +545,23 @@ func cycle(
 			if snap.Rule.SuppressedSince == 1 {
 				sayCeiling(rcfg.MaxPerHour, rule.Key(e), cadence)
 			}
+		case rule.Held:
+			// Counted by rule.Decide, reported when the acknowledgement ends.
+			// Not a Suppressed: an acknowledgement is the operator's own choice
+			// and does not spend the hourly ceiling.
 		case rule.Digest, rule.Drop:
 			// Nothing now. The digest goes out on its own schedule below.
 		}
+	}
+
+	// An acknowledgement that ended reports what it held. Filed under no
+	// agent: it is about a key, and this stack never invents an id
+	// (invariants 11 and 13).
+	for _, rel := range snap.Rule.TakeAckReleases(acks, now) {
+		deliver_(cfg, sender, journal, render.AckReleased(rendercfg, rel, now), record.Dispatch{
+			Kind:  record.KindAckRelease,
+			About: fmt.Sprintf("ack_release:%d", rel.Count),
+		}, now)
 	}
 
 	// The ceiling's own summary: under the cadence, carrying everything held
@@ -465,7 +606,7 @@ func cycle(
 		if cfg.PulsePeriod > 0 {
 			// The digest is itself a mail that proves the path works, so it
 			// carries the pulse and resets its window: one mail, never two.
-			m.Body += "\n" + render.PulseLines(snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, nil)
+			m.Body += "\n" + render.PulseLines(snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, sortedAcks(acks))
 		}
 		deliver_(cfg, sender, journal, m, record.Dispatch{
 			Kind:    record.KindDigest,
@@ -477,7 +618,7 @@ func cycle(
 		// No digest carried the pulse in a whole period. Filed like the
 		// digest: under the last agent that caused a message this cycle, or
 		// counted as a gap when none did (invariants 11 and 13).
-		deliver_(cfg, sender, journal, render.Pulse(rendercfg, snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, now, nil), record.Dispatch{
+		deliver_(cfg, sender, journal, render.Pulse(rendercfg, snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, now, sortedAcks(acks)), record.Dispatch{
 			Kind:    record.KindPulse,
 			AgentID: lastAgent,
 			RunID:   lastRun,
@@ -540,6 +681,8 @@ func raiseOnce(rcfg rule.Config, snap *state.Snapshot, raised, key, severity str
 		if snap.Rule.SuppressedSince == 1 {
 			sayCeiling(rcfg.MaxPerHour, key, cadence)
 		}
+	case rule.Held:
+		// Counted by DecideKey, reported when the acknowledgement ends.
 	case rule.Digest, rule.Drop:
 		// Counted in the digest by DecideKey when below the floor; a dropped
 		// duplicate inside the dedup window needs nothing more.

@@ -807,3 +807,20 @@ func TestThePulseLinksOnlyToTheConsoleView(t *testing.T) {
 		t.Fatalf("the pulse link carries a query string:\n%s", m.Body)
 	}
 }
+
+// The pulse period is set in hours, so it reads as hours, and only a period
+// that is not a whole hour falls back to the cadence spelling.
+func TestAPulsePeriodReadsAsHours(t *testing.T) {
+	for _, c := range []struct {
+		d    time.Duration
+		want string
+	}{
+		{time.Hour, "hour"},
+		{24 * time.Hour, "24 hours"},
+		{90 * time.Minute, "90 minutes"},
+	} {
+		if got := pulseEvery(c.d); got != c.want {
+			t.Errorf("pulseEvery(%s) = %q, want %q", c.d, got, c.want)
+		}
+	}
+}

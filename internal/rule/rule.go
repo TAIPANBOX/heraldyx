@@ -104,8 +104,9 @@ const (
 	// carries the count.
 	Suppressed
 	// Held: it would have been a Notify, but an acknowledgement covers its key
-	// and it is not a critical. Counted in [State.AckHeld] and reported when
-	// the acknowledgement ends.
+	// or a hold window (quiet hours, a maintenance window) is open, and it is
+	// not a critical. Counted in [State.AckHeld], [State.QuietHeld] or
+	// [State.MaintHeld], and reported when the acknowledgement or window ends.
 	Held
 )
 
@@ -141,6 +142,10 @@ type Config struct {
 	// Acks are the acknowledgements in force, by key, as the loop read them
 	// from the control file this poll. Read only here; nil means none.
 	Acks map[string]Ack
+	// Quiet is the recurring quiet window, nil when off. Loaded by config.
+	Quiet *QuietHours
+	// Maintenance is the maintenance window in force this poll, nil when none.
+	Maintenance *Maintenance
 }
 
 // DefaultConfig is a floor of `high`, a 10 minute dedup window, and 20
@@ -174,7 +179,7 @@ func Key(e event.Event) string {
 // record what it decided. The mutation is the point: dedup and the ceiling are
 // both memory, and a decision that does not remember itself is not a limit.
 func Decide(cfg Config, st *State, e event.Event, now time.Time) Verdict {
-	return DecideKey(cfg, st, Key(e), e.Severity, now)
+	return DecideFrom(cfg, st, Key(e), e.Severity, e.Source, now)
 }
 
 // DecideKey is [Decide] for something that is not an event line but has to
@@ -183,6 +188,17 @@ func Decide(cfg Config, st *State, e event.Event, now time.Time) Verdict {
 // notice is held to the floor, the dedup window and the ceiling like every
 // other alert, instead of being a second path around them.
 func DecideKey(cfg Config, st *State, key, severity string, now time.Time) Verdict {
+	return DecideFrom(cfg, st, key, severity, "", now)
+}
+
+// DecideFrom is the one decision. source is the event's source when there is
+// one, empty for a notice this process raised itself; a maintenance window
+// scoped to a source holds only alerts from that source.
+//
+// The order is the design's (section 5): floor, then dedup, then below
+// critical only, acknowledgement, then hold windows, then the ceiling. An
+// acknowledgement is the more specific reason, so it comes first.
+func DecideFrom(cfg Config, st *State, key, severity, source string, now time.Time) Verdict {
 	r := Rank(severity)
 
 	// An unknown severity is not silently dropped and not silently escalated.
@@ -210,6 +226,18 @@ func DecideKey(cfg Config, st *State, key, severity string, now time.Time) Verdi
 	if r < rankCrit {
 		if a, ok := cfg.Acks[key]; ok && now.UnixMilli() < a.Until {
 			st.NoteHeldByAck(key, severity, now)
+			return Held
+		}
+		// A maintenance window the operator opened on purpose is the more
+		// specific reason, then quiet hours. Below critical only, counted,
+		// reported when the window ends. Neither touches LastSent or the
+		// hourly ceiling: nothing was sent.
+		if cfg.Maintenance != nil && cfg.Maintenance.Covers(source, now) {
+			st.NoteHeldByWindow(WindowMaintenance, severity, now)
+			return Held
+		}
+		if cfg.Quiet != nil && cfg.Quiet.Contains(now) {
+			st.NoteHeldByWindow(WindowQuiet, severity, now)
 			return Held
 		}
 	}

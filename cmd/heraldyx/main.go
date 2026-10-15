@@ -10,6 +10,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -20,6 +21,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	// The zone database is compiled in so a distroless image can load a zone
+	// such as Europe/London for HERALDYX_QUIET, with no /usr/share/zoneinfo.
+	_ "time/tzdata"
 
 	"github.com/TAIPANBOX/heraldyx/internal/config"
 	"github.com/TAIPANBOX/heraldyx/internal/control"
@@ -51,17 +55,20 @@ func main() {
 func run(args []string) error {
 	fs := flag.NewFlagSet("heraldyx", flag.ContinueOnError)
 	var (
-		testMail  = fs.Bool("test-mail", false, "send one test message and exit (used by the installer, so a wrong mail setup is found while the operator is still at the keyboard)")
-		once      = fs.Bool("once", false, "poll once and exit, instead of running until stopped")
-		fromNow   = fs.Bool("from-now", true, "on a first run, start at the end of the event log rather than mailing its history")
-		showVer   = fs.Bool("version", false, "print the version and exit")
-		journalOn = fs.Bool("journal", false, "print what has been sent, verify the record chain, and exit non-zero if it is broken")
-		ackKey    = fs.String("ack", "", "acknowledge the condition with this key (the Key line of a mail): alerts below critical about it are held until --for passes and reported when it ends; a critical is always sent")
-		ackFor    = fs.Duration("for", rule.DefaultAck, "how long --ack holds, at most 168h")
-		ackBy     = fs.String("by", "", "who acknowledges; recorded as reported, not verified")
-		ackNote   = fs.String("note", "", "a short note kept with the acknowledgement")
-		unackKey  = fs.String("unack", "", "remove the acknowledgement of this key now")
-		listAcks  = fs.Bool("acks", false, "list the acknowledgements in force and exit")
+		testMail   = fs.Bool("test-mail", false, "send one test message and exit (used by the installer, so a wrong mail setup is found while the operator is still at the keyboard)")
+		once       = fs.Bool("once", false, "poll once and exit, instead of running until stopped")
+		fromNow    = fs.Bool("from-now", true, "on a first run, start at the end of the event log rather than mailing its history")
+		showVer    = fs.Bool("version", false, "print the version and exit")
+		journalOn  = fs.Bool("journal", false, "print what has been sent, verify the record chain, and exit non-zero if it is broken")
+		ackKey     = fs.String("ack", "", "acknowledge the condition with this key (the Key line of a mail): alerts below critical about it are held until --for passes and reported when it ends; a critical is always sent")
+		ackFor     = fs.Duration("for", rule.DefaultAck, "how long --ack holds, at most 168h")
+		ackBy      = fs.String("by", "", "who acknowledges; recorded as reported, not verified")
+		ackNote    = fs.String("note", "", "a short note kept with the acknowledgement")
+		unackKey   = fs.String("unack", "", "remove the acknowledgement of this key now")
+		listAcks   = fs.Bool("acks", false, "list the acknowledgements in force and exit")
+		maintFor   = fs.Duration("maintenance", 0, "open a maintenance window for this long, at most 24h: alerts below critical are held and reported when it closes; a critical is always sent")
+		maintScope = fs.String("scope", "", "with --maintenance: hold only alerts from this source")
+		maintEnd   = fs.Bool("maintenance-end", false, "close the maintenance window now")
 	)
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "heraldyx: mail the operator when an agent needs them\n\nflags:\n")
@@ -81,8 +88,16 @@ func run(args []string) error {
 		return err
 	}
 
-	// The acknowledgement commands come before senderFor: they only touch the
-	// control file, and they must work on a box whose mail is not set up.
+	// Whether --maintenance was given at all, so that --maintenance 0 is
+	// refused as a window and does not fall through to running the loop.
+	maintGiven := false
+	fs.Visit(func(f *flag.Flag) {
+		maintGiven = maintGiven || f.Name == "maintenance"
+	})
+
+	// The acknowledgement and maintenance commands come before senderFor: they
+	// only touch the control file, and they must work on a box whose mail is
+	// not set up.
 	switch {
 	case *ackKey != "":
 		return ackCommand(cfg, *ackKey, *ackFor, *ackBy, *ackNote, time.Now())
@@ -90,6 +105,10 @@ func run(args []string) error {
 		return unackCommand(cfg, *unackKey, time.Now())
 	case *listAcks:
 		return listAcksCommand(cfg, time.Now())
+	case maintGiven:
+		return maintenanceCommand(cfg, *maintFor, *maintScope, *ackBy, *ackNote, time.Now())
+	case *maintEnd:
+		return endMaintenanceCommand(cfg, time.Now())
 	}
 
 	sender, err := senderFor(cfg)
@@ -171,6 +190,13 @@ func run(args []string) error {
 	if len(files) == 0 {
 		log.Printf("no event log exists yet under %s: this process will keep looking, and until one appears there is nothing to notify about",
 			strings.Join(cfg.EventPaths, ", "))
+	}
+	if cfg.QuietWhy != "" {
+		log.Printf("quiet hours: %s", cfg.QuietWhy)
+	}
+	if q := cfg.Quiet; q != nil {
+		log.Printf("quiet hours: %02d:%02d to %02d:%02d in %s; alerts below critical are held and reported when the hours end, a critical is always sent",
+			q.Start/60, q.Start%60, q.End/60, q.End%60, q.Loc)
 	}
 
 	if reason := cfg.Why(); reason != "" {
@@ -400,6 +426,45 @@ func unackCommand(cfg config.Config, key string, now time.Time) error {
 	return nil
 }
 
+// maintenanceCommand opens a maintenance window. It replaces a window already
+// open, and with --maintenance-end it is the only writer of the window besides
+// that command: the loop only reads the control file.
+func maintenanceCommand(cfg config.Config, d time.Duration, scope, by, note string, now time.Time) error {
+	f, err := control.Load(cfg.ControlPath)
+	if err != nil {
+		return fmt.Errorf("nothing was changed, because the control file cannot be read: %w", err)
+	}
+	f.Prune(now)
+	m := rule.Maintenance{At: now.UnixMilli(), Until: now.Add(d).UnixMilli(), Scope: scope, By: by, Note: note}
+	if err := f.SetMaintenance(m); err != nil {
+		return err
+	}
+	if err := control.Save(cfg.ControlPath, f); err != nil {
+		return err
+	}
+	fmt.Printf("maintenance window open until %s: alerts below critical are held and reported when it closes; a critical is still sent\n",
+		time.UnixMilli(m.Until).UTC().Format(time.RFC3339))
+	return nil
+}
+
+// endMaintenanceCommand closes the maintenance window now. What it held is
+// reported by the loop on its next poll, as an unacknowledgement's is.
+func endMaintenanceCommand(cfg config.Config, now time.Time) error {
+	f, err := control.Load(cfg.ControlPath)
+	if err != nil {
+		return fmt.Errorf("nothing was changed, because the control file cannot be read: %w", err)
+	}
+	f.Prune(now)
+	if !f.EndMaintenance() {
+		return errors.New("no maintenance window is open")
+	}
+	if err := control.Save(cfg.ControlPath, f); err != nil {
+		return err
+	}
+	fmt.Println("maintenance window closed; what it held is reported on the next poll")
+	return nil
+}
+
 func listAcksCommand(cfg config.Config, now time.Time) error {
 	f, err := control.Load(cfg.ControlPath)
 	if err != nil {
@@ -417,23 +482,25 @@ func listAcksCommand(cfg config.Config, now time.Time) error {
 }
 
 // controlMemory is what the loop last logged about the control file: the error
-// text and the set of keys in force. Package level because cycle is called
-// with a fresh argument list each poll and this is a log de-duplicator, not
-// state; nothing decides on it. newBench resets it.
-type controlMemory struct{ err, keys string }
+// text, the set of keys in force and the maintenance window in force. Package
+// level because cycle is called with a fresh argument list each poll and this
+// is a log de-duplicator, not state; nothing decides on it. newBench resets it.
+type controlMemory struct{ err, keys, maint string }
 
 var controlSaid controlMemory
 
-// loadAcks reads the acknowledgements in force for this poll. A file that
-// cannot be read holds nothing, and says so once per distinct error.
-func loadAcks(path string, now time.Time) map[string]rule.Ack {
+// loadControl reads what the operator has set on the box for this poll: the
+// acknowledgements in force and the maintenance window, if one is. A file that
+// cannot be read holds nothing, so neither is honoured, and says so once per
+// distinct error.
+func loadControl(path string, now time.Time) (map[string]rule.Ack, *rule.Maintenance) {
 	f, err := control.Load(path)
 	if err != nil {
 		if err.Error() != controlSaid.err {
-			log.Printf("control: %v; no acknowledgement is honoured until it is fixed", err)
+			log.Printf("control: %v; no acknowledgement is honoured and no maintenance window is in force until it is fixed", err)
 			controlSaid.err = err.Error()
 		}
-		return nil
+		return nil, nil
 	}
 	controlSaid.err = ""
 	active := f.Active(now)
@@ -446,7 +513,26 @@ func loadAcks(path string, now time.Time) map[string]rule.Ack {
 		log.Printf("control: %d acknowledgement(s) in force: %s", len(keys), joined)
 		controlSaid.keys = joined
 	}
-	return active
+	m := f.ActiveMaintenance(now)
+	label := ""
+	if m != nil {
+		label = fmt.Sprintf("%d:%d:%s", m.At, m.Until, m.Scope)
+	}
+	if label != controlSaid.maint {
+		switch {
+		case m != nil:
+			scope := "every source"
+			if m.Scope != "" {
+				scope = m.Scope
+			}
+			log.Printf("control: maintenance window in force until %s, scope %s; alerts below critical are held and a critical is still sent",
+				time.UnixMilli(m.Until).UTC().Format(time.RFC3339), scope)
+		case controlSaid.maint != "":
+			log.Printf("control: no maintenance window is in force")
+		}
+		controlSaid.maint = label
+	}
+	return active, m
 }
 
 // sortedAcks returns the acknowledgements ordered by key, so the pulse lists
@@ -495,8 +581,26 @@ func cycle(
 	snap.Rule.NotePoll(len(events), now)
 	// The acknowledgements in force this poll. rcfg is this call's own copy,
 	// so setting Acks here reaches only the decisions made in this cycle.
-	acks := loadAcks(cfg.ControlPath, now)
-	rcfg.Acks = acks
+	acks, maint := loadControl(cfg.ControlPath, now)
+	rcfg.Acks, rcfg.Maintenance, rcfg.Quiet = acks, maint, cfg.Quiet
+	// Announce maintenance transitions before anything is decided, so held
+	// alerts are counted into the window they belong to. A close is always
+	// mailed, even with nothing held, because that mail is how the operator
+	// learns that alerting is back.
+	if step := snap.Rule.TakeMaintenanceStep(maint, now); step.Closed || step.Open != nil {
+		if step.Closed {
+			deliver_(cfg, sender, journal, render.MaintenanceClosed(rendercfg, step.ClosedWindow, step.Held, now), record.Dispatch{
+				Kind:  record.KindMaintenance,
+				About: fmt.Sprintf("maintenance_closed:%d", step.Held.Count),
+			}, now)
+		}
+		if step.Open != nil {
+			deliver_(cfg, sender, journal, render.MaintenanceOpened(rendercfg, *step.Open, now), record.Dispatch{
+				Kind:  record.KindMaintenance,
+				About: "maintenance_opened",
+			}, now)
+		}
+	}
 	// What the watcher refused or did not recognise is raised BEFORE the events
 	// are decided, so a poll full of ordinary alerts cannot spend the hour's
 	// ceiling ahead of the one notice that says a plane's name is being used.
@@ -517,6 +621,13 @@ func cycle(
 			m := render.Event(rendercfg, e, now, owner, around)
 			if a, ok := acks[rule.Key(e)]; ok && rule.IsCritical(e.Severity) {
 				m.Body += render.AckedCritical(a)
+			}
+			if rule.IsCritical(e.Severity) {
+				if maint != nil && maint.Covers(e.Source, now) {
+					m.Body += render.WindowCritical(rule.WindowMaintenance, maint, snap.Rule.MaintHeld.Count)
+				} else if cfg.Quiet != nil && cfg.Quiet.Contains(now) {
+					m.Body += render.WindowCritical(rule.WindowQuiet, nil, snap.Rule.QuietHeld.Count)
+				}
 			}
 			deliver_(cfg, sender, journal, m, record.Dispatch{
 				Kind:    record.KindAlert,
@@ -546,9 +657,9 @@ func cycle(
 				sayCeiling(rcfg.MaxPerHour, rule.Key(e), cadence)
 			}
 		case rule.Held:
-			// Counted by rule.Decide, reported when the acknowledgement ends.
-			// Not a Suppressed: an acknowledgement is the operator's own choice
-			// and does not spend the hourly ceiling.
+			// Counted by rule.Decide, reported when the acknowledgement or the
+			// window ends. Not a Suppressed: an acknowledgement or a window is
+			// the operator's own choice and does not spend the hourly ceiling.
 		case rule.Digest, rule.Drop:
 			// Nothing now. The digest goes out on its own schedule below.
 		}
@@ -561,6 +672,15 @@ func cycle(
 		deliver_(cfg, sender, journal, render.AckReleased(rendercfg, rel, now), record.Dispatch{
 			Kind:  record.KindAckRelease,
 			About: fmt.Sprintf("ack_release:%d", rel.Count),
+		}, now)
+	}
+
+	// Quiet hours that ended with something held report it, as an ended
+	// acknowledgement does. Filed under no agent, for the same reason.
+	if h, due := snap.Rule.TakeQuietRelease(cfg.Quiet, now); due {
+		deliver_(cfg, sender, journal, render.QuietEnded(rendercfg, h, now), record.Dispatch{
+			Kind:  record.KindQuietRelease,
+			About: fmt.Sprintf("quiet_release:%d", h.Count),
 		}, now)
 	}
 
@@ -606,7 +726,7 @@ func cycle(
 		if cfg.PulsePeriod > 0 {
 			// The digest is itself a mail that proves the path works, so it
 			// carries the pulse and resets its window: one mail, never two.
-			m.Body += "\n" + render.PulseLines(snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, sortedAcks(acks))
+			m.Body += "\n" + render.PulseLines(snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, sortedAcks(acks), maint)
 		}
 		deliver_(cfg, sender, journal, m, record.Dispatch{
 			Kind:    record.KindDigest,
@@ -618,7 +738,7 @@ func cycle(
 		// No digest carried the pulse in a whole period. Filed like the
 		// digest: under the last agent that caused a message this cycle, or
 		// counted as a gap when none did (invariants 11 and 13).
-		deliver_(cfg, sender, journal, render.Pulse(rendercfg, snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, now, sortedAcks(acks)), record.Dispatch{
+		deliver_(cfg, sender, journal, render.Pulse(rendercfg, snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, now, sortedAcks(acks), maint), record.Dispatch{
 			Kind:    record.KindPulse,
 			AgentID: lastAgent,
 			RunID:   lastRun,
@@ -682,7 +802,7 @@ func raiseOnce(rcfg rule.Config, snap *state.Snapshot, raised, key, severity str
 			sayCeiling(rcfg.MaxPerHour, key, cadence)
 		}
 	case rule.Held:
-		// Counted by DecideKey, reported when the acknowledgement ends.
+		// Counted by DecideKey, reported when the acknowledgement or window ends.
 	case rule.Digest, rule.Drop:
 		// Counted in the digest by DecideKey when below the floor; a dropped
 		// duplicate inside the dedup window needs nothing more.
@@ -800,6 +920,9 @@ const envHelp = `  HERALDYX_EVENTS         files and/or directories of NDJSON ag
                           (default 24, 0 = never)
   HERALDYX_PULSE_HOURS    how often a box says the notifier is alive, even
                           when nothing happened (default 24, 0 = never)
+  HERALDYX_QUIET          daily quiet hours, HH:MM-HH:MM; alerts below
+                          critical are held and summarised when they end
+  HERALDYX_TZ             IANA zone for HERALDYX_QUIET, e.g. Europe/London
   HERALDYX_POLL_MS        how often to read the log (default 2000)
   HERALDYX_STREAMS        what a stream file may carry beyond the built-in
                           table, as stem=source|source,... (default none)`

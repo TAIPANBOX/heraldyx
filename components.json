@@ -71,6 +71,9 @@
           "HERALDYX_PULSE_HOURS": {
             "required": false
           },
+          "HERALDYX_QUIET": {
+            "required": false
+          },
           "HERALDYX_SENT": {
             "required": false
           },
@@ -94,6 +97,9 @@
             "required": false
           },
           "HERALDYX_TO": {
+            "required": false
+          },
+          "HERALDYX_TZ": {
             "required": false
           }
         },

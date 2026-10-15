@@ -499,7 +499,7 @@ other.
 | `HERALDYX_DEDUP_SECONDS` | `600` | quiet window per condition |
 | `HERALDYX_MAX_PER_HOUR` | `20` | ceiling on immediate messages, `0` for none; a `critical` is sent regardless, and what is held is summarised every ten minutes |
 | `HERALDYX_DIGEST_HOURS` | `24` | how often the below-the-floor summary goes out, `0` for never |
-| `HERALDYX_PULSE_HOURS` | `24` | how often a box says the notifier is alive when nothing else went out, `0` for never; see "A quiet day" above |
+| `HERALDYX_PULSE_HOURS` | `24` | how often a box says the notifier is alive, unless the daily summary carried it in that period, `0` for never; see "A quiet day" above |
 | `HERALDYX_POLL_MS` | `2000` | how often to read the log |
 | `HERALDYX_SENT` | beside the state file | the dispatch journal; empty disables recording |
 | `HERALDYX_PASSPORTS` | (empty) | a directory of agent-passport JSON, read to name who is answerable; empty means alerts carry no owner |

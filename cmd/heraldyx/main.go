@@ -474,7 +474,7 @@ func cycle(
 			About:   fmt.Sprintf("digest:%d", len(entries)),
 		}, now)
 	case snap.Rule.PulseDue(cfg.PulsePeriod, now):
-		// Nothing else proved the path works in a whole period. Filed like the
+		// No digest carried the pulse in a whole period. Filed like the
 		// digest: under the last agent that caused a message this cycle, or
 		// counted as a gap when none did (invariants 11 and 13).
 		deliver_(cfg, sender, journal, render.Pulse(rendercfg, snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, now), record.Dispatch{

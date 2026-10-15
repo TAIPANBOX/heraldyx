@@ -760,10 +760,11 @@ excluded from generic raw data rendering.
     puts a defect back caught by a named test, recorded in the pull request)*
 
 26. **A quiet box still says once a day that the notifier is alive, and the
-    pulse never claims delivery.** `@decided 2026-10-15`: when nothing was
-    mailed for a whole `HERALDYX_PULSE_HOURS` (default 24, `0` turns it off)
-    the box sends one pulse with the numbers this process saw. When the digest
-    goes out it carries those lines instead of a second mail, and the digest
+    pulse never claims delivery.** `@decided 2026-10-15`: the box sends one
+    pulse per `HERALDYX_PULSE_HOURS` (default 24, `0` turns it off), with the
+    numbers this process saw, unless the digest went out in that period and
+    carried it. Mail sent in between, alerts included, does not replace the
+    pulse. A digest that carries the pulse is one mail, not two, and it
     restarts the period. The pulse says the message was handed to the mail
     transport, never that it was delivered (invariant 8). The counters live in
     `rule.State`, so they survive a restart (invariant 5). Its absence is the

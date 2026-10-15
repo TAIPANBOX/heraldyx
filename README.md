@@ -492,7 +492,7 @@ other.
 | `HERALDYX_BOX` | `agent stack` | the name in the subject line |
 | `HERALDYX_CONSOLE_URL` | (empty) | base URL of your console, for the one link |
 | `HERALDYX_STATE` | `/var/lib/stack/heraldyx/state.json` | offsets, a digest of each log's first line, and dedup counters |
-| `HERALDYX_CONTROL` | beside the state file, `control.json` | the acknowledgements file, written by `--ack` and `--unack`; see "Acknowledging an alert" |
+| `HERALDYX_CONTROL` | beside the state file, `control.json` | the control file, holding the acknowledgements and the maintenance window; written only by `--ack`, `--unack`, `--maintenance` and `--maintenance-end`, and read by the running notifier; see "Acknowledging an alert" and "Quiet hours and maintenance windows" |
 | `HERALDYX_MAIL_FILE` | (empty) | write messages here instead of sending them |
 | `HERALDYX_SMTP_HOST` | (empty) | `host:port` of your mail server |
 | `HERALDYX_SMTP_FROM` | (empty) | envelope sender |

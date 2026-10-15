@@ -779,6 +779,39 @@ excluded from generic raw data rendering.
     4 scenarios, each bound to a named test both ways, held by
     `scripts/features-are-bound.sh`)*
 
+27. **Nothing holds a `critical`, and every alert an acknowledgement held is
+    reported when the acknowledgement ends.** `@decided 2026-10-15`: an
+    operator can acknowledge one condition, by its key, for a bounded time
+    (four hours by default, seven days at most, longer refused). Alerts below
+    critical about that key are held and counted rather than mailed. A
+    `critical` about an acknowledged key is sent at once, with one line saying
+    it was acknowledged. When the acknowledgement ends, or is removed, one mail
+    says how many were held, the worst severity and when the first was held.
+    The hold is a limit on messages, not on evidence (invariant 6): every event
+    stays in the log. The hold does not count toward the hourly ceiling. The
+    wording is `@claude 2026-10-15`.
+    *(test: `TestAnAckHoldsItsAlertsAndTheirCountIsMailedWhenItEnds`,
+    `TestACriticalIsSentWhileItsKeyIsAcknowledged`,
+    `TestAnAckNeverHoldsACritical`, `TestAnExpiredAckHoldsNothing`,
+    `TestAnAckHoldsOnlyItsOwnKey`, `TestAckHeldAlertsDoNotCountTowardTheCeiling`,
+    `TestTakeAckReleasesReportsHeldCountsWhenTheAckEnds`,
+    `TestAckHeldCountsSurviveARestart`,
+    `TestValidateAckRefusesWhatMustNotBeHonoured`,
+    `TestAnAckLongerThanSevenDaysIsRefused`, `TestAnUnackEndsTheHoldAtOnce`;
+    scenarios: `features/ack.feature`, five scenarios bound both ways by
+    `scripts/features-are-bound.sh`; the mutants that put each defect back are
+    recorded in the pull request)*
+
+28. **`control.json` has one writer, the command line, and `state.json` has one
+    writer, the loop.** `@decided 2026-10-15`: the loop reads the
+    acknowledgements file on every poll and never writes it. The loop rewrites
+    `state.json` on every poll, so a command that wrote there would be erased
+    on the next poll, which is why acknowledgements live in their own file.
+    The wording is `@claude 2026-10-15`.
+    *(partly gated: `TestTheLoopNeverWritesTheControlFile` holds the loop's
+    half. Nothing checks that the command line never writes `state.json`, and
+    nothing checks that only the loop does.)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.
@@ -858,6 +891,13 @@ small would make this process the thing that edits its own evidence.
   run with `README.md` and `internal/render/render.go` checked out at
   `origin/main` printed "the README says 18 event types have a sentence and
   internal/render's catalog holds 19" and exited 1.)
+- The acknowledgement itself is logged by the loop (once per change in what
+  is in force) and listed in the pulse, but it is NOT written to the dispatch
+  journal. A journal record of an acknowledgement would be a new event type
+  that trailryx refuses until it maps one, so the record waits for that
+  mapping: a follow-up with trailryx, not a change here. The mail that reports
+  what an acknowledgement held goes the way the other notices about a condition
+  go: it names no agent, so the journal counts a gap and writes no record.
 - Quiet hours are designed (see `heraldyx-plan.md` section 5) and not built.
   Do not half-build them: a quiet window that silences a `critical` is a bug
   with a friendly name.

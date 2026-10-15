@@ -796,6 +796,9 @@ excluded from generic raw data rendering.
     `TestAnAckHoldsOnlyItsOwnKey`, `TestAckHeldAlertsDoNotCountTowardTheCeiling`,
     `TestTakeAckReleasesReportsHeldCountsWhenTheAckEnds`,
     `TestAckHeldCountsSurviveARestart`,
+    `TestAnAckWithANegativeStartIsRefused` (a hand-edited start at or before
+    zero, which lets the span overflow), `TestAHandEditedAckWithAFarFutureEndIsNotHonoured`
+    (a hand-edited end more than seven days out),
     `TestValidateAckRefusesWhatMustNotBeHonoured`,
     `TestAnAckLongerThanSevenDaysIsRefused`, `TestAnUnackEndsTheHoldAtOnce`;
     scenarios: `features/ack.feature`, five scenarios bound both ways by

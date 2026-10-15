@@ -52,6 +52,13 @@ func ValidateAck(a Ack) error {
 	if !strings.Contains(a.Key, ":") {
 		return fmt.Errorf("rule: ack key %q is not type:subject; copy it from the Key line of the mail", a.Key)
 	}
+	// A start at or before zero is refused, so the span below cannot overflow:
+	// with At positive and Until after it, Until-At is a small positive number.
+	// A hand-edited start near minus nine quintillion otherwise wraps the span
+	// negative and passes the seven-day check.
+	if a.At <= 0 {
+		return fmt.Errorf("rule: an acknowledgement must start after the epoch, not at %d", a.At)
+	}
 	if a.Until <= a.At {
 		return errors.New("rule: an acknowledgement needs an end after its start")
 	}

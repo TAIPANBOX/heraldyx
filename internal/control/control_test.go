@@ -1,6 +1,7 @@
 package control
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -109,5 +110,33 @@ func TestASaveThatCannotCreateItsDirectoryIsAnError(t *testing.T) {
 	}
 	if err := Save(filepath.Join(parent, "control.json"), File{}); err == nil {
 		t.Fatal("a save under a regular file reported success")
+	}
+}
+
+// The file is edited by hand, the way a person would. An ack that starts ten
+// years out and lasts an hour is valid on its own, and must not hold anything
+// today: it ends more than seven days from now. An ordinary ack in the same
+// file is still honoured.
+func TestAHandEditedAckWithAFarFutureEndIsNotHonoured(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "control.json")
+	far := t0.AddDate(10, 0, 0)
+	raw := fmt.Sprintf(`{"acks":[`+
+		`{"key":"policy_deny:run-1","at":%d,"until":%d},`+
+		`{"key":"policy_deny:run-2","at":%d,"until":%d}]}`,
+		far.UnixMilli(), far.Add(time.Hour).UnixMilli(),
+		t0.UnixMilli(), t0.Add(time.Hour).UnixMilli())
+	if err := os.WriteFile(p, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := f.Active(t0)
+	if _, ok := got["policy_deny:run-1"]; ok {
+		t.Fatalf("an ack starting ten years out was honoured now: %+v", got)
+	}
+	if _, ok := got["policy_deny:run-2"]; !ok || len(got) != 1 {
+		t.Fatalf("an ordinary ack was not honoured: %+v", got)
 	}
 }

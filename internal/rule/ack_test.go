@@ -157,3 +157,21 @@ func TestReleasesComeOutInKeyOrder(t *testing.T) {
 		t.Fatalf("releases not in key order: %+v", rel)
 	}
 }
+
+// A hand-edited file can carry any integer. A start at or before zero lets the
+// span overflow: a start near minus nine quintillion makes the end minus the
+// start wrap negative and pass the seven-day check. A start must be positive,
+// and then the subtraction cannot overflow.
+func TestAnAckWithANegativeStartIsRefused(t *testing.T) {
+	end := ackT0.Add(time.Hour).UnixMilli()
+	bad := map[string]Ack{
+		"overflowing negative start": {Key: "policy_deny:run-1", At: -9_000_000_000_000_000_000, Until: 9_000_000_000_000_000_000},
+		"zero start":                 {Key: "policy_deny:run-1", At: 0, Until: end},
+		"negative start":             {Key: "policy_deny:run-1", At: -1000, Until: end},
+	}
+	for name, a := range bad {
+		if err := ValidateAck(a); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

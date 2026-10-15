@@ -122,11 +122,14 @@ func (f *File) Prune(now time.Time) {
 }
 
 // Active returns the acknowledgements in force at now, by key. An entry that
-// fails ValidateAck (a hand-edited file) is left out rather than honoured.
+// fails ValidateAck (a hand-edited file) is left out rather than honoured. So is
+// one that ends more than MaxAck from now: a hand edit can give a valid one-hour
+// span years in the future, and that would hold a key from now until then.
 func (f File) Active(now time.Time) map[string]rule.Ack {
 	out := map[string]rule.Ack{}
+	latest := now.UnixMilli() + rule.MaxAck.Milliseconds()
 	for _, a := range f.Acks {
-		if now.UnixMilli() < a.Until && rule.ValidateAck(a) == nil {
+		if now.UnixMilli() < a.Until && a.Until <= latest && rule.ValidateAck(a) == nil {
 			out[a.Key] = a
 		}
 	}

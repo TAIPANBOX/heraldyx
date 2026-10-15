@@ -893,3 +893,15 @@ func TestAnAckEndWithoutAStartOrConsoleStillReads(t *testing.T) {
 		t.Fatalf("the mail does not end with the console link:\n%s", m.Body)
 	}
 }
+
+// The mail offers a key to copy only when the command would accept it: --ack
+// refuses a key with a space, so a Key line for one would send the operator to
+// a command that says no.
+func TestAKeyTheCommandWouldRefuseIsNotOffered(t *testing.T) {
+	e := ev("policy_deny", map[string]any{})
+	e.RunID = "run 1"
+	m := Event(cfg(), e, now, "", nil)
+	if strings.Contains(m.Body, "\nKey: ") {
+		t.Fatalf("the mail offers a key the command refuses:\n%s", m.Body)
+	}
+}

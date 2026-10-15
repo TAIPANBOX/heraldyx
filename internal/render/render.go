@@ -1182,8 +1182,10 @@ func Event(cfg Config, e event.Event, now time.Time, owner string, around []Arou
 		fmt.Fprintf(&b, "%s\n", facts)
 	}
 	// The key an operator acknowledges this condition by, copied from here.
-	// Only when it is shape-safe: an unsafe id is not an identifier to copy.
-	if key, ok := safeID(rule.Key(e)); ok {
+	// Only when it is shape-safe and the command would accept it: --ack
+	// refuses a key with a space, so a line offering one is a line to a dead
+	// end.
+	if key, ok := safeID(rule.Key(e)); ok && !strings.Contains(key, " ") {
 		fmt.Fprintf(&b, "Key: %s\n", key)
 	}
 	if !identifiersAreSafe(e) {

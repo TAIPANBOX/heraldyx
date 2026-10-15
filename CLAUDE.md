@@ -759,6 +759,26 @@ excluded from generic raw data rendering.
     the guards run red against the unfixed code first, and each mutant that
     puts a defect back caught by a named test, recorded in the pull request)*
 
+26. **A quiet box still says once a day that the notifier is alive, and the
+    pulse never claims delivery.** `@decided 2026-10-15`: the box sends one
+    pulse per `HERALDYX_PULSE_HOURS` (default 24, `0` turns it off), with the
+    numbers this process saw, unless the digest went out in that period and
+    carried it. Mail sent in between, alerts included, does not replace the
+    pulse. A digest that carries the pulse is one mail, not two, and it
+    restarts the period. The pulse says the message was handed to the mail
+    transport, never that it was delivered (invariant 8). The counters live in
+    `rule.State`, so they survive a restart (invariant 5). Its absence is the
+    signal an operator is meant to notice, which is why a quiet fleet and a
+    dead notifier must not look the same. The wording is `@claude 2026-10-15`.
+    *(test: `TestAQuietBoxStillSaysItIsAliveOnceADay`,
+    `TestThePulseRidesOnTheDigestRatherThanASecondMail`,
+    `TestTheDigestRestartsThePulsePeriod`, `TestThePulseCanBeTurnedOff`,
+    `TestThePulseSaysAliveInNumbersOnly`,
+    `TestPulseIsDueAfterThePeriodAndCarriesTheCounts`,
+    `TestPulseCountersSurviveARestart`; scenarios: `features/pulse.feature`,
+    4 scenarios, each bound to a named test both ways, held by
+    `scripts/features-are-bound.sh`)*
+
 ## Decisions that have no gate yet
 
 This list is debt, and it is here to stay visible rather than to be tidy.

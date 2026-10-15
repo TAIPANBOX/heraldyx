@@ -92,6 +92,10 @@ const (
 	KindAlert       Kind = "alert"
 	KindDigest      Kind = "digest"
 	KindSuppression Kind = "suppression"
+	// KindPulse is the daily proof that this notifier runs. Like the digest
+	// it is about no single agent, so it is filed under the last agent that
+	// caused a message this cycle, or counted as a gap when none did.
+	KindPulse Kind = "pulse"
 	// KindForeignSource is the notice that events were refused because the
 	// file they were read from may not carry the source they claimed, and
 	// KindUnknownStream the notice that a file nothing declares was read.

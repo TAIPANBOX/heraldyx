@@ -359,7 +359,8 @@ func cycle(
 	picture *fleet.Picture,
 	now time.Time,
 ) {
-	w.SetPaths(cfg.ResolveEventFiles())
+	files := cfg.ResolveEventFiles()
+	w.SetPaths(files)
 	// The agent the digest is attributed to. A digest is not about one agent,
 	// but the envelope requires an id and this stack never invents one, so it
 	// is attributed to the last agent that actually caused a message this
@@ -372,6 +373,7 @@ func cycle(
 	// against an agent whose alert went out.
 	var heldAgent, heldRun string
 	events := w.Poll()
+	snap.Rule.NotePoll(len(events), now)
 	// What the watcher refused or did not recognise is raised BEFORE the events
 	// are decided, so a poll full of ordinary alerts cannot spend the hour's
 	// ceiling ahead of the one notice that says a plane's name is being used.
@@ -455,14 +457,31 @@ func cycle(
 		}, now)
 	}
 
-	if cfg.DigestPeriod > 0 && snap.Rule.DigestDue(cfg.DigestPeriod, now) {
+	switch {
+	case cfg.DigestPeriod > 0 && snap.Rule.DigestDue(cfg.DigestPeriod, now):
 		since := time.UnixMilli(snap.Rule.DigestSince)
 		entries := snap.Rule.TakeDigest(now)
-		deliver_(cfg, sender, journal, render.Digest(rendercfg, entries, since, now), record.Dispatch{
+		m := render.Digest(rendercfg, entries, since, now)
+		if cfg.PulsePeriod > 0 {
+			// The digest is itself a mail that proves the path works, so it
+			// carries the pulse and resets its window: one mail, never two.
+			m.Body += "\n" + render.PulseLines(snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod)
+		}
+		deliver_(cfg, sender, journal, m, record.Dispatch{
 			Kind:    record.KindDigest,
 			AgentID: lastAgent,
 			RunID:   lastRun,
 			About:   fmt.Sprintf("digest:%d", len(entries)),
+		}, now)
+	case snap.Rule.PulseDue(cfg.PulsePeriod, now):
+		// No digest carried the pulse in a whole period. Filed like the
+		// digest: under the last agent that caused a message this cycle, or
+		// counted as a gap when none did (invariants 11 and 13).
+		deliver_(cfg, sender, journal, render.Pulse(rendercfg, snap.Rule.TakePulse(now), len(files), cfg.PulsePeriod, now), record.Dispatch{
+			Kind:    record.KindPulse,
+			AgentID: lastAgent,
+			RunID:   lastRun,
+			About:   "pulse",
 		}, now)
 	}
 }
@@ -634,6 +653,8 @@ const envHelp = `  HERALDYX_EVENTS         files and/or directories of NDJSON ag
   HERALDYX_MAX_PER_HOUR   ceiling on immediate messages (default 20, 0 = none)
   HERALDYX_DIGEST_HOURS   how often the below-threshold summary goes out
                           (default 24, 0 = never)
+  HERALDYX_PULSE_HOURS    how often a box says the notifier is alive, even
+                          when nothing happened (default 24, 0 = never)
   HERALDYX_POLL_MS        how often to read the log (default 2000)
   HERALDYX_STREAMS        what a stream file may carry beyond the built-in
                           table, as stem=source|source,... (default none)`

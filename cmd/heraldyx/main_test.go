@@ -641,7 +641,7 @@ func env(t *testing.T, kv map[string]string) {
 		"HERALDYX_CONSOLE_URL", "HERALDYX_STATE", "HERALDYX_MAIL_FILE",
 		"HERALDYX_SMTP_HOST", "HERALDYX_SMTP_FROM", "HERALDYX_SMTP_USER", "HERALDYX_SMTP_PASS",
 		"HERALDYX_DEDUP_SECONDS", "HERALDYX_MAX_PER_HOUR", "HERALDYX_DIGEST_HOURS", "HERALDYX_POLL_MS",
-		"HERALDYX_SENT", "HERALDYX_STREAMS",
+		"HERALDYX_SENT", "HERALDYX_STREAMS", "HERALDYX_PULSE_HOURS",
 	} {
 		t.Setenv(k, kv[k])
 	}
@@ -679,17 +679,28 @@ type bench struct {
 
 func newBench(t *testing.T, minSeverity string) *bench {
 	t.Helper()
+	return newBenchWith(t, minSeverity, nil)
+}
+
+// newBenchWith is newBench with some variables set beyond its defaults, for a
+// test that reads one of them (the pulse period, say) when the bench is built.
+func newBenchWith(t *testing.T, minSeverity string, more map[string]string) *bench {
+	t.Helper()
 	dir := t.TempDir()
 	events := filepath.Join(dir, "tokenfuse.ndjson")
 	mail := filepath.Join(dir, "mail.txt")
-	env(t, map[string]string{
+	kv := map[string]string{
 		"HERALDYX_EVENTS":       events,
 		"HERALDYX_TO":           "ops@example.com",
 		"HERALDYX_MAIL_FILE":    mail,
 		"HERALDYX_MIN_SEVERITY": minSeverity,
 		"HERALDYX_BOX":          "prod-box",
 		"HERALDYX_STATE":        filepath.Join(dir, "state.json"),
-	})
+	}
+	for k, v := range more {
+		kv[k] = v
+	}
+	env(t, kv)
 	cfg, err := config.FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -957,5 +968,78 @@ func TestTheLogSaysWhatHappensNextAtTheCeiling(t *testing.T) {
 	b.poll(t0.Add(11 * time.Minute))
 	if n := strings.Count(out.String(), "ceiling:"); n != 3 {
 		t.Fatalf("want one line per summary period, 3 in all, got %d:\n%s", n, out.String())
+	}
+}
+
+// A box where nothing happened all day still mails its operator once, so a
+// quiet fleet and a dead notifier stop looking the same.
+func TestAQuietBoxStillSaysItIsAliveOnceADay(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	b.poll(t0)
+	b.poll(t0.Add(24*time.Hour - time.Second))
+	if n := pulses(t, b); n != 0 {
+		t.Fatalf("a pulse went out before the day was over: %d", n)
+	}
+	b.poll(t0.Add(24 * time.Hour))
+	if n := pulses(t, b); n != 1 {
+		t.Fatalf("want one pulse after a quiet day, have %d", n)
+	}
+	b.poll(t0.Add(25 * time.Hour))
+	if n := pulses(t, b); n != 1 {
+		t.Fatalf("the pulse repeated inside its period: %d", n)
+	}
+}
+
+// When the digest goes out it carries the pulse: one mail, never two.
+func TestThePulseRidesOnTheDigestRatherThanASecondMail(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	write(t, b.events, ndjson("policy_deny", "medium", "run-1", "")) // below the floor: digest
+	b.poll(t0)
+	b.poll(t0.Add(24 * time.Hour))
+	got := read(t, b.mail)
+	if !strings.Contains(got, "daily summary") {
+		t.Fatalf("premise: the digest must go, mail was:\n%s", subjects(got))
+	}
+	if n := pulses(t, b); n != 0 {
+		t.Fatalf("a separate pulse went out beside the digest: %d", n)
+	}
+	if !strings.Contains(got, "handed to the mail transport") {
+		t.Fatalf("the digest does not carry the pulse lines:\n%s", got)
+	}
+}
+
+// An operator who does not want the pulse turns it off, and it stays off.
+func TestThePulseCanBeTurnedOff(t *testing.T) {
+	b := newBenchWith(t, "high", map[string]string{"HERALDYX_PULSE_HOURS": "0"})
+	t0 := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	b.poll(t0)
+	b.poll(t0.Add(48 * time.Hour))
+	if n := pulses(t, b); n != 0 {
+		t.Fatalf("a pulse went out with HERALDYX_PULSE_HOURS=0: %d", n)
+	}
+}
+
+// pulses counts standalone pulse mails in the bench's mail file.
+func pulses(t *testing.T, b *bench) int {
+	t.Helper()
+	if _, err := os.Stat(b.mail); err != nil {
+		return 0
+	}
+	return strings.Count(read(t, b.mail), "daily pulse:")
+}
+
+// The digest carries the pulse and restarts its period, so the next standalone
+// pulse is a full period after the digest, not a period after the last poll.
+func TestTheDigestRestartsThePulsePeriod(t *testing.T) {
+	b := newBench(t, "high")
+	t0 := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	write(t, b.events, ndjson("policy_deny", "medium", "run-1", "")) // below the floor: digest
+	b.poll(t0)
+	b.poll(t0.Add(24 * time.Hour)) // the digest, carrying the pulse
+	b.poll(t0.Add(25 * time.Hour))
+	if n := pulses(t, b); n != 0 {
+		t.Fatalf("a pulse went out an hour after a digest that carried one: %d", n)
 	}
 }

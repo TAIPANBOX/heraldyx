@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-297-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-309-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.6.0-success.svg)
 
@@ -134,6 +134,16 @@ that had not spiked would be worse than silence.
 Org-wide facts live where they have always lived, in the console and in the
 plane's own API. Changing that is a change to the envelope every product in the
 stack shares, not something this process can decide.
+
+**A quiet day still gets one mail.** When nothing falls below the floor, the
+daily summary has nothing to say, and before this change nothing was sent at
+all: a quiet box looked exactly like a notifier that had died. Now one mail a
+day says the notifier is running and gives the numbers it saw: events read,
+alerts handed to the mail transport, alerts held at the hourly limit, and when
+the last event was read. When the daily summary does go out it carries those
+lines instead, so a busy day never gets two mails. `HERALDYX_PULSE_HOURS` sets
+the period (default 24, `0` turns it off). The absence of the mail is the
+signal: if it stops arriving, this process or its mail path is down.
 
 <details>
 <summary><b>The 50 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
@@ -489,6 +499,7 @@ other.
 | `HERALDYX_DEDUP_SECONDS` | `600` | quiet window per condition |
 | `HERALDYX_MAX_PER_HOUR` | `20` | ceiling on immediate messages, `0` for none; a `critical` is sent regardless, and what is held is summarised every ten minutes |
 | `HERALDYX_DIGEST_HOURS` | `24` | how often the below-the-floor summary goes out, `0` for never |
+| `HERALDYX_PULSE_HOURS` | `24` | how often a box says the notifier is alive, unless the daily summary carried it in that period, `0` for never; see "A quiet day" above |
 | `HERALDYX_POLL_MS` | `2000` | how often to read the log |
 | `HERALDYX_SENT` | beside the state file | the dispatch journal; empty disables recording |
 | `HERALDYX_PASSPORTS` | (empty) | a directory of agent-passport JSON, read to name who is answerable; empty means alerts carry no owner |

@@ -766,3 +766,61 @@ func TestACadenceReadsAsASentence(t *testing.T) {
 		}
 	}
 }
+
+// The pulse proves the path works and says, in numbers only, what this
+// process saw. It never claims delivery (invariant 8).
+func TestThePulseSaysAliveInNumbersOnly(t *testing.T) {
+	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	p := rule.Pulse{Since: since, Read: 42, Sent: 3, Held: 1, LastEventAt: since.Add(5 * time.Hour)}
+	m := Pulse(Config{Box: "prod-box"}, p, 2, 24*time.Hour, since.Add(24*time.Hour))
+	if !strings.Contains(m.Subject, "[prod-box] daily pulse: notifier alive, 42 events read, 3 alerts") {
+		t.Fatalf("subject: %q", m.Subject)
+	}
+	for _, want := range []string{"42 events read from 2 file(s)", "3 alerts handed to the mail transport", "1 held at the hourly limit", "HERALDYX_PULSE_HOURS=0", "stops arriving every 24 hours"} {
+		if !strings.Contains(m.Body, want) {
+			t.Fatalf("body lacks %q:\n%s", want, m.Body)
+		}
+	}
+	if strings.Contains(strings.ToLower(m.Body), "delivered") {
+		t.Fatalf("the pulse claims delivery:\n%s", m.Body)
+	}
+}
+
+// A window with no event says so, rather than printing a zero time.
+func TestAPulseWithNoEventSaysNoneWasRead(t *testing.T) {
+	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	got := PulseLines(rule.Pulse{Since: since}, 1, 24*time.Hour)
+	if !strings.Contains(got, "No event was read in this period") {
+		t.Fatalf("a window with no event did not say so:\n%s", got)
+	}
+}
+
+// The pulse's one link goes to the console's own address and nowhere else
+// (invariant 2): a view, with no query string.
+func TestThePulseLinksOnlyToTheConsoleView(t *testing.T) {
+	since := time.Date(2026, 10, 14, 9, 0, 0, 0, time.UTC)
+	m := Pulse(Config{Box: "prod-box", ConsoleURL: "https://box.example.com/"}, rule.Pulse{Since: since}, 1, 24*time.Hour, since)
+	if !strings.HasSuffix(strings.TrimSpace(m.Body), "https://box.example.com") {
+		t.Fatalf("the pulse does not end with the console link:\n%s", m.Body)
+	}
+	if strings.Contains(m.Body, "?") {
+		t.Fatalf("the pulse link carries a query string:\n%s", m.Body)
+	}
+}
+
+// The pulse period is set in hours, so it reads as hours, and only a period
+// that is not a whole hour falls back to the cadence spelling.
+func TestAPulsePeriodReadsAsHours(t *testing.T) {
+	for _, c := range []struct {
+		d    time.Duration
+		want string
+	}{
+		{time.Hour, "hour"},
+		{24 * time.Hour, "24 hours"},
+		{90 * time.Minute, "90 minutes"},
+	} {
+		if got := pulseEvery(c.d); got != c.want {
+			t.Errorf("pulseEvery(%s) = %q, want %q", c.d, got, c.want)
+		}
+	}
+}

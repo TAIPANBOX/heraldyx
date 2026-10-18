@@ -29,7 +29,6 @@ package checkpoint
 import (
 	"bufio"
 	"bytes"
-	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
@@ -371,17 +370,16 @@ func LoadKeys(path string) (map[string]*ecdsa.PublicKey, error) {
 	keys := make(map[string]*ecdsa.PublicKey, len(pinned))
 	for kid, enc := range pinned {
 		b, err := base64.RawURLEncoding.DecodeString(enc)
-		if err != nil || len(b) != 65 || b[0] != 4 {
-			return nil, fmt.Errorf("checkpoint keys %s: kid %q is not an uncompressed P-256 point", path, kid)
+		if err != nil {
+			return nil, fmt.Errorf("checkpoint keys %s: kid %q is not base64url", path, kid)
 		}
-		if _, err := ecdh.P256().NewPublicKey(b); err != nil {
-			return nil, fmt.Errorf("checkpoint keys %s: kid %q is not a point on P-256", path, kid)
+		// Parsing checks the 0x04 prefix, the length and that the point lies on
+		// P-256. Setting the coordinates by hand would skip that check.
+		pub, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), b)
+		if err != nil {
+			return nil, fmt.Errorf("checkpoint keys %s: kid %q is not an uncompressed point on P-256", path, kid)
 		}
-		keys[kid] = &ecdsa.PublicKey{
-			Curve: elliptic.P256(),
-			X:     new(big.Int).SetBytes(b[1:33]),
-			Y:     new(big.Int).SetBytes(b[33:65]),
-		}
+		keys[kid] = pub
 	}
 	return keys, nil
 }

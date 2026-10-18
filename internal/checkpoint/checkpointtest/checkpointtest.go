@@ -35,6 +35,18 @@ type Key struct {
 	// Kid is the RFC 7638 thumbprint of the public key, base64url without
 	// padding, as SPEC 6.5.1 defines the `kid` member.
 	Kid string
+	// point is the public key as the 65-byte uncompressed point.
+	point []byte
+}
+
+// uncompressed is the public key as the 65-byte uncompressed point. It is read
+// through ECDH rather than the raw coordinates, which Go 1.26 deprecates.
+func uncompressed(priv *ecdsa.PrivateKey) ([]byte, error) {
+	pub, err := priv.PublicKey.ECDH()
+	if err != nil {
+		return nil, err
+	}
+	return pub.Bytes(), nil
 }
 
 // NewKey makes a fresh signing key.
@@ -43,25 +55,22 @@ func NewKey() (*Key, error) {
 	if err != nil {
 		return nil, err
 	}
-	x := make([]byte, 32)
-	y := make([]byte, 32)
-	priv.X.FillBytes(x)
-	priv.Y.FillBytes(y)
+	point, err := uncompressed(priv)
+	if err != nil {
+		return nil, err
+	}
 	enc := base64.RawURLEncoding
 	// RFC 7638 section 3.2: the required members of an EC key, in lexical order.
-	thumb := fmt.Sprintf(`{"crv":"P-256","kty":"EC","x":"%s","y":"%s"}`, enc.EncodeToString(x), enc.EncodeToString(y))
+	thumb := fmt.Sprintf(`{"crv":"P-256","kty":"EC","x":"%s","y":"%s"}`,
+		enc.EncodeToString(point[1:33]), enc.EncodeToString(point[33:65]))
 	sum := sha256.Sum256([]byte(thumb))
-	return &Key{Priv: priv, Kid: enc.EncodeToString(sum[:])}, nil
+	return &Key{Priv: priv, Kid: enc.EncodeToString(sum[:]), point: point}, nil
 }
 
 // Public is the key as a keys file holds it: the 65-byte uncompressed point,
 // base64url without padding.
 func (k *Key) Public() string {
-	b := make([]byte, 65)
-	b[0] = 4
-	k.Priv.X.FillBytes(b[1:33])
-	k.Priv.Y.FillBytes(b[33:65])
-	return base64.RawURLEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(k.point)
 }
 
 // Canon is the JCS serialization of an object, as one line without its LF.

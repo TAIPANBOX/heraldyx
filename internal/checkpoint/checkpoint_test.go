@@ -342,3 +342,98 @@ func TestAGateWithNoUsableKeysRefusesStartup(t *testing.T) {
 		t.Fatal("a missing keys file must fail")
 	}
 }
+
+// runOne writes a checkpoint file holding one record and returns the reason
+// the stream is not covered, failing if it is covered.
+func runOne(t *testing.T, f *fixture, line string) string {
+	t.Helper()
+	f.checkpointFile(line)
+	covered, why := f.gate().Covered(f.stream)
+	if covered {
+		t.Fatalf("a record SPEC 6.5.1 forbids must not cover the stream (reason said %q)", why)
+	}
+	return why
+}
+
+// Each variant breaks one rule of SPEC 6.5.1 section "Records" or "Signing",
+// and each must be refused as the format refuses it, not read past.
+func TestTheFormatRefusesWhatSpecSixPointFiveOneForbids(t *testing.T) {
+	f := newFixture(t)
+	body := f.writeStream(threeLines()...)
+	good := f.signed(body, 3, checkpointtest.Genesis)
+
+	variant := func(mut func(m map[string]any)) string {
+		t.Helper()
+		m, err := checkpointtest.Members(body, f.streamNm, "checkpoint", 3, checkpointtest.Genesis, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mut(m)
+		line, err := checkpointtest.Sign(f.key, m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return line
+	}
+	cases := map[string]string{
+		"algorithm other than ES256": strings.Replace(good, `"alg":"ES256"`, `"alg":"ES384"`, 1),
+		"version other than 1":       variant(func(m map[string]any) { m["v"] = 2 }),
+		"kind outside the three":     variant(func(m map[string]any) { m["kind"] = "bogus" }),
+		"a required member missing":  variant(func(m map[string]any) { delete(m, "prefix") }),
+		"a digest that is not hex":   variant(func(m map[string]any) { m["head"] = "sha256:zz" }),
+		"a time in another form":     variant(func(m map[string]any) { m["at"] = "2026-10-18" }),
+	}
+	for name, line := range cases {
+		t.Run(name, func(t *testing.T) {
+			if why := runOne(t, f, line); why != checkpoint.ReasonRefused {
+				t.Fatalf("want the file refused (%q), got %q", checkpoint.ReasonRefused, why)
+			}
+		})
+	}
+
+	// An unsigned record that also carries a kid is neither: refused.
+	unsigned := variant(func(m map[string]any) { m["unsigned_reason"] = "key_expired"; m["kid"] = f.key.Kid })
+	t.Run("unsigned that also names a kid", func(t *testing.T) {
+		if why := runOne(t, f, unsigned); why != checkpoint.ReasonRefused {
+			t.Fatalf("want the file refused, got %q", why)
+		}
+	})
+
+	// A signature of the wrong length is not a valid signature: the record
+	// is chained and not counted, so nothing covers the stream.
+	short := strings.Replace(good, `"sig":"`, `"sig":"AAAA`, 1)
+	t.Run("a signature of the wrong length", func(t *testing.T) {
+		if why := runOne(t, f, short); why != checkpoint.ReasonNoSigned {
+			t.Fatalf("want no signed record (%q), got %q", checkpoint.ReasonNoSigned, why)
+		}
+	})
+}
+
+func TestAStreamThatCannotBeReadIsNotCovered(t *testing.T) {
+	f := newFixture(t)
+	body := f.writeStream(threeLines()...)
+	f.checkpointFile(f.signed(body, 3, checkpointtest.Genesis))
+	if err := os.Remove(f.stream); err != nil {
+		t.Fatal(err)
+	}
+	if why := checked(t, f.gate(), f.stream, false); why != checkpoint.ReasonUnreadable {
+		t.Fatalf("a stream that cannot be read must say so, got %q", why)
+	}
+}
+
+func TestAKeyOffTheCurveFailsToLoad(t *testing.T) {
+	f := newFixture(t)
+	point := make([]byte, 65)
+	point[0] = 4
+	for i := 1; i < 65; i++ {
+		point[i] = 1
+	}
+	path := filepath.Join(f.ckpts, "off.json")
+	enc := base64.RawURLEncoding.EncodeToString(point)
+	if err := os.WriteFile(path, []byte(`{"kid":"`+enc+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := checkpoint.LoadKeys(path); err == nil {
+		t.Fatal("a 65-byte point that is not on P-256 must fail to load")
+	}
+}

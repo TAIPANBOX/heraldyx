@@ -1478,12 +1478,19 @@ ones.
 Gates at `7ad7f30`:
 
 - `gofmt -l .`, `go vet ./...`: clean.
-- `go test -race -count=1 ./...`: every package ok. 427 test functions by `go test -list`.
-- `./scripts/readme-numbers.sh`: 427 test functions, 60 event types with a sentence.
+- `go test -race -count=1 ./...`: every package ok. 433 test functions by `go test -list`, after six more tests for the refusal table, two read-error paths, the singular count, the notice and the gate that cannot load (coverage follow-up below).
+- `./scripts/readme-numbers.sh`: 433 test functions, 60 event types with a sentence.
 - `./scripts/features-are-bound.sh`: 136 scenarios, 136 bindings, 0 broken.
 - `./scripts/one-way-out.sh`, `./scripts/smtp-tls-is-explicit.sh`: OK.
 - `./scripts/gates-have-teeth.sh` on the clean tree: 30 cases, OK.
 - `gosec -quiet ./...`: clean, after three `#nosec G304` notes on operator-supplied paths.
+- Coverage, `go test -coverpkg=./... -coverprofile`: 93.1% of statements, against
+  93.5% at origin/main `96a60b9` measured the same way, a delta of -0.4 points.
+  `internal/checkpoint` is 91.2%. Uncovered that matters: the read-fault branches
+  of `advance` and `verifyStream` (a file that fails partway through a read),
+  and the cap branch of `noteUncovered`. Past `maxPendingNotices` an uncovered
+  file is counted in the log but gets no mail of its own, the same backstop
+  foreign and unknown streams already have.
 - `govulncheck ./...`: no vulnerabilities found.
 - `staticcheck`: not run. The installed binary was built for an older Go and cannot read Go 1.27 export data.
 

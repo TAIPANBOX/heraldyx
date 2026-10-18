@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/TAIPANBOX/heraldyx/internal/checkpoint/checkpointtest"
+	"github.com/TAIPANBOX/heraldyx/internal/config"
 )
 
 // The checkpoint gate (F-018) end to end: what an operator would see in the
@@ -112,5 +113,23 @@ func TestKeyryxStreamMayCarryKeyryxOnly(t *testing.T) {
 	}
 	if sub := subjects(got); !strings.Contains(sub, "keyryx.ndjson") || !strings.Contains(sub, "wardryx") {
 		t.Fatalf("the refused wardryx claim must still be said:\n%s", sub)
+	}
+}
+
+// The gate is built from the configuration: nil when off, and an error that
+// names the keys file when it is on and the keys cannot load, so the process
+// does not start with a gate that could verify nothing.
+func TestAGateWhoseKeysCannotLoadDoesNotStart(t *testing.T) {
+	gate, err := checkpointGate(config.Config{CheckpointGate: false})
+	if gate != nil || err != nil {
+		t.Fatalf("a gate that is off must build nothing and fail nothing, got %v, %v", gate, err)
+	}
+	_, err = checkpointGate(config.Config{
+		CheckpointGate: true,
+		CheckpointDir:  t.TempDir(),
+		CheckpointKeys: filepath.Join(t.TempDir(), "missing.json"),
+	})
+	if err == nil {
+		t.Fatal("a gate on with keys that cannot load must refuse to start")
 	}
 }

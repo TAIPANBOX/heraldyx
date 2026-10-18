@@ -429,8 +429,10 @@ func TestRetainedValuesReachTheMailOnlyThroughTheAllowlist(t *testing.T) {
 
 // The catalog's size, pinned beside the README's gated count: 48 before
 // tokenfuse's two retained types, 50 with them.
-func TestTheCatalogDescribesFiftyTypes(t *testing.T) {
-	if got := len(catalog); got != 50 {
-		t.Errorf("the catalog holds %d types, want 50", got)
+func TestTheCatalogDescribesSixtyTypes(t *testing.T) {
+	// 50 before keyryx: its nine types and agent-conform's chain_restarted
+	// (keyryx.go) took the count to 60.
+	if got := len(catalog); got != 60 {
+		t.Errorf("the catalog holds %d types, want 60", got)
 	}
 }

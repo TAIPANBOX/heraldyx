@@ -49,6 +49,13 @@ func newStreamBench(t *testing.T, minSeverity string) *streamBench {
 // carry (HERALDYX_STREAMS), applied the way run() applies it.
 func newStreamBenchWith(t *testing.T, minSeverity, streams string) *streamBench {
 	t.Helper()
+	return newStreamBenchEnv(t, minSeverity, streams, nil)
+}
+
+// newStreamBenchEnv is newStreamBenchWith with more environment set, for the
+// checkpoint gate's switches. extra is applied after env() clears the names.
+func newStreamBenchEnv(t *testing.T, minSeverity, streams string, extra map[string]string) *streamBench {
+	t.Helper()
 	dir := t.TempDir()
 	mail := filepath.Join(dir, "mail.out")
 	events := filepath.Join(dir, "bus")
@@ -64,6 +71,9 @@ func newStreamBenchWith(t *testing.T, minSeverity, streams string) *streamBench 
 		"HERALDYX_STATE":        filepath.Join(dir, "state.json"),
 		"HERALDYX_STREAMS":      streams,
 	})
+	for k, v := range extra {
+		t.Setenv(k, v)
+	}
 	cfg, err := config.FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -81,6 +91,13 @@ func newStreamBenchWith(t *testing.T, minSeverity, streams string) *streamBench 
 	t.Cleanup(func() { journal.Close() })
 	w := watch.New(cfg.ResolveEventFiles(), snap.Offsets)
 	w.SetPolicy(cfg.StreamPolicy())
+	gate, err := checkpointGate(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gate != nil {
+		w.SetCoverage(gate.Covered)
+	}
 	b := &streamBench{dir: events, mail: mail, snap: snap}
 	b.poll = func(now time.Time) {
 		cycle(cfg, rcfg, render.Config{Box: cfg.Box}, w, snap, deliver.NewFile(mail),

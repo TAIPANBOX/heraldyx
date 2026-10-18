@@ -476,7 +476,7 @@ excluded from generic raw data rendering.
     escaped like every other id here.
 
     What a file may carry is the convention (`<source>.ndjson` carries
-    `<source>`, for the fourteen sources agent-passport SPEC 6.2 registers,
+    `<source>`, for the fifteen sources agent-passport SPEC 6.2 registers,
     `agent-conform` among them), plus a small table of the measured exceptions
     in `internal/stream`, plus
     what the operator declares in `HERALDYX_STREAMS` (`stem=source|source`,
@@ -674,7 +674,7 @@ excluded from generic raw data rendering.
     `TestRetainedKeysAreRenderedOnlyForTheRetainedTypes`,
     `TestOnlyTheRetainedKeysTheSentencesPrintJoinTheAllowlist`,
     `TestRetainedValuesReachTheMailOnlyThroughTheAllowlist`,
-    `TestTheCatalogDescribesFiftyTypes`, all in
+    `TestTheCatalogDescribesSixtyTypes`, all in
     `internal/render/retained_test.go`; scenarios:
     `features/tokenfuse-retained-catalog.feature`, 16 scenarios, each bound to
     a named test both ways, held by `scripts/features-are-bound.sh`; three
@@ -853,6 +853,10 @@ excluded from generic raw data rendering.
     `TestPlaintextToANonLoopbackHostIsRefusedAtStartup`, `TestAStalledSessionIsCutOffAtTheDeadline`,
     `TestAHostThatNeverAcceptsIsGivenUpOnAtTheDialDeadline`, `TestPort465IsImplicitTLSByDefault`; gate: `scripts/smtp-tls-is-explicit.sh`, five cases
     in `scripts/gates-have-teeth.sh`; scenarios: `features/smtp-delivery.feature`, nine, each bound to a named test both ways)*
+
+31. **keyryx's nine event types and agent-conform's `chain_restarted` are described, and keyryx's digests and free text never reach a mail.** `@decided 2026-10-17` is the wave's decision (the findings closed on the hybrid architecture, with keyryx as the custody and witness service); the wording is `@claude 2026-10-18`. keyryx writes `keyryx.ndjson` with source `keyryx` (agent-passport SPEC 6.2, reserved until its first release, `@decided 2026-10-18`). Its nine types, and agent-conform's `chain_restarted`, are in the catalog; the severities are the producers' own and are not chosen here. Their keys (`stream`, `tenant`, `lines`, `bytes`, `segments`, `name`, `kid`, `previous_kid`, `alg`, `file`, `line`) are read only by their own facts, through shape checks (`streamFile` for a stream, a strict identifier shape for the rest), and never through the generic allowlist. A witness's clipped digests are never read. *(test: `TestEveryKeyryxTypeIsDescribed`, `TestWitnessRewriteNamesTheStreamAndCountsNotHashes`, `TestKeyryxHostileValuesNeverReachTheMail`, `TestKeyryxFreeTextIsNeverMailed`, `TestKeyryxKeysAreNotInTheGenericAllowlist`, `TestChainRestartedNamesTheStreamAndLine`, `TestKeyRevokedNamesTheKeyAndWhatToCheck`, all in `internal/render/keyryx_test.go`; `TestKeyryxStreamMayCarryKeyryxOnly` in `cmd/heraldyx/checkpoint_test.go`; scenarios: `features/keyryx-catalog.feature`, bound both ways by `scripts/features-are-bound.sh`)*
+
+32. **The checkpoint gate (F-018) is off unless switched on, and while it is on a stream is read only while a signed checkpoint covers it, with every refusal said in one mail per file.** `@decided 2026-10-17` is the wave's decision, which closes the finding that a bus reader cannot tell who wrote a line; the switch, its default and the stream-level coverage are `@claude 2026-10-18`. With `HERALDYX_CHECKPOINT_GATE=on`, `internal/checkpoint` verifies `<stream>.ckpt.ndjson` in the order agent-passport SPEC 6.5.1 gives: canonical form and listed members (step 1), the `prev` chain (step 3), the ES256 signature under a key pinned in `HERALDYX_CHECKPOINT_KEYS` (step 2), then the stream's first `count` lines against `prefix` and `head` (step 4). The newest valid signed record decides. A refused stream's lines are never returned by `Poll`, are counted in `NotCovered`, and raise one `high` notice per file (`uncovered_stream`) naming the file and the reason. The gate refuses to start without a checkpoint directory or with no key that loads. **Not checked here:** whether a pinned key was valid at `at` or has been revoked (keyryx's key statements), SPEC 6.5.1 step 5 for earlier records, and any line after the newest checkpoint's `count`; the witness holds those. Closing a co-tenant that can write both the checkpoint and the stream files is the launcher's directory ownership, outside this repository. *(test: `TestTheCheckpointGateIsOffUnlessSwitchedOn`, `TestAGateWithNoCheckpointDirRefusesStartup`, in `internal/config`; `TestAValidSignedCheckpointCoversItsStream`, `TestACheckpointFromAnUnpinnedKeyDoesNotCover`, `TestAForgedSignatureDoesNotCover`, `TestARewrittenStreamIsNotCoveredByItsCheckpoint`, `TestACheckpointForAnotherStreamDoesNotCover`, `TestAStreamShorterThanItsCheckpointIsNotCovered`, `TestATornFinalCheckpointLineIsIgnored`, `TestAnAlienCheckpointLineRefusesTheFile`, `TestACheckpointChainBreakRefusesTheFile`, `TestAnUnsignedRecordNeverCovers`, `TestCoverageIsRecomputedOnlyWhenTheCheckpointChanges`, `TestLoadKeysReadsAPinnedKey`, `TestAGateWithNoUsableKeysRefusesStartup`, in `internal/checkpoint`; `TestGateOffLeavesAnUncheckedStreamAsItWas`, `TestAStreamWithNoCheckpointIsRefusedAndSaidInAMail`, `TestARefusalIsRaisedOncePerFile`, in `cmd/heraldyx`; `TestAnUncoveredFileIsNeverReturnedAndIsCounted`, in `internal/watch`; scenarios: `features/checkpoint-gate.feature`, bound both ways by `scripts/features-are-bound.sh`)*
 
 ## Decisions that have no gate yet
 

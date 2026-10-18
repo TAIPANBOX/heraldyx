@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-394-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-427-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.7.0-success.svg)
 
@@ -91,10 +91,12 @@ far enough: a count copied between pictures is a count nobody measured. This
 one is now taken from `agent-passport/SPEC.md` §6.2, the registry of who emits
 what, which is the only place in the estate that is gated on being true
 (`@measured` 2026-08-10, ten sources, of which eight write here and two keep
-their own journal). It registers fourteen sources now, and
-`internal/stream/stream.go` lists the same fourteen: twelve write here (the
+their own journal). It registers fifteen sources now, and
+`internal/stream/stream.go` lists the same fifteen: twelve write here (the
 original eight, then CostCrew, Vouchryx, Typryx and agent-conform) and the same
-two keep their own journal.
+two keep their own journal. keyryx, the custody and witness service, was
+registered on 2026-10-18 as reserved until its first release, so it is the
+fifteenth and writes nothing here yet.
 
 Every plane already speaks one envelope
 ([agent-passport](https://github.com/TAIPANBOX/agent-passport) SPEC.md 6), so
@@ -146,7 +148,7 @@ the period (default 24, `0` turns it off). The absence of the mail is the
 signal: if it stops arriving, this process or its mail path is down.
 
 <details>
-<summary><b>The 50 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 60 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -187,6 +189,16 @@ for, and the link still opens the console at it.
 | `calibration_drift` | has a group of typed answers whose calibration crossed a configured bound (the template, backend, model and which metric crossed are all in the mail; see below) |
 | `chain_broken` | has an event stream whose hash chain broke (the subject and the mail name the stream file, the first broken line and how many breaks the file holds; see below) |
 | `chain_unchained` | has an event stream that holds events and no hash chain at all (the stream file and the event count are in the mail; not a break; see below) |
+| `chain_restarted` | found a hash chain starting again partway through an event stream, from agent-conform (the stream file and the line are in the mail; high when no resume checkpoint explains it; see below) |
+| `witness_stream_rewritten` | found that bytes an event stream had already held have changed, from keyryx's witness (the stream file and the counts are in the mail, never a digest; see below) |
+| `witness_stream_truncated` | found an event stream holding fewer lines than when the witness last read it (the stream file is in the mail; see below) |
+| `witness_chain_restarted` | found that an event stream's hash chain starts again, from keyryx's witness (the stream file is in the mail; high when no resume checkpoint explains it; see below) |
+| `witness_checkpoint_invalid` | found a signed checkpoint that does not verify, so it was not used as evidence (see below) |
+| `witness_checkpoint_unsigned` | found a checkpoint written without a signature; it is never counted as valid (see below) |
+| `witness_root_missing` | found an event stream that grew with no new record-plane root in the expected interval (see below) |
+| `witness_root_equivocated` | found two different record-plane roots for one size of the trail (see below) |
+| `key_rotated` | rotated a signing key (the new kid and the one it replaced are in the mail; see below) |
+| `key_revoked` | revoked a signing key (the key name, kid and algorithm are in the mail; see below) |
 | `anomaly_triaged` | was given a spend anomaly to investigate |
 | `anomaly_explained` | wrote up what caused a spend anomaly |
 | `anomaly_accepted` | had its explanation of a spend anomaly accepted |
@@ -356,6 +368,21 @@ a break: `prev_hash` is optional, and a stream with events and none carrying one
 has no chain to check. What it costs is that an edit to that stream would not
 be seen, and the mail says exactly that and no more.
 
+**keyryx and its types** (agent-passport SPEC.md 6.2, reserved until keyryx's first
+release) are described the same way. keyryx is the custody and witness service:
+it holds the signing keys, rotates and revokes them, and reads the event streams
+to say whether they still hold the bytes they held when a checkpoint was signed.
+Its findings name the stream file, or the tenant, and the counts a witness
+reports (lines, bytes, segments). The digests a witness clips are never mailed:
+they are the console's and the witness's own log's to show. `key_rotated` names
+the new kid, the one it replaces and the algorithm; `key_revoked` names the key,
+its kid and the algorithm, and says the key is no longer published. A name, a
+kid or a tenant is shown only when it is a plain identifier, so a producer's
+sentence in one of those fields is left out. `chain_restarted` (medium, high when
+no resume checkpoint explains it) names the stream and the line where the new
+chain starts. A restart is not a break: a resume checkpoint is what a writer
+writes when it reopens a stream it could not chain from.
+
 Not covered: every alert from the verifier shares one subject (its own agent id,
 and it carries no run id), and the dedup key is the type and the subject, so a
 second broken stream reported by the verifier inside one dedup window (ten
@@ -508,6 +535,9 @@ other.
 | `HERALDYX_SENT` | beside the state file | the dispatch journal; empty disables recording |
 | `HERALDYX_PASSPORTS` | (empty) | a directory of agent-passport JSON, read to name who is answerable; empty means alerts carry no owner |
 | `HERALDYX_STREAMS` | (empty) | what a stream file may carry beyond the built-in table, as `stem=source\|source`, comma-separated; see "What a file may carry" |
+| `HERALDYX_CHECKPOINT_GATE` | `off` | `on` reads a stream file only while a signed checkpoint covers it, and refuses to start without `HERALDYX_CHECKPOINTS` and `HERALDYX_CHECKPOINT_KEYS`; see "The checkpoint gate" |
+| `HERALDYX_CHECKPOINTS` | (empty) | the directory of `<stream>.ckpt.ndjson` checkpoint files, read when the gate is on |
+| `HERALDYX_CHECKPOINT_KEYS` | (empty) | a JSON file of pinned public keys, from `kid` to the base64url uncompressed P-256 point, read when the gate is on; a file with no key in it refuses to start |
 
 ### What a file may carry
 
@@ -534,6 +564,62 @@ HERALDYX_STREAMS='events=tokenfuse|wardryx,mixed=engram|qryx'
 
 A declaration adds to what a file may carry and never removes from it. A
 malformed one stops the process at startup and names itself.
+
+### The checkpoint gate
+
+This is the part of finding F-018 of the agent-security review of 2026-10-17
+that a reader of the bus can close for itself: a bus reader cannot tell who
+wrote a line, because any writer can append to any file in the directory. With
+`HERALDYX_CHECKPOINT_GATE=on`, a stream file is read only while a signed
+checkpoint covers it. A checkpoint covers a stream when it is a format-v1
+record of agent-passport SPEC.md 6.5.1, signed by a key you pinned, whose
+`prefix` (the SHA-256 of the stream's first bytes) and `head` (the chain hash of
+its last counted line) still match the stream. The gate checks the checkpoint
+file in the order the SPEC gives: each line in canonical form with only the
+members it lists, the `prev` link of each record, and the signature of each
+signed record, the newest of which decides coverage.
+
+A stream with no covering checkpoint is not read. Its lines are counted and not
+mailed, and one mail goes per file, in the subject and the body, saying that the
+file has no signed checkpoint and which setting decides it. Nothing is dropped
+without a word. The gate is off by default, and a box that does not set it reads
+exactly as it did before.
+
+To switch it on, write the checkpoints into `HERALDYX_CHECKPOINTS` as
+`<stream>.ckpt.ndjson`, and pin each producer's public key in
+`HERALDYX_CHECKPOINT_KEYS`:
+
+```json
+{"<kid>": "<base64url of the 65-byte uncompressed P-256 point>"}
+```
+
+The process refuses to start when the gate is on and either path is missing,
+or when no key in the file loads, so a gate that could verify nothing does not
+run quietly and refuse everything.
+
+What the gate does not check, stated plainly:
+
+- whether a pinned key was valid at the time its record says it signed, or has
+  been revoked since. That needs the key statement keyryx issues, which this
+  box does not read. A pinned key is trusted until you remove it.
+- the earlier checkpoints of a stream. Only the newest signed record is held.
+  Keeping earlier checkpoints beyond the producer's reach is the witness's job.
+- each line. Coverage is per stream file: a line appended after the newest
+  checkpoint is read with the stream, and the next checkpoint is what covers it.
+- anything a producer signs over bytes it rewrote itself. A producer that holds
+  its own key can sign a checkpoint over any bytes it likes.
+
+Two things must hold for the gate to mean anything, and this box cannot check
+either: the checkpoints directory and the stream files are written by their
+producers alone. A co-tenant who can write the stream and the checkpoints can
+copy an old checkpoint next to its own lines, and the copy covers the stream as
+long as the stream still holds the bytes it signed. The launcher's ownership of
+the directories is what closes that, and it lives outside this repository.
+
+Finally, the gate re-reads each stream up to the newest checkpoint's count when
+a new checkpoint arrives, so on a large stream it costs one read of the stream
+per checkpoint. Measure that on a real file before you switch the gate on for a
+large one.
 
 ### Proving the SMTP path without a mail account
 

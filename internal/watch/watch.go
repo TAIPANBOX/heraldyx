@@ -96,8 +96,16 @@ type Watcher struct {
 	// are counted because trusting a stream in silence is the other way to be
 	// wrong.
 	UnknownStream int
+	// NotCovered counts well-formed events refused because the file they sit
+	// in has no signed checkpoint covering it (the checkpoint gate, F-018).
+	// Never returned by Poll, and said once per file in the mail.
+	NotCovered int
 
-	policy stream.Policy
+	policy   stream.Policy
+	coverage Coverage
+	// uncovered is the refused files since TakeUncovered last ran, one entry
+	// per file, bounded by maxPendingNotices like foreign and unknown.
+	uncovered map[string]*Uncovered
 	// foreign and unknown hold what was refused or merely unrecognised since
 	// the caller last took them, one entry per pair or file and bounded by
 	// maxPendingNotices, so a producer inventing a source per line cannot
@@ -658,6 +666,11 @@ func (w *Watcher) read(path string, f *os.File, from, grown int64) ([]event.Even
 	stem := stream.Stem(path)
 	at := from
 	rest := buf[:cut+1]
+	// The gate is asked once per read, about the whole file, and only if a line
+	// here turns out to be an event: a file with nothing but malformed or
+	// zero-byte lines is not refused for want of a checkpoint.
+	var covered, asked bool
+	var why string
 	for len(rest) > 0 {
 		i := bytes.IndexByte(rest, '\n')
 		line := rest[:i]
@@ -683,6 +696,19 @@ func (w *Watcher) read(path string, f *os.File, from, grown int64) ([]event.Even
 		if err != nil {
 			w.Malformed++
 			continue
+		}
+		// The checkpoint gate (F-018) comes before the source policy: a file
+		// the gate does not cover is refused whatever it claims, counted and
+		// said once per file, and never returned.
+		if w.coverage != nil {
+			if !asked {
+				covered, why = w.coverage(path)
+				asked = true
+			}
+			if !covered {
+				w.noteUncovered(path, why)
+				continue
+			}
 		}
 		// The source an event claims is checked against the file it sits in,
 		// AFTER it parsed and BEFORE anything else sees it. A line that fails

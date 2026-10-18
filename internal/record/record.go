@@ -104,6 +104,9 @@ const (
 	// in the trail (see [Journal.Sent]) and the mail is unaffected.
 	KindForeignSource Kind = "foreign_source"
 	KindUnknownStream Kind = "unknown_stream"
+	// KindUncovered is the notice that a stream file was refused because no
+	// signed checkpoint covers it (the checkpoint gate, F-018). About a file.
+	KindUncovered Kind = "uncovered_stream"
 	// KindAckRelease is the report of alerts an acknowledgement held, sent
 	// when it ended. About a key, not an agent: filed under no agent id, so it
 	// is counted as a gap in the trail like the other notices here.

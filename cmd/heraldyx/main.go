@@ -894,6 +894,7 @@ func senderFor(cfg config.Config) (deliver.Sender, error) {
 			From:     cfg.SMTPFrom,
 			Username: cfg.SMTPUser,
 			Password: cfg.SMTPPass,
+			TLS:      deliver.TLSMode(cfg.SMTPTLS),
 		})
 	default:
 		return deliver.Discard{}, nil
@@ -914,6 +915,8 @@ const envHelp = `  HERALDYX_EVENTS         files and/or directories of NDJSON ag
   HERALDYX_SMTP_FROM      envelope sender address
   HERALDYX_SMTP_USER      username, if the server wants one
   HERALDYX_SMTP_PASS      password, if the server wants one
+  HERALDYX_SMTP_TLS       starttls (default), implicit (port 465 default), or
+                          plain (loopback only, for a local relay)
   HERALDYX_DEDUP_SECONDS  quiet window per condition (default 600)
   HERALDYX_MAX_PER_HOUR   ceiling on immediate messages (default 20, 0 = none)
   HERALDYX_DIGEST_HOURS   how often the below-threshold summary goes out

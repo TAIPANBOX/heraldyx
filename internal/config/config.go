@@ -63,6 +63,10 @@ type Config struct {
 	SMTPFrom string
 	SMTPUser string
 	SMTPPass string
+	// SMTPTLS is HERALDYX_SMTP_TLS as written: starttls, implicit or plain.
+	// Empty means STARTTLS, or implicit TLS on port 465. The deliver package
+	// decides what it means, and refuses a value it does not know.
+	SMTPTLS string
 
 	DedupWindow  time.Duration
 	MaxPerHour   int
@@ -94,6 +98,7 @@ func FromEnv() (Config, error) {
 		SMTPFrom:      os.Getenv("HERALDYX_SMTP_FROM"),
 		SMTPUser:      os.Getenv("HERALDYX_SMTP_USER"),
 		SMTPPass:      os.Getenv("HERALDYX_SMTP_PASS"),
+		SMTPTLS:       os.Getenv("HERALDYX_SMTP_TLS"),
 		DedupWindow:   seconds("HERALDYX_DEDUP_SECONDS", 600),
 		MaxPerHour:    integer("HERALDYX_MAX_PER_HOUR", 20),
 		DigestPeriod:  hours("HERALDYX_DIGEST_HOURS", 24),

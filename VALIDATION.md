@@ -1432,3 +1432,64 @@ whether anything is read twice.
   since a critical bypasses the ceiling by decision (issue #71). Nothing here
   measures what that does to a mailbox, and nothing here can tell a producer
   that raises `critical` for something that is not from one that is right.
+
+
+## keyryx's event types, and the checkpoint gate (F-018), 2026-10-18
+
+Branch `feat/render-keyryx`, from origin/main `96a60b9`, commit `7ad7f30`. Tier T3:
+the gate verifies signatures and decides what is refused, so a wrong answer is
+silent. Scenarios: `features/keyryx-catalog.feature` (11) and
+`features/checkpoint-gate.feature` (16), each bound to a named test by
+`scripts/features-are-bound.sh` (136 of 136 across the repository).
+
+Red first. The new tests were run against stubs in which the gate is absent and
+no keyryx sentence exists: 27 test functions failed on their assertions. Five
+passed on that unfixed code, and each is a non-fault or a safety check the
+unfixed output already satisfies: `TestAValidSignedCheckpointCoversItsStream`,
+`TestATornFinalCheckpointLineIsIgnored`, `TestACoveredFileIsReadAsBefore` and
+`TestGateOffLeavesAnUncheckedStreamAsItWas` (a covered stream and the gate off
+must read as before), and `TestKeyryxFreeTextIsNeverMailed` (the fallback
+sentence never printed prose).
+
+Mutants, each applied to a copy of one line, run against the whole suite and
+restored byte for byte. Each was caught by a named test that asserts the thing
+it breaks:
+
+| mutant | caught by |
+|---|---|
+| gate on by default | `TestTheCheckpointGateIsOffUnlessSwitchedOn` (and the startup tests, which the default breaks) |
+| signature not verified | `TestAForgedSignatureDoesNotCover` |
+| prefix not compared | `TestARewrittenStreamIsNotCoveredByItsCheckpoint`, `TestCoverageIsRecomputedOnlyWhenTheCheckpointChanges` |
+| head not compared | `TestAHeadThatIsNotTheChainHashDoesNotCover` |
+| prev chain not compared | `TestACheckpointChainBreakRefusesTheFile` |
+| empty key set accepted | `TestAGateWithNoUsableKeysRefusesStartup` |
+| verdict cached forever | `TestCoverageIsRecomputedOnlyWhenTheCheckpointChanges` |
+| a keyryx key added to the generic allowlist | `TestKeyryxKeysAreNotInTheGenericAllowlist` |
+| tenant checked with the looser shape | `TestKeyryxHostileValuesNeverReachTheMail` |
+| a witness digest printed | `TestWitnessRewriteNamesTheStreamAndCountsNotHashes` |
+| refusal notice never raised | `TestARefusalIsRaisedOncePerFile`, `TestAStreamWithNoCheckpointIsRefusedAndSaidInAMail` |
+| refused lines still processed | `TestARefusalIsRaisedOncePerFile`, `TestAStreamWithNoCheckpointIsRefusedAndSaidInAMail`, `TestAnUncoveredFileIsNeverReturnedAndIsCounted` |
+
+Three earlier attempts, at the signature, head and prev mutants, each left a variable
+unused and failed to compile, which proves nothing about the tests; they were
+rewritten so the variable stays referenced, and the table reports the rewritten
+ones.
+
+Gates at `7ad7f30`:
+
+- `gofmt -l .`, `go vet ./...`: clean.
+- `go test -race -count=1 ./...`: every package ok. 427 test functions by `go test -list`.
+- `./scripts/readme-numbers.sh`: 427 test functions, 60 event types with a sentence.
+- `./scripts/features-are-bound.sh`: 136 scenarios, 136 bindings, 0 broken.
+- `./scripts/one-way-out.sh`, `./scripts/smtp-tls-is-explicit.sh`: OK.
+- `./scripts/gates-have-teeth.sh` on the clean tree: 30 cases, OK.
+- `gosec -quiet ./...`: clean, after three `#nosec G304` notes on operator-supplied paths.
+- `govulncheck ./...`: no vulnerabilities found.
+- `staticcheck`: not run. The installed binary was built for an older Go and cannot read Go 1.27 export data.
+
+NOT proven: that a real producer's checkpoints verify end to end (no keyryx
+exists yet, and the fixtures are built from SPEC 6.5.1 by `checkpointtest`, not
+from a producer); the cost of re-hashing a large stream on each new checkpoint
+(not measured); behaviour on a lagging NFS volume (not run); the witness's
+data-key names, which SPEC 6.2 does not yet fix (the renders read only the keys
+the design names and ignore the rest).

@@ -37,6 +37,12 @@ jobs:
       - name: one way out
         run: ./scripts/one-way-out.sh
 
+      # Mail leaves the box only through one dialler, and that dialler takes a
+      # TLS mode. This fails when a plain SMTP call or an unverified connection
+      # appears outside a comment, or when the STARTTLS offer stops being checked.
+      - name: SMTP is dialled only through the TLS mode
+        run: ./scripts/smtp-tls-is-explicit.sh
+
       # A number in a README is a claim with no owner: it is right the day it
       # is written and the suite grows in a commit that never opens the file.
       # On 2026-08-05 four of seven such figures on it-rat.com were found

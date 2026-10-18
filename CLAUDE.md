@@ -35,6 +35,7 @@ gofmt -l .
 go vet ./...
 go test -race ./...
 ./scripts/one-way-out.sh
+./scripts/smtp-tls-is-explicit.sh
 ./scripts/readme-numbers.sh
 ./scripts/features-are-bound.sh # invariant 18's scenarios, bound both ways
 ./scripts/gates-have-teeth.sh   # invariant 16; needs a clean tree
@@ -841,6 +842,17 @@ excluded from generic raw data rendering.
     `features/hold-windows.feature`, bound both ways by
     `scripts/features-are-bound.sh`; the mutants that remove the open and the
     close are recorded in the pull request)*
+
+30. **Mail leaves the box only over an encrypted connection, or in plaintext the operator named for the loopback interface.**
+    `@decided 2026-10-17`: the transport requires the server to offer STARTTLS by default and verifies its certificate. Plaintext is used only when
+    `HERALDYX_SMTP_TLS=plain` is set and the host is on the loopback interface; any other host refuses at startup. Every connection has a dial
+    deadline and a session deadline, so a silent server cannot hold the notifier. The rule that port 465 means implicit TLS is `@claude 2026-10-17`,
+    my reading of the port convention, not something the decision named.
+    *(test: `TestAPlainRelayThatOffersNoSTARTTLSIsRefused`, `TestAStarttlsRelayIsReachedOnlyThroughAVerifiedCertificate`,
+    `TestAStarttlsRelayReceivesTheMailOverVerifiedTLS`, `TestAnImplicitTLSRelayWithAnUntrustedCertificateGetsNoMail`,
+    `TestPlaintextToANonLoopbackHostIsRefusedAtStartup`, `TestAStalledSessionIsCutOffAtTheDeadline`,
+    `TestAHostThatNeverAcceptsIsGivenUpOnAtTheDialDeadline`, `TestPort465IsImplicitTLSByDefault`; gate: `scripts/smtp-tls-is-explicit.sh`, five cases
+    in `scripts/gates-have-teeth.sh`; scenarios: `features/smtp-delivery.feature`, nine, each bound to a named test both ways)*
 
 ## Decisions that have no gate yet
 

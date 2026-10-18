@@ -281,6 +281,35 @@ run_case "one-way-out: a decision package adds a pure stdlib import" pass \
 	'./scripts/one-way-out.sh' \
 	"$(py 'edit("internal/rule/rule.go", "import (", "import (\n\t_ \"sort\"")')"
 
+# Mail leaves the box only through the one dialler, and that dialler takes a
+# TLS mode. Each case plants one way of going around it.
+run_case "smtp-tls: a plain SMTP call outside a comment" fail \
+	'./scripts/smtp-tls-is-explicit.sh' \
+	"$(py 'open("internal/deliver/deliver.go","a").write("\nfunc plantedSend() { _ = smtp.SendMail(\"\", nil, \"\", nil, nil) }\n")')" \
+	"bypass the TLS mode"
+
+run_case "smtp-tls: certificate verification switched off" fail \
+	'./scripts/smtp-tls-is-explicit.sh' \
+	"$(py 'edit("internal/deliver/deliver.go", "RootCAs: s.roots}", "RootCAs: s.roots, InsecureSkipVerify: true}")')" \
+	"certificate verification is off"
+
+run_case "smtp-tls: the STARTTLS offer is no longer checked" fail \
+	'./scripts/smtp-tls-is-explicit.sh' \
+	"$(py 'edit("internal/deliver/deliver.go", "Extension(\"STARTTLS\")", "Extension(\"STARTTLX\")")')" \
+	"no longer required"
+
+# A comment that names the old call is prose, and must not trip the gate.
+run_case "smtp-tls: a comment that names the old call" pass \
+	'./scripts/smtp-tls-is-explicit.sh' \
+	"$(py 'open("internal/deliver/deliver.go","a").write("\n// smtp.SendMail( is what this file called before the TLS mode existed.\n")')"
+
+# If the dialler is renamed away, the checks would find nothing and pass. The
+# gate must say it measured nothing instead.
+run_case "smtp-tls: the dialler is renamed away" fail \
+	'./scripts/smtp-tls-is-explicit.sh' \
+	"$(py 'edit("internal/deliver/deliver.go", "func (s *SMTP) connect(", "func (s *SMTP) dialOut(")')" \
+	"measured nothing"
+
 # The event-type count is a count, not a proofread. Rewriting a described
 # sentence changes what the mail SAYS and changes no number, and a gate that
 # went red on prose would be one nobody could edit a catalog entry past.

@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-380-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-394-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.7.0-success.svg)
 
@@ -497,6 +497,7 @@ other.
 | `HERALDYX_SMTP_HOST` | (empty) | `host:port` of your mail server |
 | `HERALDYX_SMTP_FROM` | (empty) | envelope sender |
 | `HERALDYX_SMTP_USER` / `_PASS` | (empty) | credentials, if your server wants them |
+| `HERALDYX_SMTP_TLS` | `starttls` (`implicit` on port 465) | how the connection is encrypted. `starttls` refuses to send unless the server offers STARTTLS. `implicit` speaks TLS from the first byte. `plain` sends in the clear and is refused unless the host is on the loopback interface (`127.0.0.0/8`, `::1`, `localhost`). The server's certificate is verified in both encrypted modes. |
 | `HERALDYX_DEDUP_SECONDS` | `600` | quiet window per condition |
 | `HERALDYX_MAX_PER_HOUR` | `20` | ceiling on immediate messages, `0` for none; a `critical` is sent regardless, and what is held is summarised every ten minutes |
 | `HERALDYX_DIGEST_HOURS` | `24` | how often the below-the-floor summary goes out, `0` for never |
@@ -538,9 +539,11 @@ malformed one stops the process at startup and names itself.
 
 ```bash
 python3 scripts/smtp-sink.py &          # a server that answers, on :2525
-HERALDYX_SMTP_HOST=127.0.0.1:2525 HERALDYX_SMTP_FROM=box@example.com \
+HERALDYX_SMTP_HOST=127.0.0.1:2525 HERALDYX_SMTP_TLS=plain HERALDYX_SMTP_FROM=box@example.com \
 HERALDYX_TO=ops@example.com ... ./bin/heraldyx --once --from-now=false
 ```
+
+The sink speaks no TLS, so the mode is `plain`. The notifier accepts that only for a loopback host; a sink on another machine has to offer STARTTLS.
 
 The sink prints the whole session and the message exactly as it arrived, so the
 protocol, the headers and the body are observed rather than asserted. It is not

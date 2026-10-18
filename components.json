@@ -86,6 +86,9 @@
           "HERALDYX_SMTP_PASS": {
             "required": false
           },
+          "HERALDYX_SMTP_TLS": {
+            "required": false
+          },
           "HERALDYX_SMTP_USER": {
             "required": false
           },

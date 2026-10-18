@@ -791,6 +791,61 @@ var catalog = map[string]phrasing{
 		did:  "Nothing. agent-conform read the stream and found events but not one carries a prev_hash, so there is no chain to check. It reports that and changes nothing.",
 		next: "Nothing automatic. This is not a break: prev_hash is optional on an event. It does mean an edit to this stream would not be detected, because there is no chain to break. If the writer of this stream is meant to chain it, check that writer's configuration and version; if it is not, this is expected.",
 	},
+	// keyryx's nine types (agent-passport SPEC.md 6.2, RESERVED until its first
+	// release, @decided 2026-10-18) and agent-conform's chain_restarted. Each
+	// says what happened, what this box did and what happens if nobody acts.
+	// `what` names the stream when a subject shows one (keyryxSubject); the
+	// severity is the producer's, never chosen here.
+	"witness_stream_rewritten": {
+		what: "found that bytes an event stream had already held have changed",
+		did:  "Nothing. keyryx's witness read the stream, compared it with a checkpoint or an observation it had kept, and found that the bytes it covered are not the bytes it read before. It repairs, quarantines and stops nothing, and this box did not either.",
+		next: "Nothing automatic. A changed covered byte is tamper evidence, not a verdict: an earlier line was edited after it was signed or witnessed, or something rewrote the file. Check the witness's own log (keyryx.ndjson and the witness's data directory) and the producer's checkpoint file, then who can write to that stream.",
+	},
+	"witness_stream_truncated": {
+		what: "found an event stream holding fewer lines than when it was last read",
+		did:  "Nothing. keyryx's witness found the stream shorter than the lines it had already witnessed. It reports that and changes nothing, and this box did not either.",
+		next: "Nothing automatic. Lines were removed from the end of the stream, or its writer restarted on a shorter file. Check the producer's own log and its checkpoint file, and whether anything else wrote to the file's directory around that time.",
+	},
+	"witness_chain_restarted": {
+		what: "found that the hash chain of an event stream starts again",
+		did:  "Nothing. keyryx's witness found a line that begins a new chain partway through a stream and reported it. It changes nothing, and this box did not either.",
+		next: "Nothing automatic. A restart is what a writer does when it reopens a stream it cannot chain from, and a resume checkpoint explains it. Where this event is high, no resume checkpoint explains the restart: check the writer's log for that time, then whether lines were removed before this one.",
+	},
+	"witness_checkpoint_invalid": {
+		what: "found a signed checkpoint that does not verify",
+		did:  "Nothing. keyryx refused the checkpoint: its signature, its chain or the bytes it covers did not check out. It was not used as evidence, and this box did not use it either.",
+		next: "Nothing automatic. A checkpoint that fails to verify is a broken writer or a file someone else put in the checkpoints directory. Check which key it names, the writer's version and log, and who can write to the checkpoints directory.",
+	},
+	"witness_checkpoint_unsigned": {
+		what: "found a checkpoint written without a signature",
+		did:  "Nothing. The writer could not sign the checkpoint, most likely because its key is past its not-after time, and keyryx reported it as unsigned. It is never reported as valid, and this box does not count it as coverage.",
+		next: "Nothing automatic. Renew or rotate the writer's key. Until then this stream has no signed checkpoint, which is what the checkpoint gate checks when it is switched on.",
+	},
+	"witness_root_missing": {
+		what: "found an event stream that grew with no new record-plane root",
+		did:  "Nothing. keyryx's witness saw the stream grow and no new trailryx store root appeared within the expected interval. It reports the gap and changes nothing, and this box did not either.",
+		next: "Nothing automatic. The record plane may be behind the stream, or it may have stopped sealing. Check trailryx-node's own log and whether its import of the stream is running.",
+	},
+	"witness_root_equivocated": {
+		what: "found two different record-plane roots for one size of the trail",
+		did:  "Nothing. keyryx's witness saw two roots for the same segment count and reported both. It does not decide which is genuine, and this box did not either.",
+		next: "Nothing automatic. Two roots for one size is evidence that the record was rewritten or that two roots were issued for it. Check the record plane's own records for that segment count and who had write access to it.",
+	},
+	"key_rotated": {
+		what: "rotated a signing key",
+		did:  "Nothing. keyryx issued a new key for this name and kept the previous one valid for an overlap. This event says which key is new and which one it replaced.",
+		next: "Nothing. This is expected after a rotation. A signature made with the previous key stays checkable until its overlap ends, so check it only if the rotation was not planned.",
+	},
+	"key_revoked": {
+		what: "revoked a signing key",
+		did:  "Nothing here. keyryx removed the key from every published set at once, so the key is no longer published and nothing verifies against it from now on. This box holds no keys and did nothing to them.",
+		next: "Check whether the revocation was planned. Anything that key signed is no longer checkable through keyryx, so check what it was used for, and anything it signed after it was compromised, if that is why it was revoked.",
+	},
+	"chain_restarted": {
+		what: "found a hash chain starting again partway through an event stream",
+		did:  "Nothing. agent-conform read the stream and found a line that begins a new chain after the first line. It reports that and changes nothing, and this box did not either.",
+		next: "Nothing automatic. A restart is not a break: a resume checkpoint explains it when the writer reopened a stream it could not chain from. This event is high only when no resume checkpoint explains the restart, which means the writer may have lost its place or lines were removed before this one. Check the writer's log for that time.",
+	},
 }
 
 // qualify adjusts a phrasing where the EVENT carries something that changes
@@ -835,6 +890,9 @@ func qualify(e event.Event, p phrasing) phrasing {
 		return callRetained(e, p)
 	case "retained_closed":
 		return retainedClosed(e, p)
+	case "witness_stream_rewritten", "witness_stream_truncated", "witness_chain_restarted",
+		"witness_checkpoint_invalid", "chain_restarted":
+		return keyryxSubject(e, p)
 	default:
 		return p
 	}
@@ -1830,6 +1888,10 @@ func factLine(e event.Event) string {
 
 	if e.Type == "chain_broken" || e.Type == "chain_unchained" {
 		return conformFacts(e)
+	}
+
+	if keyryxTypeSet[e.Type] || e.Type == "chain_restarted" {
+		return keyryxFacts(e)
 	}
 
 	if e.Type == "call_retained" || e.Type == "retained_closed" {

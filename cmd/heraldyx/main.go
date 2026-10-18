@@ -162,6 +162,15 @@ func run(args []string) error {
 	w := watch.New(cfg.ResolveEventFiles(), snap.Offsets)
 	w.SetHeads(snap.Heads)
 	w.SetPolicy(cfg.StreamPolicy())
+	// The checkpoint gate (F-018) is off unless the operator switched it on, and
+	// then a stream is read only while a signed checkpoint covers it.
+	gate, err := checkpointGate(cfg)
+	if err != nil {
+		return err
+	}
+	if gate != nil {
+		w.SetCoverage(gate.Covered)
+	}
 	if *fromNow && len(snap.Offsets) == 0 {
 		if err := w.SkipToEnd(); err != nil {
 			log.Printf("watch: %v", err)
@@ -216,6 +225,7 @@ func run(args []string) error {
 	saidVolume := 0
 	saidForeign := 0
 	saidUnknown := 0
+	saidUncovered := 0
 	saidHolds := watch.Holds{}
 
 	for {
@@ -224,6 +234,7 @@ func run(args []string) error {
 		saidVolume = sayVolume(w.Capped, w.Oversized, saidVolume)
 		saidForeign = sayForeign(w.ForeignSource, saidForeign)
 		saidUnknown = sayUnknown(w.UnknownStream, saidUnknown)
+		saidUncovered = sayUncovered(w.NotCovered, saidUncovered)
 		saidHolds = sayHolds(w.Holds(), saidHolds)
 		snap.Offsets = w.Offsets()
 		snap.Heads = w.Heads()
@@ -339,6 +350,19 @@ func sayHolds(now, said watch.Holds) watch.Holds {
 			n, watch.HoldWindow, now.ZeroSkipped)
 	}
 	return now
+}
+
+// sayUncovered reports events refused because their file has no signed
+// checkpoint, once per growth, the way sayForeign reports the foreign ones. The
+// mail says it once per file; this line is how a flood from a file already
+// raised stays visible.
+func sayUncovered(n, said int) int {
+	if n <= said {
+		return said
+	}
+	log.Printf("watch: %d event(s) refused because no signed checkpoint covers their file, %d since this process started. They were not processed or mailed. One notice goes per file; HERALDYX_CHECKPOINT_GATE=off reads them as before.",
+		n-said, n)
+	return n
 }
 
 // sayForeign reports events refused because the file they sat in may not carry
@@ -784,6 +808,18 @@ func raiseStreamNotices(
 			deliver_(cfg, sender, journal, render.UnknownStream(rendercfg, render.Unknown{
 				File: u.File, Count: u.Count,
 			}, now), record.Dispatch{Kind: record.KindUnknownStream, About: key}, now)
+		})
+	}
+	// A file the checkpoint gate refused: one notice per file, ever, because the
+	// refusal is a fact about the file and repeating it adds nothing. It is
+	// high, since the file's events are not reaching anyone.
+	for _, u := range w.TakeUncovered() {
+		raised := "uncovered_stream:" + u.File
+		key := "uncovered_stream:" + filepath.Base(u.File)
+		raiseOnce(rcfg, snap, raised, key, "high", now, func() {
+			deliver_(cfg, sender, journal, render.UncoveredStream(rendercfg, render.Uncovered{
+				File: u.File, Reason: u.Reason, Count: u.Count,
+			}, now), record.Dispatch{Kind: record.KindUncovered, About: key}, now)
 		})
 	}
 }

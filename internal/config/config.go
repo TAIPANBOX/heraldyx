@@ -80,6 +80,15 @@ type Config struct {
 	// otherwise.
 	Quiet    *rule.QuietHours
 	QuietWhy string
+
+	// CheckpointGate is HERALDYX_CHECKPOINT_GATE: when on, a stream file is read
+	// only while a signed checkpoint covers it (F-018). Off by default. RED STUB:
+	// FromEnv does not read it yet.
+	CheckpointGate bool
+	// CheckpointDir is HERALDYX_CHECKPOINTS, where <stream>.ckpt.ndjson files live.
+	CheckpointDir string
+	// CheckpointKeys is HERALDYX_CHECKPOINT_KEYS, the pinned public keys.
+	CheckpointKeys string
 }
 
 // FromEnv reads the configuration.
@@ -127,6 +136,27 @@ func FromEnv() (Config, error) {
 	}
 	if c.SMTPHost != "" && c.SMTPFrom == "" {
 		return c, fmt.Errorf("config: HERALDYX_SMTP_HOST is set but HERALDYX_SMTP_FROM is not, so mail would have no sender")
+	}
+	// The checkpoint gate (F-018) is a switch the operator turns on, and it is
+	// refused, not read as off, when its value is not one it knows: a typo must
+	// not leave the gate off without a word. A gate switched on needs a
+	// directory to read checkpoints from and keys to verify them with, and
+	// without either it would refuse every stream, so it does not start.
+	switch os.Getenv("HERALDYX_CHECKPOINT_GATE") {
+	case "", "off":
+		c.CheckpointGate = false
+	case "on":
+		c.CheckpointGate = true
+	default:
+		return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_GATE is %q, want on or off", os.Getenv("HERALDYX_CHECKPOINT_GATE"))
+	}
+	c.CheckpointDir = os.Getenv("HERALDYX_CHECKPOINTS")
+	c.CheckpointKeys = os.Getenv("HERALDYX_CHECKPOINT_KEYS")
+	if c.CheckpointGate && c.CheckpointDir == "" {
+		return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_GATE is on but HERALDYX_CHECKPOINTS is not set, so there is no checkpoint to read")
+	}
+	if c.CheckpointGate && c.CheckpointKeys == "" {
+		return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_GATE is on but HERALDYX_CHECKPOINT_KEYS is not set, so no checkpoint could be verified")
 	}
 	return c, nil
 }

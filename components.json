@@ -39,6 +39,15 @@
           "HERALDYX_CONSOLE_URL": {
             "required": false
           },
+          "HERALDYX_CHECKPOINT_GATE": {
+            "required": false
+          },
+          "HERALDYX_CHECKPOINT_KEYS": {
+            "required": false
+          },
+          "HERALDYX_CHECKPOINTS": {
+            "required": false
+          },
           "HERALDYX_CONTROL": {
             "required": false
           },

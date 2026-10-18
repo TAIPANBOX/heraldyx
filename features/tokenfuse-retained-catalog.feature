@@ -94,4 +94,4 @@ Feature: tokenfuse's retained calls and their closures are told to a person in p
   Scenario: the catalog describes fifty types
     Given the event-type catalog
     Then it holds 50 entries, 48 before tokenfuse's two retained types
-  # @test:TestTheCatalogDescribesFiftyTypes
+  # @test:TestTheCatalogDescribesSixtyTypes

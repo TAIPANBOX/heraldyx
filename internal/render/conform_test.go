@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // agent-conform is the on-box hash-chain verifier (`agent-conform watch-dir`,

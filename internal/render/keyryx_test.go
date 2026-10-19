@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // keyryx is the custody and witness service (agent-passport SPEC.md 6.2,

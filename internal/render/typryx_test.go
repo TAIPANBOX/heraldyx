@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // typryx is an optional add-on (agent-passport SPEC.md 6.2) that answers a

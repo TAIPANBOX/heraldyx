@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // Severity ranks, low to high. The envelope's own vocabulary (agent-passport

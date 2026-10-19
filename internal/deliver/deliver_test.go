@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 	"github.com/TAIPANBOX/heraldyx/internal/render"
 )
 

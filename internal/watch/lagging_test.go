@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // These tests are about a reader on a shared volume that is behind its

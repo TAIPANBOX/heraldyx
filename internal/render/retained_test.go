@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unicode"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // tokenfuse raises two types about a retained reservation (agent-passport

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // costcrew emits these, read from its own code on 2026-08-23, which is what a

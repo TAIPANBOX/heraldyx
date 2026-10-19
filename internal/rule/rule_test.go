@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 var t0 = time.Date(2026, 8, 2, 14, 0, 0, 0, time.UTC)

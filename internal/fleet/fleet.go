@@ -22,7 +22,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // Window is how far back the picture reaches. Beyond this an observation is

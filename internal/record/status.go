@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // Status is what the journal says about itself.

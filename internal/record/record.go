@@ -67,7 +67,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TAIPANBOX/agent-stack-go/event"
+	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 )
 
 // Source is the shared-envelope `source` value for everything this process

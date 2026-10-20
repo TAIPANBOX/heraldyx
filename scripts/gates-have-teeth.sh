@@ -413,6 +413,14 @@ run_case "stream-entry: a stream file entry is expanded as a directory" fail \
     './scripts/features-are-bound.sh && go test ./internal/config -run "NamedStreamFile|NamedRegular"' \
     "$(py 'edit("internal/config/config.go", "\t\tif isStreamEntry(p) {\n\t\t\tif regularStreamFile(p)", "\t\tif false && isStreamEntry(p) {\n\t\t\tif regularStreamFile(p)")')" \
     'a directory named as a stream file was expanded'
+run_case "stream-entry: a stream is opened through a link" fail \
+    './scripts/features-are-bound.sh && go test ./internal/watch -run SwappedFor' \
+    "$(py 'edit("internal/regular/regular.go", "os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK", "os.O_RDONLY|syscall.O_NONBLOCK")')" \
+    'a link at a stream'"'"'s name was followed'
+run_case "stream-entry: a FIFO swapped in for a stream blocks the poll" fail \
+    './scripts/features-are-bound.sh && go test ./internal/watch -run SwappedFor' \
+    "$(py 'edit("internal/regular/regular.go", "os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK", "os.O_RDONLY|syscall.O_NOFOLLOW")')" \
+    'stopped the poll loop'
 run_case "stream-entry: harmless comment" pass \
     './scripts/features-are-bound.sh && go test ./internal/config -run "NamedStreamFile|NamedRegular"' \
     "$(py 'edit("internal/config/config.go", "func regularStreamFile(p string) bool {", "// harmless comment\nfunc regularStreamFile(p string) bool {")')"

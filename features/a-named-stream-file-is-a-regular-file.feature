@@ -30,6 +30,24 @@ Feature: an entry that names one stream file is read only while it is a regular 
     Then it reads the bus's files and keyryx.ndjson, and names nothing as unread
   # @test:TestANamedRegularStreamFileIsReadBesideADirectory
 
+  Scenario: a stream swapped for a FIFO does not stop the poll
+    Given heraldyx has read keyryx.ndjson and tokenfuse.ndjson
+    When keyryx.ndjson is replaced by a FIFO that nothing writes
+    Then the next poll returns at once and still reads tokenfuse.ndjson
+  # @test:TestAStreamSwappedForAFIFODoesNotStopThePoll
+
+  Scenario: a stream swapped for a link is not followed
+    Given keyryx.ndjson is a link to a file of keyryx lines elsewhere
+    When heraldyx polls it
+    Then it reads nothing through the link
+  # @test:TestAStreamSwappedForALinkIsNotFollowed
+
+  Scenario: the checkpoint gate does not wait on a FIFO
+    Given the checkpoint gate checks keyryx.ndjson against its checkpoint
+    When keyryx.ndjson is a FIFO
+    Then the check says the stream is unreadable at once
+  # @test:TestAStreamThatIsAFIFOIsUnreadableNotAWait
+
   Scenario: a stream file entry that cannot be checked is not read, and the log says why
     Given HERALDYX_EVENTS names tokenfuse.ndjson inside a directory nobody may enter
     When heraldyx starts

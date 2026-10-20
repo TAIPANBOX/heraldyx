@@ -175,8 +175,11 @@ func TestWhatGoesWrongAroundItIsSaidAndItKeepsGoing(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { os.Chmod(locked, 0o700) })
+			// A stream file entry Lstat cannot check is not read (invariant
+			// 33), and the startup line says so with the error, where the
+			// watcher used to say it on every poll.
 			return map[string]string{"HERALDYX_EVENTS": filepath.Join(locked, "tokenfuse.ndjson")}
-		}, "watch: watch: stat"},
+		}, "it cannot be checked (lstat"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()

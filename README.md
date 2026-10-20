@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-433-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-436-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.8.0-success.svg)
 
@@ -513,7 +513,7 @@ other.
 
 | variable | default | what it is |
 |---|---|---|
-| `HERALDYX_EVENTS` | `/var/lib/stack/events` | files and/or directories of NDJSON events; a directory contributes every `*.ndjson` in it, re-read each poll so a plane deployed later is picked up |
+| `HERALDYX_EVENTS` | `/var/lib/stack/events` | files and/or directories of NDJSON events; a directory contributes every `*.ndjson` in it, re-read each poll so a plane deployed later is picked up. An entry ending in `.ndjson` names one stream file and is read only while it is a regular file: a link there is never followed and a directory there is never expanded, and the startup line names such an entry |
 | `HERALDYX_TO` | (empty) | comma-separated recipients; **empty means send nothing** |
 | `HERALDYX_MIN_SEVERITY` | `high` | `info` \| `low` \| `medium` \| `high` \| `critical` |
 | `HERALDYX_BOX` | `agent stack` | the name in the subject line |

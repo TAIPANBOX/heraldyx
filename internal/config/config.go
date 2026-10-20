@@ -192,10 +192,24 @@ func (c Config) Why() string {
 
 // ResolveEventFiles expands directories in EventPaths into the NDJSON files
 // they hold, sorted so the read order is stable.
+//
+// An entry that names one stream file (`*.ndjson`) is read only while it is a
+// regular file, by Lstat: never expanded as a directory and never followed as
+// a link (invariant 33). Such a file often sits on a volume another process
+// writes, the Keyryx witness's findings for one, and a link or a directory
+// there would make this process read a stream it was never told to read under
+// the stem of the one it was. An entry that cannot be checked is not read.
 func (c Config) ResolveEventFiles() []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, p := range c.EventPaths {
+		if isStreamEntry(p) {
+			if regularStreamFile(p) && !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+			continue
+		}
 		info, err := os.Stat(p)
 		if err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
@@ -341,4 +355,53 @@ func clockMinutes(s string) (int, bool) {
 		return 0, false
 	}
 	return h*60 + m, true
+}
+
+// isStreamEntry reports whether a configured entry names one stream file
+// rather than a directory of them: it ends in `.ndjson`, as every stream file
+// this process reads does.
+func isStreamEntry(p string) bool {
+	return strings.HasSuffix(p, ".ndjson")
+}
+
+// regularStreamFile reports whether p is a regular file, read with Lstat so a
+// link at that name is never followed.
+func regularStreamFile(p string) bool {
+	info, err := os.Lstat(p)
+	return err == nil && info.Mode().IsRegular()
+}
+
+// UnreadEntry is a configured stream file entry ResolveEventFiles does not
+// read, and why, in a few words for the log.
+type UnreadEntry struct {
+	Path string
+	Why  string
+}
+
+// UnreadStreamEntries names the configured entries that name a stream file
+// (`*.ndjson`) and are not read: a link, a directory, anything but a regular
+// file, or a path Lstat cannot check. ResolveEventFiles reads none of them,
+// and the startup line says so, because a stream nobody hears from and a
+// stream that is quiet look the same afterwards. An entry that is not there
+// at all is not named: a plane may simply not be running yet.
+func (c Config) UnreadStreamEntries() []UnreadEntry {
+	var out []UnreadEntry
+	for _, p := range c.EventPaths {
+		if !isStreamEntry(p) {
+			continue
+		}
+		info, err := os.Lstat(p)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+		case err != nil:
+			out = append(out, UnreadEntry{p, "it cannot be checked (" + err.Error() + ")"})
+		case info.Mode()&fs.ModeSymlink != 0:
+			out = append(out, UnreadEntry{p, "it is a link, and a link is never followed"})
+		case info.IsDir():
+			out = append(out, UnreadEntry{p, "it is a directory, and a stream file entry is never expanded"})
+		case !info.Mode().IsRegular():
+			out = append(out, UnreadEntry{p, "it is not a regular file"})
+		}
+	}
+	return out
 }

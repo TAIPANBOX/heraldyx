@@ -200,6 +200,9 @@ func run(args []string) error {
 		log.Printf("no event log exists yet under %s: this process will keep looking, and until one appears there is nothing to notify about",
 			strings.Join(cfg.EventPaths, ", "))
 	}
+	for _, u := range cfg.UnreadStreamEntries() {
+		log.Printf("not reading %s: it is named as one stream file and %s", u.Path, u.Why)
+	}
 	if cfg.QuietWhy != "" {
 		log.Printf("quiet hours: %s", cfg.QuietWhy)
 	}

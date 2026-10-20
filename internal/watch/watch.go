@@ -21,6 +21,7 @@ import (
 
 	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 
+	"github.com/TAIPANBOX/heraldyx/internal/regular"
 	"github.com/TAIPANBOX/heraldyx/internal/stream"
 )
 
@@ -439,8 +440,7 @@ func (w *Watcher) SkipToEnd() error {
 // rememberHead stores the first line of the file at path, when it has a
 // whole one, as the file the read position belongs to.
 func (w *Watcher) rememberHead(path string) {
-	// #nosec G304 -- the paths are operator-supplied configuration.
-	f, err := os.Open(path)
+	f, err := regular.Open(path)
 	if err != nil {
 		return
 	}
@@ -525,8 +525,7 @@ func (w *Watcher) pollOne(path string) ([]event.Event, error) {
 		return nil, nil
 	}
 
-	// #nosec G304 -- the paths are operator-supplied configuration.
-	f, err := os.Open(path)
+	f, err := regular.Open(path)
 	if err != nil {
 		return nil, err
 	}

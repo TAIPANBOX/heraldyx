@@ -45,6 +45,8 @@ import (
 
 	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 	"github.com/gowebpki/jcs"
+
+	"github.com/TAIPANBOX/heraldyx/internal/regular"
 )
 
 // Reasons a stream is or is not covered. They are fixed strings of this
@@ -307,7 +309,7 @@ func verifySignature(pub *ecdsa.PublicKey, obj map[string]json.RawMessage, sig s
 // stream: it must hold at least `count` complete lines, its first N bytes must
 // hash to `prefix`, and the chain hash of line `count` must be `head`.
 func verifyStream(streamPath string, rec *record) (bool, string) {
-	fh, err := os.Open(streamPath) // #nosec G304 -- the stream path comes from the operator-supplied event paths
+	fh, err := regular.Open(streamPath) // a link, a FIFO or anything but a regular file is unreadable (invariant 33)
 	if err != nil {
 		return false, ReasonUnreadable
 	}

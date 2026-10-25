@@ -791,8 +791,9 @@ var catalog = map[string]phrasing{
 		did:  "Nothing. agent-conform read the stream and found events but not one carries a prev_hash, so there is no chain to check. It reports that and changes nothing.",
 		next: "Nothing automatic. This is not a break: prev_hash is optional on an event. It does mean an edit to this stream would not be detected, because there is no chain to break. If the writer of this stream is meant to chain it, check that writer's configuration and version; if it is not, this is expected.",
 	},
-	// keyryx's nine types (agent-passport SPEC.md 6.2, RESERVED until its first
-	// release, @decided 2026-10-18) and agent-conform's chain_restarted. Each
+	// keyryx's nine types (agent-passport SPEC.md 6.2, reserved until its first
+	// release, @decided 2026-10-18, which came the same day as v0.1.0) and
+	// agent-conform's chain_restarted. Each
 	// says what happened, what this box did and what happens if nobody acts.
 	// `what` names the stream when a subject shows one (keyryxSubject); the
 	// severity is the producer's, never chosen here.

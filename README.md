@@ -95,8 +95,10 @@ their own journal). It registers fifteen sources now, and
 `internal/stream/stream.go` lists the same fifteen: twelve write here (the
 original eight, then CostCrew, Vouchryx, Typryx and agent-conform) and the same
 two keep their own journal. keyryx, the custody and witness service, was
-registered on 2026-10-18 as reserved until its first release, so it is the
-fifteenth and writes nothing here yet.
+registered on 2026-10-18 as reserved until its first release, and v0.1.0 came
+the same day. It is the fifteenth: it writes nothing into the shared directory,
+and its witness's findings file, `keyryx.ndjson`, is read as an entry of its
+own (invariant 33 in CLAUDE.md).
 
 Every plane already speaks one envelope
 ([agent-passport](https://github.com/TAIPANBOX/agent-passport) SPEC.md 6), so
@@ -368,8 +370,8 @@ a break: `prev_hash` is optional, and a stream with events and none carrying one
 has no chain to check. What it costs is that an edit to that stream would not
 be seen, and the mail says exactly that and no more.
 
-**keyryx and its types** (agent-passport SPEC.md 6.2, reserved until keyryx's first
-release) are described the same way. keyryx is the custody and witness service:
+**keyryx and its types** (agent-passport SPEC.md 6.2, registered on 2026-10-18 and
+released as v0.1.0 the same day) are described the same way. keyryx is the custody and witness service:
 it holds the signing keys, rotates and revokes them, and reads the event streams
 to say whether they still hold the bytes they held when a checkpoint was signed.
 Its findings name the stream file, or the tenant, and the counts a witness

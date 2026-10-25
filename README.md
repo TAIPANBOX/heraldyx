@@ -8,7 +8,7 @@
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
 ![tests](https://img.shields.io/badge/tests-439-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
-![Version](https://img.shields.io/badge/version-v0.8.1-success.svg)
+![Version](https://img.shields.io/badge/version-v0.8.2-success.svg)
 
 <img src="assets/diagram.svg" alt="heraldyx architecture: seven of the twelve planes that append to one shared NDJSON event log are drawn, idryx and qryx also read it, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
 
@@ -455,7 +455,7 @@ it happens.
 ## Running it without building it
 
 ```bash
-docker pull ghcr.io/taipanbox/heraldyx:v0.8.1
+docker pull ghcr.io/taipanbox/heraldyx:v0.8.2
 ```
 
 Published on a tag, for `linux/amd64` and `linux/arm64`. **Immutable versions

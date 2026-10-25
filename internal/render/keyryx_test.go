@@ -9,7 +9,8 @@ import (
 )
 
 // keyryx is the custody and witness service (agent-passport SPEC.md 6.2,
-// RESERVED until its first release, @decided 2026-10-18). It writes
+// reserved until its first release, @decided 2026-10-18; v0.1.0 was released
+// the same day). It writes
 // keyryx.ndjson with the source keyryx and nine event types, and agent-conform
 // writes chain_restarted. The data keys read here are the ones the design
 // names; a key this file does not read is never printed.

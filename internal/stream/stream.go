@@ -56,7 +56,7 @@ const (
 // by estate-gates C4's producer table, plus agent-conform (agent-stack-go#66,
 // registered in agent-passport#69: file agent-conform.ndjson, source
 // agent-conform, types chain_broken and chain_unchained) and keyryx (SPEC 6.2,
-// file keyryx.ndjson, RESERVED until its first release). Each is a
+// file keyryx.ndjson, reserved until its first release, v0.1.0 on 2026-10-18). Each is a
 // single-source stream under the stem == source convention. A source the registry gains later is an
 // unknown stream here until this list or the operator's declaration learns it,
 // which is the loud direction to be wrong in.

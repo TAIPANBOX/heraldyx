@@ -3,7 +3,7 @@ Feature: keyryx's event types and agent-conform's chain_restarted are described 
   keyryx is the custody and witness service of the agent stack. It writes its
   own stream, keyryx.ndjson, with the source keyryx, and nine event types
   (agent-passport SPEC.md 6.2, registered as keyryx, RESERVED until its first
-  release, @decided 2026-10-18). agent-conform also writes chain_restarted
+  release, @decided 2026-10-18; v0.1.0 was released the same day). agent-conform also writes chain_restarted
   (medium, high when no resume checkpoint explains it). Each has a sentence
   here that says what happened, what this box did and what happens if nobody
   acts. Severities are the producers' own and are not chosen here. Nothing a

@@ -1058,6 +1058,9 @@ flags: `2 mapped, 2 record(s) written`, sealed, read back by a separate process
 with proof Full, and no recipient address in any sealed file or in the pack.
 Item 2, the missing cursor, is unchanged and still real.
 
+Later (2026-11-04, from trailryx's README on `main` and its release notes): the
+file import keeps a cursor per file, so item 2 is closed on that side.
+
 **The seam needs no write access.** The journal was set to mode `0444` and
 imported again: `2 mapped, 2 record(s) written`, exit 0, and `shasum -a 256` of
 the file before and after is identical
@@ -1415,13 +1418,6 @@ whether anything is read twice.
   all could receive a High incident titled "budget exhausted", and did. It was
   narrowed at the source. Finding one wrong is not evidence the others are
   right.
-- **No record from this journal exists in a trailryx store.** The door was found
-  and measured on 2026-08-06 (section above), and it refused all three lines,
-  because trailryx does not map this journal's event type. Two lines DID become
-  records with only the type substituted, which establishes that the envelope
-  fits and nothing more. "The notification is in the operator's audit store" is
-  still not a claim this repository can make, and the thing standing between it
-  and true is a decision in trailryx.
 - **Volume under a real fleet is unmeasured.** The dedup window, the ceiling
   and the digest period are reasoned defaults carried over from the money
   plane's own alert pipeline, not numbers anyone has watched an operator live

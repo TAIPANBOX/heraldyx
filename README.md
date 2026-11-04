@@ -305,9 +305,11 @@ the same event (its `WARDRYX_SIGNAL_EVENTS`, off unless set, from Wardryx 2.5.0)
 and a policy of its own with a `hold_if_signal` rule on `slo_burn` then puts the
 agent's tool calls to a person while the budget is spent. That is Wardryx's
 decision under its own policy and a hold for a person, not a stop and not a
-demotion. The mail's sentences describe the default box and do not know whether
-this is on, so an operator who has switched it on knows what the mail does not
-say.
+demotion. The mail cannot see whether this is on, so it does not say that
+nothing in the stack reads a budget: the entry's `did` line names the condition
+(`WARDRYX_SIGNAL_EVENTS` set, and a `hold_if_signal` rule on `slo_burn`) and
+says the event does not tell which kind of box this is, and the three `If
+nobody acts` sentences point back to it.
 
 **It arrives on two triggers only**, and the mail is written from
 `data.trigger` rather than from the type alone. The two are a statement about

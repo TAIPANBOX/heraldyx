@@ -127,6 +127,58 @@ func TestSLOBurnClaimsNoConsequenceItDoesNotHave(t *testing.T) {
 	}
 }
 
+// The denials above are true of the quality plane and of the default box, and
+// they are NOT true of every box. Wardryx can read verdryx's event file
+// (`WARDRYX_SIGNAL_EVENTS`, off unless set), and a policy with a `hold_if_signal`
+// rule on `slo_burn` then puts the agent's tool calls to a person while the
+// budget is spent. That is Wardryx's own decision and a hold, not a stop and not
+// a demotion, but a mail that says "there is no control in this stack that a
+// budget feeds into" or "nothing automatic, here or anywhere else" is false on a
+// box that switched it on, and that operator is the one most likely to trust the
+// sentence.
+//
+// So every place the entry denies a consequence names the one condition under
+// which Wardryx holds, and says the event cannot tell which kind of box this is.
+// Read from the catalog entry and from both trigger phrasings, because the
+// neutral sentences and the two specific ones are written in separate places and
+// one of them was left unconditional the last time the others were fixed.
+func TestSLOBurnDenialsNameTheWardryxHold(t *testing.T) {
+	for name, m := range map[string]Message{
+		"exhausted": sloMail(sloData("task_success", "exhausted")),
+		"fast_burn": sloMail(sloData("task_success", "fast_burn")),
+		"neutral":   sloMail(sloData("task_success", "")),
+	} {
+		for _, unconditional := range []string{
+			"no control in this stack that a budget feeds into",
+			"here or anywhere else",
+			"Nothing automatic",
+		} {
+			if strings.Contains(m.Body, unconditional) {
+				t.Errorf("%s: the mail says %q with no condition, and it is false where Wardryx "+
+					"was started with WARDRYX_SIGNAL_EVENTS and holds on slo_burn:\n%s", name, unconditional, m.Body)
+			}
+		}
+		for _, named := range []string{
+			"WARDRYX_SIGNAL_EVENTS",
+			"hold_if_signal",
+			"does not say whether this box has that on",
+		} {
+			if !strings.Contains(m.Body, named) {
+				t.Errorf("%s: the mail denies a consequence and does not name the condition %q "+
+					"under which one exists:\n%s", name, named, m.Body)
+			}
+		}
+		// The condition is a possibility and never a claim: the event cannot see
+		// the policy, so a sentence that says the agent IS held would be the
+		// 2026-08-03 defect from the other side.
+		for _, claimed := range []string{"is being held", "are being held", "was held", "were held"} {
+			if strings.Contains(m.Body, claimed) {
+				t.Errorf("%s: the mail claims a hold it cannot know about, saying %q:\n%s", name, claimed, m.Body)
+			}
+		}
+	}
+}
+
 // The same answer on both triggers, because the trigger changes what is TRUE
 // about the budget and changes nothing about what was done. A `did` line that
 // varied with it would be this file inventing a consequence for the louder of

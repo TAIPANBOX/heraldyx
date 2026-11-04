@@ -694,6 +694,19 @@ var catalog = map[string]phrasing{
 	// `breaker_tripped` was lowered from critical, because a type that pages for
 	// the design working teaches an operator to filter the sender.
 	//
+	// One condition makes those denials conditional, and every sentence that
+	// denies something says so: [wardryxHold]. Wardryx 2.5.0 can read verdryx's
+	// event file when it is started with `WARDRYX_SIGNAL_EVENTS`, and a policy of
+	// its own with a `hold_if_signal` rule on `slo_burn` then puts the agent's
+	// tool calls to a person while the budget is spent (its README, "An error
+	// budget that puts an agent on hold"). That is a hold under Wardryx's own
+	// policy, not a stop and not a demotion, and it is off unless somebody set it,
+	// so the default box is still the one these sentences describe. The event
+	// cannot tell which box it is on, though, and "there is no control in this
+	// stack that a budget feeds into" was a flat statement that was false on the
+	// box that had switched it on. The first bullet above predates that signal.
+	// `TestSLOBurnDenialsNameTheWardryxHold` holds it.
+	//
 	// The sentences here are the NEUTRAL ones, for an event that does not say
 	// which trigger fired. They are written out in full rather than left for
 	// [sloBurn] to fill, for the reason `dependency_failed` above gives: an
@@ -702,8 +715,8 @@ var catalog = map[string]phrasing{
 	// reorders two lines in [Event].
 	"slo_burn": {
 		what: "has an error budget this box was told about",
-		did:  "Nothing. The quality plane measured the objective over its window and worked out how much of the error budget is left. That measurement is the whole of what happened: no traffic was stopped, no policy was written or changed, and nothing about this agent was lowered, because there is no control in this stack that a budget feeds into. What to do about it is a decision nobody has made yet.",
-		next: "Nothing automatic. This event does not say whether the budget is already gone or is only being spent too fast, and those are a statement about the past and a forecast, so open the console at this incident rather than reading one of them into it.",
+		did:  "Nothing. The quality plane measured the objective over its window and worked out how much of the error budget is left. That measurement is the whole of what happened: the quality plane stopped no traffic, wrote no policy and lowered nothing about this agent, and by default no control in this stack reads a budget. " + wardryxHold + " What to do about it is a decision nobody has made yet.",
+		next: "Nothing happens by itself beyond the Wardryx hold named above, where this box has it on. This event does not say whether the budget is already gone or is only being spent too fast, and those are a statement about the past and a forecast, so open the console at this incident rather than reading one of them into it.",
 	},
 
 	// ------------------------------------------------------------- typryx
@@ -1027,13 +1040,23 @@ func dependencyName(e event.Event) string {
 	}
 }
 
+// wardryxHold is the one condition under which a budget feeds into a decision,
+// and the sentence the slo_burn entry carries wherever it denies a consequence.
+// It is a possibility and never a claim: the event cannot see Wardryx's
+// environment or its policy, so it says what the setting does and that it does
+// not know whether it is on. The two names in it are what an operator greps for
+// on their own box.
+const wardryxHold = "The one exception is Wardryx: started with WARDRYX_SIGNAL_EVENTS and given a hold_if_signal rule on slo_burn, it puts this agent's tool calls to a person while the budget is spent, and this event does not say whether this box has that on."
+
 // sloBurn says WHICH objective and WHICH of the two triggers, because those are
 // the two questions an operator asks on this type: which one, and is it already
 // missed or about to be.
 //
 // The `did` line is deliberately untouched by either branch. The trigger changes
 // what is TRUE about the budget and changes nothing about what was done, which
-// on this type is nothing at all, and a `did` that varied with the trigger would
+// on this type is nothing at all by the quality plane (and the `next` lines
+// point back to [wardryxHold] for the one plane that may act on it), and a
+// `did` that varied with the trigger would
 // be this file inventing a consequence for the louder of the two.
 //
 // Neither answer is the producer's bytes. The objective's name comes from
@@ -1057,10 +1080,10 @@ func sloBurn(e event.Event, p phrasing) phrasing {
 	switch trigger, _ := e.Data["trigger"].(string); trigger {
 	case "exhausted":
 		p.what = "has spent its whole error budget on " + obj
-		p.next = "Nothing automatic, here or anywhere else. This is a statement about runs that have already happened, so it does not improve on its own: the objective stays missed until enough good runs push the bad ones out of the window it was measured over. What to do about that is a decision for a person, and the console at this incident is where the runs behind the number are."
+		p.next = "Nothing happens by itself beyond the Wardryx hold named above, where this box has it on. This is a statement about runs that have already happened, so it does not improve on its own: the objective stays missed until enough good runs push the bad ones out of the window it was measured over. What to do about that is a decision for a person, and the console at this incident is where the runs behind the number are."
 	case "fast_burn":
 		p.what = "is spending its error budget on " + obj + " far faster than the window allows"
-		p.next = "Nothing automatic. The budget is not gone yet and at this rate it will be, well before the window ends, which is the part of this there is still time to act on. The runs spending it are running now, so the console at this incident is where to see which of them are failing and whether this is one bad change or something spread across the fleet."
+		p.next = "Nothing happens by itself beyond the Wardryx hold named above, where this box has it on. The budget is not gone yet and at this rate it will be, well before the window ends, which is the part of this there is still time to act on. The runs spending it are running now, so the console at this incident is where to see which of them are failing and whether this is one bad change or something spread across the fleet."
 	default:
 		p.what = "raised an error budget signal about " + obj
 	}

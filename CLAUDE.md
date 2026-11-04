@@ -656,9 +656,11 @@ excluded from generic raw data rendering.
     `call_retained` and two `retained_closed` events on `run-42`, 2026-10-12:
     two mails, the first of each); that is a property of the key and is not
     changed here. A model name that is a bare host and path, with no scheme and
-    no `www.`, is shown, and some clients turn it into a link. No event a
-    real tokenfuse wrote has been rendered, because tokenfuse does not write
-    either type yet.
+    no `www.`, is shown, and some clients turn it into a link. tokenfuse
+    writes both types and has since v1.10.0 (`@measured` `git tag --contains
+    46cf8a5` and `git grep -n CallRetained v1.10.0 -- crates/gateway/src` in
+    tokenfuse, 2026-11-04: the first tag holding the commit is v1.10.0, and the
+    emitting code is in that tag).
     *(test: `TestEveryRetainedTypeIsDescribed`,
     `TestCallRetainedSaysTheCallWasSentAndNeverAnsweredAndWhatStaysReserved`,
     `TestCallRetainedNotJournaledSaysARestartForgetsIt`,

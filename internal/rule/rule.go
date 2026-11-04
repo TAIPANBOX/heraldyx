@@ -170,8 +170,67 @@ func Subject(e event.Event) string {
 	return e.AgentID
 }
 
-// Key is the dedup key: one condition about one subject.
+// dependencies and effects map the values SPEC 6.2 gives `data.dependency` and
+// `data.effect` of a `dependency_failed` event to the words the key is spelled
+// with. A value outside them is not folded into anything: the field is read
+// from a log this process does not own, and an unexpected word must not decide
+// what gets mailed. The key is printed in the mail for the operator to copy, and
+// the raw field values are controls for the phrasing and never output (see
+// `TestTheDependencyFieldsAreNotMailedRaw`), so the key uses its own spelling.
+var (
+	dependencies = map[string]string{"provider": "provider", "policy_plane": "policy-plane", "control_plane": "control-plane"}
+	effects      = map[string]string{"call_failed": "call-failed", "allowed_ungoverned": "allowed-ungoverned", "denied_unasked": "denied-unasked"}
+)
+
+// dependencyKey is the key a `dependency_failed` event dedups under: the
+// dependency that failed and what the gateway did about it, not the run.
+//
+// A provider that is down fails every call that reaches it, and every call is
+// its own run, so keyed on the run an hour of outage was one mail per call up
+// to the hourly ceiling. Keyed on the dependency it is one mail per window.
+// The effect stays in the key because the three outcomes want opposite
+// responses (README, `dependency_failed`): a policy plane that is down and a
+// gateway that fails open let calls through with no policy on them, and that
+// must not be hidden behind an earlier mail about calls that were refused.
+//
+// Only the type `dependency_failed` and only the SPEC's own words qualify.
+// Anything else, including an event with no `data`, keeps the key of its run.
+func dependencyKey(e event.Event) (string, bool) {
+	if e.Type != "dependency_failed" {
+		return "", false
+	}
+	raw, _ := e.Data["dependency"].(string)
+	dep, ok := dependencies[raw]
+	if !ok {
+		return "", false
+	}
+	key := e.Type + ":dependency/" + dep
+	if raw, _ := e.Data["effect"].(string); effects[raw] != "" {
+		key += "/" + effects[raw]
+	}
+	return key, true
+}
+
+// Key is the dedup key: one condition about one subject. For a
+// `dependency_failed` event the condition is the dependency that failed and
+// the subject is the dependency, not the run (see [dependencyKey]); for every
+// other event it is the type and the run, or the agent when there is no run.
+// The key is also what an acknowledgement is made against, so acknowledging a
+// provider outage holds the whole storm, and what the mail prints on its Key
+// line.
 func Key(e event.Event) string {
+	if k, ok := dependencyKey(e); ok {
+		return k
+	}
+	return e.Type + ":" + Subject(e)
+}
+
+// IncidentID is the id the money plane's console files an incident under,
+// `type:subject` with the run as the subject. It is what the link in the mail
+// points at, and it is deliberately NOT [Key]: folding a storm of provider
+// failures into one dedup key changes what is mailed, and must not change what
+// a link points at.
+func IncidentID(e event.Event) string {
 	return e.Type + ":" + Subject(e)
 }
 

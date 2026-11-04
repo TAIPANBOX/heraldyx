@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-439-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-452-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.8.2-success.svg)
 
@@ -274,6 +274,19 @@ The transport error the event carries is deliberately not in any of them. It is
 text from outside the perimeter arriving under a human-readable key, so it is
 read to pick a sentence and never rendered, and which dependency failed reaches
 you as this build's own words rather than as the producer's.
+
+**A storm of one dependency's failures is one mail.** A provider that is down
+fails every call that reaches it, and every call is its own run, so a window
+keyed on the run mailed each call up to the hourly ceiling. For
+`dependency_failed` the dedup key is the dependency and the effect, read from
+the event's own `data.dependency` and `data.effect` and printed on the `Key:`
+line as `dependency_failed:dependency/provider/call-failed`: one mail per
+dependency and effect per window, and acknowledging that key holds the whole
+storm. The effect is part of it because a gateway that fails open lets calls
+through with no policy on them, and that does not hide behind an earlier mail
+about calls that were refused. An event with no `data`, or a value that is not
+one of the three dependencies, keeps the key of its run. The link in the mail
+still points at the incident filed under the type and the run.
 
 **`slo_burn` reports a measurement, and nothing else happened.** The quality
 plane counts the eligible runs in a window, compares the share of good ones to

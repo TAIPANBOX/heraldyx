@@ -1758,7 +1758,10 @@ func PulseLines(p rule.Pulse, files int, every time.Duration, acks []rule.Ack, m
 // a GET at a view. There is no action in it, and there is no token in it.
 func Link(cfg Config, e event.Event) string {
 	base := consoleBase(cfg)
-	key := rule.Key(e)
+	// The run's incident id, not the dedup key: a dependency_failed event is
+	// deduplicated by the dependency it names, and the link in the mail must
+	// keep pointing where it always did.
+	key := rule.IncidentID(e)
 	if base == "" || !addressable(key) {
 		return ""
 	}

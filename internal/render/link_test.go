@@ -72,3 +72,19 @@ func TestWhatIsInsideASegmentIsStillEscaped(t *testing.T) {
 		t.Fatalf("escapePath changed what it does inside a segment: %q", got)
 	}
 }
+
+// The dedup key of a dependency_failed event is the dependency it names, so a
+// storm is one mail. The link in that mail must keep pointing at the incident
+// id the console files under the run, exactly as before.
+func TestTheLinkOfADependencyFailureStillNamesTheRun(t *testing.T) {
+	c := cfg()
+	c.ConsoleURL = "https://box.example.com"
+	e := ev("dependency_failed", map[string]any{
+		"dependency": "provider", "stage": "response", "effect": "call_failed",
+	})
+	got := Link(c, e)
+	want := "https://box.example.com/i/dependency_failed:" + e.RunID
+	if got != want {
+		t.Fatalf("Link = %q, want %q", got, want)
+	}
+}

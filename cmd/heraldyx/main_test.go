@@ -1363,3 +1363,39 @@ func TestAMaintenanceCommandRefusesToOverwriteAnUnreadableControlFile(t *testing
 		t.Fatalf("the unreadable control file was rewritten: %q", got)
 	}
 }
+
+// A provider that is down fails every call, and every call is its own run.
+// Keyed on the run, thirty failed calls were twenty mails and a summary of the
+// rest; keyed on the dependency they are one mail, and nothing is held back
+// that has to be summarised.
+func TestAStormOfProviderFailuresIsOneMailAndNothingIsHeld(t *testing.T) {
+	b := newBench(t, "medium")
+	t0 := time.Date(2026, 9, 17, 12, 11, 0, 0, time.UTC)
+	data := `,"data":{"dependency":"provider","stage":"response","effect":"call_failed","detail":"provider answered HTTP 503"}`
+	for i := 0; i < 30; i++ {
+		write(t, b.events, ndjson("dependency_failed", "high", fmt.Sprintf("run-%d", i), data))
+	}
+	b.poll(t0)
+	got := read(t, b.mail)
+	if n := strings.Count(got, "Subject:"); n != 1 {
+		t.Fatalf("want one mail for thirty failed calls of one provider, have %d:\n%s", n, subjects(got))
+	}
+	if n := b.snap.Rule.SuppressedSince; n != 0 {
+		t.Fatalf("%d events were held behind the hourly ceiling; a storm of one condition should not reach it", n)
+	}
+}
+
+// The same storm from a policy plane that is down and failing OPEN is a
+// different condition from the one that fails closed, and both are mailed.
+func TestPolicyPlaneFailuresOfDifferentEffectAreBothMailed(t *testing.T) {
+	b := newBench(t, "medium")
+	t0 := time.Date(2026, 9, 17, 12, 11, 0, 0, time.UTC)
+	for i, effect := range []string{"denied_unasked", "allowed_ungoverned", "denied_unasked", "allowed_ungoverned"} {
+		data := `,"data":{"dependency":"policy_plane","stage":"decide","effect":"` + effect + `","detail":"x"}`
+		write(t, b.events, ndjson("dependency_failed", "high", fmt.Sprintf("run-%d", i), data))
+	}
+	b.poll(t0)
+	if n := strings.Count(read(t, b.mail), "Subject:"); n != 2 {
+		t.Fatalf("want one mail per effect, have %d", n)
+	}
+}

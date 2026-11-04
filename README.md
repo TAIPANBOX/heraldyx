@@ -65,15 +65,18 @@ flowchart LR
   LOG -->|"reads, never writes"| H["heraldyx"]
   LOG -->|"reads it too"| ID
   LOG -->|"reads it too"| QX
+  LOG -.->|"reads verdryx's file, for slo_burn"| WX
   SC["scopyx: web egress"] -->|"its own journal, not this log"| SJ[("scopyx's journal")]
   H -->|"SMTP"| M["your mailbox"]
   M -.->|"one link, a view and never an action"| C["Genaryx console<br/>sign in, then act"]
 ```
 
-**Twelve planes write this log and heraldyx is the only pure reader.** Idryx and
-Qryx read it as well as write it: Idryx loads it to build an identity graph and
-Qryx walks it to check the `prev_hash` chains and the attestation on each
-passport, and both also emit findings of their own. Two more planes, heraldyx
+**Twelve planes write this log and heraldyx is the only pure reader.** Idryx,
+Qryx and Wardryx read it as well as write it: Idryx loads it to build an
+identity graph and Qryx walks it to check the `prev_hash` chains and the
+attestation on each passport, and both also emit findings of their own. Wardryx
+reads one stream of it, the quality plane's, when `WARDRYX_SIGNAL_EVENTS` names
+that file (Wardryx 2.5.0), to take the `slo_burn` signal of an agent. Two more planes, heraldyx
 and scopyx, write a journal on their own volume rather than this log, which is
 the same decision twice: a component that can write the shared log can, once
 compromised, corrupt the trail it was adding to, and those two hold the two
@@ -291,11 +294,20 @@ still points at the incident filed under the type and the run.
 **`slo_burn` reports a measurement, and nothing else happened.** The quality
 plane counts the eligible runs in a window, compares the share of good ones to
 the objective, and works out how much of the error budget is left. It writes no
-policy, demotes nothing and stops no traffic, and neither does anything else in
-this box: nothing here reads a budget when it decides whether to allow a call,
-and there is no autonomy tier anywhere in this stack to lower. The mail says so
-plainly, because an operator told an agent has already been reined in is an
-operator who does not do the thing the alert exists to prompt.
+policy, demotes nothing and stops no traffic, and by default nothing else in
+this box reads a budget when it decides whether to allow a call, and there is no
+autonomy tier anywhere in this stack to lower. The mail says so plainly, because
+an operator told an agent has already been reined in is an operator who does not
+do the thing the alert exists to prompt.
+
+One thing a box can switch on changes the last half of that. Wardryx can read
+the same event (its `WARDRYX_SIGNAL_EVENTS`, off unless set, from Wardryx 2.5.0),
+and a policy of its own with a `hold_if_signal` rule on `slo_burn` then puts the
+agent's tool calls to a person while the budget is spent. That is Wardryx's
+decision under its own policy and a hold for a person, not a stop and not a
+demotion. The mail's sentences describe the default box and do not know whether
+this is on, so an operator who has switched it on knows what the mail does not
+say.
 
 **It arrives on two triggers only**, and the mail is written from
 `data.trigger` rather than from the type alone. The two are a statement about
@@ -361,12 +373,13 @@ default 20-an-hour limit is reached. Neither is new: both already govern
 every other `high` type in this table.
 
 **agent-conform is an optional add-on** (agent-passport SPEC.md 6.2): a stack
-that does not run `agent-conform watch-dir` emits neither of the last two rows.
+that does not run `agent-conform watch-dir` emits none of the three `chain_` rows.
 That verifier checks the `prev_hash` chain of every stream in the bus directory
-and writes what it finds to its own stream, `agent-conform.ndjson`. Both of its types are
+and writes what it finds to its own stream, `agent-conform.ndjson`. Its first two types are
 described here (`@claude 2026-10-04`, asked for by that day's estate audit
 plan), because before this they mailed as the generic fallback, which names no
-stream and no line.
+stream and no line; its third, `chain_restarted`, is described with keyryx's
+types below.
 
 `chain_broken` (high) names the stream file, the first broken line and how many
 breaks the file holds, all read from the event's own `data` and each checked on
@@ -934,11 +947,12 @@ log is mounted read-only here on purpose, and it stays that way.
 - **It does not ship the journal anywhere.** The record plane comes and reads
   it. This file is in the estate's shared event envelope, so trailryx takes it
   with `trailryx-node events --file` across a read-only mount, and nothing here
-  grows a client, an encoder or a second binary to push it. Two things on the
-  trailryx side stop that being wired up today: it does not yet map this
-  journal's event type to a record type, and its file import keeps no cursor, so
-  running it twice imports the file twice. Both were measured on 2026-08-06 and
-  are written up in `VALIDATION.md`.
+  grows a client, an encoder or a second binary to push it. Both things that
+  stopped that on 2026-08-06 are closed on the trailryx side: `alert_sent` maps
+  to a record type (trailryx PR #27, the same day), and the import keeps a cursor
+  per file, so running it again on an unchanged file reads nothing (its README,
+  "It is safe to put on a timer"). The measurements of 2026-08-06 are in
+  `VALIDATION.md`.
 - **It does not report anything about an organisation as a whole.** See the
   boundary above: no `agent_id`, no subject, no mail. This is the one class of
   signal the stack raises that this process cannot see, and the fix is not here.

@@ -29,17 +29,17 @@ fail=0
 code() { grep -vE '^[[:space:]]*//' "$1"; }
 
 while IFS= read -r f; do
-	if code "$f" | grep -qE 'smtp\.SendMail\(|smtp\.Dial\('; then
+	if grep -qE 'smtp\.SendMail\(|smtp\.Dial\(' <<<"$(code "$f")"; then
 		echo "FAIL: $f calls smtp.SendMail or smtp.Dial, which bypass the TLS mode" >&2
 		fail=1
 	fi
-	if code "$f" | grep -q 'InsecureSkipVerify'; then
+	if grep -q 'InsecureSkipVerify' <<<"$(code "$f")"; then
 		echo "FAIL: $f sets InsecureSkipVerify, so certificate verification is off" >&2
 		fail=1
 	fi
 done < <(find internal cmd -name '*.go' ! -name '*_test.go' | sort)
 
-if ! code "$src" | grep -q 'Extension("STARTTLS")'; then
+if ! grep -q 'Extension("STARTTLS")' <<<"$(code "$src")"; then
 	echo "FAIL: $src no longer checks the STARTTLS offer, so STARTTLS is no longer required" >&2
 	fail=1
 fi

@@ -252,6 +252,22 @@ run_case "features-are-bound: a scenario names a test that is gone" fail \
 	"$(py 'edit("features/ceiling.feature", "@test:TestACriticalIsSentThroughTheCeiling", "@test:TestACriticalWasOnceSentThroughTheCeiling")')" \
 	"no such test exists"
 
+# Position, which counting cannot see: one binding moved from below its
+# scenario to above it. The counts stay equal and every named test exists, so
+# only the position check can fail here.
+run_case "features-are-bound: a binding moved above its scenario" fail \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'edit("features/ceiling.feature", "  Scenario: alerts held after the first summary are summarised again\n", "  # @test:TestHeldAlertsAreSummarisedAgainWithinABoundedInterval\n  Scenario: alerts held after the first summary are summarised again\n")
+edit("features/ceiling.feature", "and their worst severity\n  # @test:TestHeldAlertsAreSummarisedAgainWithinABoundedInterval\n", "and their worst severity\n")')" \
+	"binding is not attached to a scenario"
+
+# A scenario whose binding was separated from its last step by a blank line:
+# the pointer now sits between two scenarios and belongs to neither.
+run_case "features-are-bound: a blank line between the steps and the binding" fail \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'edit("features/ceiling.feature", "inside the dedup window is not\n  # @test:", "inside the dedup window is not\n\n  # @test:")')" \
+	"scenario has no binding on the line after its last step"
+
 # And the other direction: a scenario nobody bound is a wish, not a proof.
 run_case "features-are-bound: a scenario with no binding at all" fail \
 	'./scripts/features-are-bound.sh' \
@@ -322,7 +338,13 @@ run_case "readme-numbers: a described sentence is reworded" pass \
 # file and be deleted by whoever is unblocking CI.
 run_case "features-are-bound: a test named in prose rather than in a binding" pass \
 	'./scripts/features-are-bound.sh' \
-	"$(py 'edit("features/ceiling.feature", "  # @test:TestDedupHolds", "  # See also TestSomethingThatDoesNotExistAtAll.\n  # @test:TestDedupHolds")')"
+	"$(py 'edit("features/ceiling.feature", "  # @test:TestDedupHolds", "  # @test:TestDedupHolds\n  # See also TestSomethingThatDoesNotExistAtAll.")')"
+
+# The position is the line after the last step, and a step of any keyword ends
+# where the scenario ends: a scenario that grows an And keeps its binding.
+run_case "features-are-bound: a scenario grows an And step above its binding" pass \
+	'./scripts/features-are-bound.sh' \
+	"$(py 'edit("features/ceiling.feature", "inside the dedup window is not\n  # @test:", "inside the dedup window is not\n    And nothing else is mailed about it\n  # @test:")')"
 
 echo
 echo "=== and the one this estate learned the hard way ==="

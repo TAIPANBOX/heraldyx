@@ -1496,3 +1496,47 @@ from a producer); the cost of re-hashing a large stream on each new checkpoint
 (not measured); behaviour on a lagging NFS volume (not run); the witness's
 data-key names, which SPEC 6.2 does not yet fix (the renders read only the keys
 the design names and ignore the rest).
+
+## 2026-11-23, the file transport wrote headers with no check
+
+`File.Send` (`HERALDYX_MAIL_FILE`) wrote `To:` and `Subject:` straight from the
+message, while `Compose` refused a line break. And `Compose`'s check named only
+CR and LF: a NUL, a next-line or a Unicode line separator in a subject passed
+it, and only the Q-encoding of the subject kept them out of the SMTP header.
+The file transport writes the subject raw.
+
+**Red first.** Four new tests in `internal/deliver/header_test.go`, run against
+the code before the change: 75 subtests failed, 15 for each hostile value in
+the file transport's subject, 15 in its recipients, 30 of the 45 header and
+value pairs through `Compose` (the 15 that passed were CR and LF, already
+refused), and the 15 hostile rows of the "both transports agree" table.
+
+```
+--- FAIL: TestTheFileTransportRefusesAHeaderABreakWouldOpen/a_line_feed
+--- FAIL: TestEveryLineBreakAndControlIsRefusedInEveryHeader/from_with_a_line_separator
+--- FAIL: TestEveryLineBreakAndControlIsRefusedInEveryHeader/subject_with_a_nul
+```
+
+**Mutants of the fixed code**, each run with `go test ./internal/deliver`;
+every one was caught:
+
+| mutant | caught by |
+|---|---|
+| `File.Send` skips the shared check | `TestTheFileTransportRefusesAHeaderABreakWouldOpen`, `...ARecipient...`, `TestBothTransportsJudgeAHeaderTheSameWay` |
+| `Compose` skips the shared check | `TestEveryLineBreakAndControlIsRefusedInEveryHeader`, `TestHeaderInjectionIsRefused`, `TestBothTransports...` |
+| recipients not checked | `TestTheFileTransportRefusesARecipientABreakWouldOpen`, `TestEveryLineBreak...`, `TestHeaderInjectionIsRefused` |
+| subject not checked | four tests, the file subject test among them |
+| a refused recipient does not return | `TestTheFileTransportRefusesARecipient...`, `TestEveryLineBreak...`, `TestHeaderInjectionIsRefused` |
+| from address not checked | `TestEveryLineBreak...`, `TestHeaderInjectionIsRefused` |
+| only CR and LF refused (the old rule) | all four new tests |
+| U+2028 allowed | all four new tests |
+| U+2029 allowed | all four new tests |
+| NUL allowed | all four new tests |
+| C1 controls allowed | all four new tests |
+| the tab refused too | `TestBothTransportsJudgeAHeaderTheSameWay` (its ordinary row) |
+
+**Every gate, on a Linux host.** gofmt, vet, staticcheck clean; govulncheck
+found no vulnerabilities; `go test -race ./...` every package ok; the five
+gates green; `gates-have-teeth.sh` OK. Coverage 89.1% of statements before and
+after; `File.Send` 87.5% to 90.0%, `checkAddressedHeaders` and
+`checkHeaderSafe` 100%.

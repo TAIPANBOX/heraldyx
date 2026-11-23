@@ -82,6 +82,13 @@ var knownSources = []string{
 //     so it stamps `tokenfuse` whichever wire it serves (tokenfuse v1.11.0
 //     crates/core/src/agent_event.rs:42; crates/gateway/src/main.rs chooses
 //     the wire from TOKENFUSE_WIRE and does not touch the exporter).
+//   - keyryx-custody: keyryx's custody role writes its key_rotated and
+//     key_revoked events (agent-passport SPEC 6.2: source keyryx, subject
+//     agent://keyryx.internal/custody) to its own file, because custody and
+//     the witness never share a process, a uid or a data directory (keyryx
+//     invariant 7) and the witness already appends keyryx.ndjson. Two
+//     appenders on one file is the race the tokenfuse rows above avoid, so
+//     custody's file is its own, and it carries keyryx and nothing else.
 //
 // Deliberately NOT here: demo. `taipan demo` writes one synthetic file whose
 // lines are attributed to six planes (taipan src/commands/demo.rs,
@@ -100,6 +107,7 @@ var exceptions = map[string][]string{
 	"tokenfuse-cloud":  {"tokenfuse"},
 	"tokenfuse-mcp":    {"tokenfuse"},
 	"tokenfuse-openai": {"tokenfuse"},
+	"keyryx-custody":   {"keyryx"},
 }
 
 // Policy maps a stream stem to the sources it may carry.

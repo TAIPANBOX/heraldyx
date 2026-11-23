@@ -220,3 +220,50 @@ func TestKeyryxKeysAreNotInTheGenericAllowlist(t *testing.T) {
 		}
 	}
 }
+
+// key_rotated and key_revoked as keyryx custody writes them (SPEC 6.2): under
+// agent://keyryx.internal/custody, with a key name of keyryx's own grammar and
+// kids that are RFC 7638 thumbprints, base64url of a SHA-256 digest, which may
+// start with an underscore or a hyphen.
+func TestACustodyEventAsKeyryxWritesItNamesTheKeyAndItsKids(t *testing.T) {
+	const (
+		newKid = "_q3cT0kYv2V8m4Xb1nHfL9sRzA6wJpE5uGdKiOyNx7c"
+		oldKid = "-Z9yX8wV7uT6sR5qP4oN3mL2kJ1iH0gF9eD8cB7aA6b"
+	)
+	rotated := Event(cfg(), custody(t, "key_rotated", event.SeverityInfo, map[string]any{
+		"name": "vouchryx.token", "kid": newKid, "previous_kid": oldKid, "alg": "ES384",
+	}), now, "", nil)
+	revoked := Event(cfg(), custody(t, "key_revoked", event.SeverityHigh, map[string]any{
+		"name": "vouchryx.token", "kid": oldKid, "alg": "ML-DSA-65",
+	}), now, "", nil)
+	for _, c := range []struct {
+		m    Message
+		want []string
+	}{
+		{rotated, []string{newKid, oldKid, "ES384"}},
+		{revoked, []string{oldKid, "ML-DSA-65"}},
+	} {
+		if !strings.Contains(c.m.Subject, "vouchryx.token") || !strings.Contains(c.m.Subject, "keyryx.internal/custody") {
+			t.Errorf("the subject must name the custody subject and the key:\n%s", c.m.Subject)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(c.m.Body, w) {
+				t.Errorf("the body must name %q:\n%s", w, c.m.Body)
+			}
+		}
+	}
+}
+
+func TestKeyRevokedSaysWhatHoldsForHeldAndDelegatedKeys(t *testing.T) {
+	m := Event(cfg(), custody(t, "key_revoked", event.SeverityHigh, map[string]any{
+		"name": "wardryx", "kid": "REVKIDqrs", "alg": "ES384",
+	}), now, "", nil)
+	for _, want := range []string{"held key", "delegated key", "revoked_at"} {
+		if !strings.Contains(m.Body, want) {
+			t.Errorf("a revocation must say what holds for %q:\n%s", want, m.Body)
+		}
+	}
+	if strings.Contains(m.Body, "no longer checkable through keyryx") {
+		t.Errorf("a delegated key's statement stays served with revoked_at, so this is false:\n%s", m.Body)
+	}
+}

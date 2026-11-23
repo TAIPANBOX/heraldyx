@@ -75,3 +75,21 @@ Feature: keyryx's event types and agent-conform's chain_restarted are described 
     Given the allowlist of the generic per-key line
     Then none of name, kid, previous_kid, alg, lines, bytes, count, segments, stream or tenant is in it, so the generic line never prints them
   # @test:TestKeyryxKeysAreNotInTheGenericAllowlist
+
+  Scenario: a custody event read from keyryx-custody.ndjson is processed as keyryx
+    Given keyryx custody writes its key events to its own file, keyryx-custody.ndjson
+    When a line from that file claims the source keyryx, and another claims wardryx
+    Then the keyryx line is mailed and the wardryx claim is refused and said
+  # @test:TestKeyryxCustodyStreamMayCarryKeyryxOnly
+
+  Scenario: a rotation and a revocation as custody writes them name the key in the subject and every kid in the body
+    Given a key_rotated and a key_revoked event under agent://keyryx.internal/custody with a key name, RFC 7638 thumbprint kids (one starting with an underscore, one with a hyphen) and ES384 or ML-DSA-65
+    When each is rendered
+    Then the subject names the key, and the body names the kids and the algorithm as written
+  # @test:TestACustodyEventAsKeyryxWritesItNamesTheKeyAndItsKids
+
+  Scenario: a revocation says what still holds for a held key and for a delegated one
+    Given a key_revoked event
+    When it is rendered
+    Then the mail says a held key leaves every published key set and a delegated key's statement stays served with the time it was revoked, and never that what it signed can no longer be checked through keyryx
+  # @test:TestKeyRevokedSaysWhatHoldsForHeldAndDelegatedKeys

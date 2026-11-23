@@ -953,7 +953,8 @@ const envHelp = `  HERALDYX_EVENTS         files and/or directories of NDJSON ag
   HERALDYX_SMTP_HOST      host:port of the mail server, e.g. smtp.example.com:587
   HERALDYX_SMTP_FROM      envelope sender address
   HERALDYX_SMTP_USER      username, if the server wants one
-  HERALDYX_SMTP_PASS      password, if the server wants one
+  HERALDYX_SMTP_PASS      password, if the server wants one; give it from a
+                          secret or an environment file, never a command line
   HERALDYX_SMTP_TLS       starttls (default), implicit (port 465 default), or
                           plain (loopback only, for a local relay)
   HERALDYX_DEDUP_SECONDS  quiet window per condition (default 600)

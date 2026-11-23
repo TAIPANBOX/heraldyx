@@ -91,7 +91,7 @@ Feature: tokenfuse's retained calls and their closures are told to a person in p
     Then the value is gone from the mail
   # @test:TestRetainedValuesReachTheMailOnlyThroughTheAllowlist
 
-  Scenario: the catalog describes fifty types
+  Scenario: the catalog's size is pinned
     Given the event-type catalog
-    Then it holds 50 entries, 48 before tokenfuse's two retained types
-  # @test:TestTheCatalogDescribesSixtyTypes
+    Then it holds 63 entries: 48 before tokenfuse's two retained types, 60 after keyryx's nine and agent-conform's chain_restarted, 63 after vouchryx's three
+  # @test:TestTheCatalogDescribesSixtyThreeTypes

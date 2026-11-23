@@ -222,3 +222,18 @@ func TestValidNameIsWhatADeclarationCanCarry(t *testing.T) {
 		}
 	}
 }
+
+// keyryx custody writes key_rotated and key_revoked to its own file,
+// keyryx-custody.ndjson, with source keyryx (the witness keeps keyryx.ndjson).
+// It is a measured exception that carries keyryx and nothing else.
+func TestKeyryxCustodyIsAnExceptionCarryingKeyryxOnly(t *testing.T) {
+	p := Default()
+	if got := p.Check("keyryx-custody", "keyryx"); got != Allowed {
+		t.Fatalf("keyryx-custody.ndjson carrying keyryx: %v, want Allowed", got)
+	}
+	for _, other := range []string{"wardryx", "keyryx-custody", "tokenfuse", "vouchryx"} {
+		if got := p.Check("keyryx-custody", other); got != Foreign {
+			t.Errorf("keyryx-custody.ndjson carrying %s: %v, want Foreign", other, got)
+		}
+	}
+}

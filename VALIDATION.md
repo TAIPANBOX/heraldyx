@@ -1492,7 +1492,8 @@ Gates at `7ad7f30`:
 
 NOT proven: that a real producer's checkpoints verify end to end (no keyryx
 exists yet, and the fixtures are built from SPEC 6.5.1 by `checkpointtest`, not
-from a producer); the cost of re-hashing a large stream on each new checkpoint
+from a producer; closed on 2026-11-23 for agent-stack-go's own writer, see the
+entry of that date below); the cost of re-hashing a large stream on each new checkpoint
 (not measured); behaviour on a lagging NFS volume (not run); the witness's
 data-key names, which SPEC 6.2 does not yet fix (the renders read only the keys
 the design names and ignore the rest).
@@ -1540,3 +1541,43 @@ found no vulnerabilities; `go test -race ./...` every package ok; the five
 gates green; `gates-have-teeth.sh` OK. Coverage 89.1% of statements before and
 after; `File.Send` 87.5% to 90.0%, `checkAddressedHeaders` and
 `checkHeaderSafe` 100%.
+
+## 2026-11-23, the checkpoint gate against a real producer's writer
+
+The gate had only met checkpoint files built from SPEC 6.5.1 by
+`internal/checkpoint/checkpointtest`. Three tests in
+`cmd/heraldyx/realwriter_test.go` now write the stream and its sidecar with
+agent-stack-go v2.0.3's own `event.NewChainedWriterWithCheckpoints`, the writer
+a producer on the bus links, signing with an ES256 key whose kid is its RFC 7638
+thumbprint (a checkpoint every three lines, then the close record), pin that
+key in a file in the `HERALDYX_CHECKPOINT_KEYS` format, and drive the process
+through `cycle()` with `HERALDYX_CHECKPOINT_GATE=on`: configuration, gate, poll
+and mail.
+
+- Accepted as written: all seven lines mailed, nothing refused
+  (`TestARealProducersCheckpointsAreAcceptedAsTheyAre`).
+- One byte of the second line changed (`run-real-02` to `run-real-92`): no line
+  mailed, one refusal naming `wardryx.ndjson`, "the stream's bytes no longer
+  match the newest checkpoint" (`TestAOneByteRewriteOfARealProducersStreamIsRefused`).
+- Cut to four of seven lines: no line mailed, one refusal, "the stream is
+  shorter than its newest checkpoint" (`TestATruncatedRealProducersStreamIsRefused`).
+
+The gate predates these tests, so the red runs are against mutants of
+`internal/checkpoint/checkpoint.go`, each run with
+`go test ./cmd/heraldyx -run RealProducer` and restored:
+
+| mutant | caught by |
+|---|---|
+| prefix not compared | `TestAOneByteRewriteOfARealProducersStreamIsRefused` |
+| a short stream read as covered | `TestATruncatedRealProducersStreamIsRefused` |
+| `close` not a known record kind | all three (the real writer ends on a close record) |
+| no signature verifies | all three |
+| canonical-form check inverted | all three |
+| head comparison inverted | `TestARealProducersCheckpointsAreAcceptedAsTheyAre` |
+| prev chain comparison inverted | all three |
+
+A rewrite is caught here by a gate that starts on the rewritten stream. A gate
+that already accepted the stream keeps that verdict until the next checkpoint
+arrives (invariant 32, `Covered`); the bytes between checkpoints are the
+witness's to recheck.
+

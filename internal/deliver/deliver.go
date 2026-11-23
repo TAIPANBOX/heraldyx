@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/TAIPANBOX/heraldyx/internal/render"
 )
@@ -54,6 +55,12 @@ func NewFile(path string) *File { return &File{path: path} }
 func (f *File) Name() string { return "file" }
 
 func (f *File) Send(to []string, m render.Message) error {
+	// The same check the mail path runs, before anything is opened: this file
+	// is what an operator reads to see what WOULD be sent, so a header a
+	// producer could add here is one they would trust there.
+	if err := checkAddressedHeaders(to, m.Subject); err != nil {
+		return err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	// #nosec G304 -- the path is operator-supplied configuration, the same as
@@ -322,12 +329,7 @@ func Compose(from string, to []string, m render.Message, now time.Time) ([]byte,
 	if err := checkHeaderSafe("from address", from); err != nil {
 		return nil, err
 	}
-	for _, r := range to {
-		if err := checkHeaderSafe("recipient", r); err != nil {
-			return nil, err
-		}
-	}
-	if err := checkHeaderSafe("subject", m.Subject); err != nil {
+	if err := checkAddressedHeaders(to, m.Subject); err != nil {
 		return nil, err
 	}
 
@@ -344,10 +346,29 @@ func Compose(from string, to []string, m render.Message, now time.Time) ([]byte,
 	return []byte(b.String()), nil
 }
 
-// checkHeaderSafe refuses anything that could break out of a header.
+// checkAddressedHeaders is the one check every transport runs on the headers
+// it writes from a message: each recipient and the subject. The mail path and
+// the file path both call it, so neither can drift into a weaker copy.
+func checkAddressedHeaders(to []string, subject string) error {
+	for _, r := range to {
+		if err := checkHeaderSafe("recipient", r); err != nil {
+			return err
+		}
+	}
+	return checkHeaderSafe("subject", subject)
+}
+
+// checkHeaderSafe refuses anything that could break out of a header, or that a
+// reader of the message could take for the end of one: every control character
+// but the tab (CR, LF and NUL among them, and the C1 next-line), and the two
+// Unicode separators, U+2028 and U+2029, that editors and log viewers render
+// as a new line. Refusing CR and LF alone left the file transport, which
+// writes the subject unencoded, open to all of the others.
 func checkHeaderSafe(what, v string) error {
-	if strings.ContainsAny(v, "\r\n") {
-		return fmt.Errorf("deliver: %s contains a line break, refusing to build a message from it", what)
+	for _, r := range v {
+		if (unicode.IsControl(r) && r != '\t') || r == '\u2028' || r == '\u2029' {
+			return fmt.Errorf("deliver: %s contains a line break or a control character, refusing to build a message from it", what)
+		}
 	}
 	return nil
 }

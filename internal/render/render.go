@@ -852,8 +852,36 @@ var catalog = map[string]phrasing{
 	},
 	"key_revoked": {
 		what: "revoked a signing key",
-		did:  "Nothing here. keyryx removed the key from every published set at once, so the key is no longer published and nothing verifies against it from now on. This box holds no keys and did nothing to them.",
-		next: "Check whether the revocation was planned. Anything that key signed is no longer checkable through keyryx, so check what it was used for, and anything it signed after it was compromised, if that is why it was revoked.",
+		did:  "Nothing here. keyryx took the key out of every key set it publishes at once, so the key is no longer published and nothing new is accepted under it. This box holds no keys and did nothing to them.",
+		next: "Check whether the revocation was planned. For a held key, a verifier stops accepting what it signed once it refreshes its copy of the key set. For a delegated key, keyryx keeps serving the statement that certified it together with revoked_at, so a verifier can still tell what it signed before that time from what came after. Either way, check what the key was used for, and anything it signed after it was compromised, if that is why it was revoked.",
+	},
+	// vouchryx's three types (agent-passport SPEC.md 6.2), read against the
+	// code that writes them (vouchryx 22ad735: internal/api's tokenExchange,
+	// revoke, tokenClientCredentials and the cross-app grant). vouchryx files a
+	// revocation only when it names an agent as its subject (`emit` drops any
+	// other), so delegation_revoked is always a revocation of that agent's
+	// tokens issued before it, whether or not it also names a jti. The severities
+	// are vouchryx's own (`severityFor`). Which grant, which kind of refusal,
+	// whether a revocation is a ban and whether it reached disk are selected by
+	// [vouchryxQualify] from closed sets of vouchryx's own values, and none of
+	// those values is printed; `detail` (an error string), the scopes asked for
+	// and held, the audience and a revoker's `reason` (free text an operator
+	// typed) are never read. The generic per-key line still prints `actor` and
+	// `org`, which are already allowlisted and shape checked.
+	"delegation_issued": {
+		what: "was issued a delegated token by vouchryx",
+		did:  "Nothing. vouchryx checked the request and issued a short-lived token bound to the key the agent proved it holds. This is the delegation service working.",
+		next: "Nothing. An issue is expected whenever an agent is given authority. Look at it only if this agent should not be acting for anyone right now.",
+	},
+	"delegation_denied": {
+		what: "was refused a token by vouchryx",
+		did:  "vouchryx refused the request and issued nothing. The caller was told only a coarse OAuth error; which check refused it is in vouchryx's own log and event.",
+		next: "Nothing automatic. A single refusal is often a misconfigured client. Refusals that repeat for one agent are an agent asking for authority it was not given, or something using its name. Check vouchryx's log for this agent.",
+	},
+	"delegation_revoked": {
+		what: "had its delegated authority revoked in vouchryx",
+		did:  "Someone holding a vouchryx revoke key revoked every token issued so far that names this agent anywhere in a delegation chain. Enforcement points that poll vouchryx's revocation list refuse those tokens once they next read it.",
+		next: "Nothing automatic. Check that the revocation was planned, and if it answered a compromise, what this agent did before it. A token issued to this agent after the revocation is not covered by it unless the agent was also banned.",
 	},
 	"chain_restarted": {
 		what: "found a hash chain starting again partway through an event stream",
@@ -907,6 +935,10 @@ func qualify(e event.Event, p phrasing) phrasing {
 	case "witness_stream_rewritten", "witness_stream_truncated", "witness_chain_restarted",
 		"witness_checkpoint_invalid", "chain_restarted":
 		return keyryxSubject(e, p)
+	case "key_rotated", "key_revoked":
+		return keySubject(e, p)
+	case "delegation_issued", "delegation_denied", "delegation_revoked":
+		return vouchryxQualify(e, p)
 	default:
 		return p
 	}

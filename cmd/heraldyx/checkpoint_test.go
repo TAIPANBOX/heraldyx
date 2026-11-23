@@ -116,6 +116,31 @@ func TestKeyryxStreamMayCarryKeyryxOnly(t *testing.T) {
 	}
 }
 
+// keyryx custody writes its key events to keyryx-custody.ndjson with source
+// keyryx. A keyryx line there is mailed as keyryx; a wardryx claim is refused
+// and said, and the file is a stream this box knows.
+func TestKeyryxCustodyStreamMayCarryKeyryxOnly(t *testing.T) {
+	b := newStreamBench(t, "info")
+	b.put(t, "keyryx-custody",
+		lineFrom("keyryx", "key_revoked", "high", "run-custody-1")+
+			lineFrom("wardryx", "policy_deny", "high", "run-forged-custody"))
+	b.poll(t0)
+
+	got := b.out(t)
+	if strings.Contains(got, "run-forged-custody") {
+		t.Fatalf("a wardryx claim inside keyryx-custody.ndjson was processed as wardryx:\n%s", got)
+	}
+	if !strings.Contains(got, "run-custody-1") {
+		t.Fatalf("the keyryx line in keyryx-custody.ndjson was not mailed:\n%s", subjects(got))
+	}
+	if strings.Contains(got, "is not a stream this box knows") {
+		t.Fatalf("keyryx-custody.ndjson must be a stream this box knows:\n%s", subjects(got))
+	}
+	if sub := subjects(got); !strings.Contains(sub, "keyryx-custody.ndjson") || !strings.Contains(sub, "wardryx") {
+		t.Fatalf("the refused wardryx claim must still be said:\n%s", sub)
+	}
+}
+
 // The gate is built from the configuration: nil when off, and an error that
 // names the keys file when it is on and the keys cannot load, so the process
 // does not start with a gate that could verify nothing.

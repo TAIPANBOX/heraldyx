@@ -43,6 +43,14 @@ var keyryxTypeSet = map[string]bool{
 // would pass it. A base64url kid, an algorithm and a tenant id all fit.
 var identName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}$`)
 
+// kidShape is what a kid must look like to be printed: the base64url alphabet
+// and nothing else. keyryx's kids are RFC 7638 thumbprints, the base64url of a
+// SHA-256 digest, so one in every thirty-two starts with an underscore or a
+// hyphen, which [identName] refuses as a first character. Read through
+// identName, that kid was dropped from the mail with nothing to say so. The
+// alphabet still holds no space, no dot, no slash and no line break.
+var kidShape = regexp.MustCompile(`^[A-Za-z0-9_\-]{1,64}$`)
+
 // keyryxStream returns `data.stream` when it is a stream file name this box
 // prints as written, and says whether the key was present but unusable.
 func keyryxStream(e event.Event) (string, bool) {
@@ -76,10 +84,35 @@ func keyryxTenant(e event.Event) (string, bool) {
 // alg) when it is printable.
 func keyryxIdent(e event.Event, key string) (string, bool) {
 	s, ok := e.Data[key].(string)
-	if !ok || !identName.MatchString(s) {
+	if !ok {
+		return "", false
+	}
+	shape := identName
+	if key == "kid" || key == "previous_kid" {
+		shape = kidShape
+	}
+	if !shape.MatchString(s) {
 		return "", false
 	}
 	return s, true
+}
+
+// keySubject puts the key's name into the subject line of a custody event
+// (key_rotated, key_revoked, filed under agent://keyryx.internal/custody), so
+// a mailbox says which key without the mail being opened. A name this box
+// cannot print leaves the base wording.
+func keySubject(e event.Event, p phrasing) phrasing {
+	name, ok := keyryxIdent(e, "name")
+	if !ok {
+		return p
+	}
+	switch e.Type {
+	case "key_rotated":
+		p.what = "rotated the signing key " + name
+	case "key_revoked":
+		p.what = "revoked the signing key " + name
+	}
+	return p
 }
 
 // keyryxSubject puts the stream, or the tenant, into the subject line for the

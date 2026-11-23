@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-457-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-468-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.9.1-success.svg)
 
@@ -101,7 +101,8 @@ two keep their own journal. keyryx, the custody and witness service, was
 registered on 2026-10-18 as reserved until its first release, and v0.1.0 came
 the same day. It is the fifteenth: it writes nothing into the shared directory,
 and its witness's findings file, `keyryx.ndjson`, is read as an entry of its
-own (invariant 33 in CLAUDE.md).
+own (invariant 33 in CLAUDE.md), as is custody's file of key events,
+`keyryx-custody.ndjson`.
 
 Every plane already speaks one envelope
 ([agent-passport](https://github.com/TAIPANBOX/agent-passport) SPEC.md 6), so
@@ -153,7 +154,7 @@ the period (default 24, `0` turns it off). The absence of the mail is the
 signal: if it stops arriving, this process or its mail path is down.
 
 <details>
-<summary><b>The 60 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
+<summary><b>The 63 event types this build has a sentence for</b> (anything else still arrives, and says so)</summary>
 
 <br>
 
@@ -194,6 +195,9 @@ for, and the link still opens the console at it.
 | `calibration_drift` | has a group of typed answers whose calibration crossed a configured bound (the template, backend, model and which metric crossed are all in the mail; see below) |
 | `chain_broken` | has an event stream whose hash chain broke (the subject and the mail name the stream file, the first broken line and how many breaks the file holds; see below) |
 | `chain_unchained` | has an event stream that holds events and no hash chain at all (the stream file and the event count are in the mail; not a break; see below) |
+| `delegation_issued` | was issued a token by vouchryx: its own, a cross-app access token, or one to act on someone's behalf, as the grant says (see below) |
+| `delegation_denied` | was refused a token by vouchryx (the subject says which kind of check refused it: a ban, a revoked token, no proof of possession, a widened scope or an audience not allowed; see below) |
+| `delegation_revoked` | had its delegated authority revoked in vouchryx (the mail says when it is also a ban, and when the revocation was not written to disk; see below) |
 | `chain_restarted` | found a hash chain starting again partway through an event stream, from agent-conform (the stream file and the line are in the mail; high when no resume checkpoint explains it; see below) |
 | `witness_stream_rewritten` | found that bytes an event stream had already held have changed, from keyryx's witness (the stream file and the counts are in the mail, never a digest; see below) |
 | `witness_stream_truncated` | found an event stream holding fewer lines than when the witness last read it (the stream file is in the mail; see below) |
@@ -404,14 +408,41 @@ it holds the signing keys, rotates and revokes them, and reads the event streams
 to say whether they still hold the bytes they held when a checkpoint was signed.
 Its findings name the stream file, or the tenant, and the counts a witness
 reports (lines, bytes, segments). The digests a witness clips are never mailed:
-they are the console's and the witness's own log's to show. `key_rotated` names
-the new kid, the one it replaces and the algorithm; `key_revoked` names the key,
-its kid and the algorithm, and says the key is no longer published. A name, a
-kid or a tenant is shown only when it is a plain identifier, so a producer's
-sentence in one of those fields is left out. `chain_restarted` (medium, high when
+they are the console's and the witness's own log's to show. `key_rotated` and
+`key_revoked` come from custody, filed under `agent://keyryx.internal/custody`,
+and name the key in the subject. `key_rotated` names the new kid, the one it
+replaces and the algorithm; `key_revoked` names the key, its kid and the
+algorithm, says the key is no longer published, and says what still holds: a
+verifier stops accepting what a held key signed once it refreshes the key set,
+and a delegated key's statement stays served with `revoked_at`, so what it
+signed before that time can still be told from what came after. A name or a
+tenant is shown only when it is a plain identifier, and a kid only when it is
+in the base64url alphabet (a thumbprint may start with `_` or `-`), so a
+producer's sentence in one of those fields is left out.
+
+Custody writes those two types to its own file, `keyryx-custody.ndjson`, not
+to the witness's `keyryx.ndjson`: the two roles never share a process or a data
+directory. That file may carry `keyryx` and nothing else. A launcher that wants
+them mailed names the file as its own entry of `HERALDYX_EVENTS`, on the volume
+custody writes, mounted read-only here, for example
+`HERALDYX_EVENTS=/var/lib/stack/events,/var/lib/keyryx/custody/keyryx-custody.ndjson`. `chain_restarted` (medium, high when
 no resume checkpoint explains it) names the stream and the line where the new
 chain starts. A restart is not a break: a resume checkpoint is what a writer
 writes when it reopens a stream it could not chain from.
+
+**vouchryx and its types** (agent-passport SPEC.md 6.2) are the delegation
+service's: `delegation_issued` (info), `delegation_denied` (high) and
+`delegation_revoked` (high), each filed under the agent it concerns. An issue
+says which grant it was: a token of the agent's own, a cross-app access token,
+or one to act on someone's behalf. A refusal says which kind of check refused
+it (a ban, a revoked token, no proof of possession, a widened scope, an
+audience not on the allow-list), chosen from vouchryx's own reason codes, and
+the code itself is never mailed; a code this build does not know keeps the
+neutral sentence. A revocation says when it is also a ban, and says so loudly
+when vouchryx could not write it to disk, because a restart of vouchryx would
+then lose it. What vouchryx keeps for its operator stays there: the error
+detail of a refusal, the scopes asked for and held, the audience, and the
+free-text reason a revoker typed are never read.
 
 Not covered: every alert from the verifier shares one subject (its own agent id,
 and it carries no run id), and the dedup key is the type and the subject, so a
@@ -553,7 +584,8 @@ other.
 | `HERALDYX_MAIL_FILE` | (empty) | write messages here instead of sending them |
 | `HERALDYX_SMTP_HOST` | (empty) | `host:port` of your mail server |
 | `HERALDYX_SMTP_FROM` | (empty) | envelope sender |
-| `HERALDYX_SMTP_USER` / `_PASS` | (empty) | credentials, if your server wants them |
+| `HERALDYX_SMTP_USER` | (empty) | user name, if your server wants credentials |
+| `HERALDYX_SMTP_PASS` | (empty) | password for that user. Give it from a secret or an environment file readable only by the service (a Kubernetes secret, a compose `env_file`, a systemd `EnvironmentFile`), never on a command line, where any user on the host can read it in the process list and the shell keeps it in its history |
 | `HERALDYX_SMTP_TLS` | `starttls` (`implicit` on port 465) | how the connection is encrypted. `starttls` refuses to send unless the server offers STARTTLS. `implicit` speaks TLS from the first byte. `plain` sends in the clear and is refused unless the host is on the loopback interface (`127.0.0.0/8`, `::1`, `localhost`). The server's certificate is verified in both encrypted modes. |
 | `HERALDYX_DEDUP_SECONDS` | `600` | quiet window per condition |
 | `HERALDYX_MAX_PER_HOUR` | `20` | ceiling on immediate messages, `0` for none; a `critical` is sent regardless, and what is held is summarised every ten minutes |
@@ -577,7 +609,8 @@ from may carry that source. By convention `tokenfuse.ndjson` carries
 agent-passport registry lists; `tokenfuse-cloud.ndjson` and
 `tokenfuse-mcp.ndjson` (the control plane's and the MCP broker's own files)
 carry `tokenfuse`, and so does `tokenfuse-openai.ndjson` (a second gateway on
-the OpenAI wire, which keeps its own file). `demo.ndjson` (what `taipan demo` writes, with lines from six
+the OpenAI wire, which keeps its own file). `keyryx-custody.ndjson` (keyryx
+custody's own file of key events) carries `keyryx`. `demo.ndjson` (what `taipan demo` writes, with lines from six
 planes) is not built in, because any co-tenant could create it: declare it with
 `HERALDYX_STREAMS=demo=tokenfuse|wardryx|engram|qryx|verdryx|mockryx` when you
 run the demo against this box. A line that claims anything else is not processed as that

@@ -52,6 +52,42 @@ while read -r name; do
 	fi
 done < <(grep -h '^  # @test:' features/*.feature | sed 's/.*@test://')
 
+# WHERE THE BINDING SITS
+#
+# A binding is the line right after its scenario's last step, and nowhere else.
+# Counting alone let both conventions live side by side (above the scenario in
+# three files, below it in thirteen), and a reader could not tell which
+# scenario a pointer belonged to: a binding above scenario B is also a binding
+# below scenario A. Two missing bindings and two misplaced ones still count
+# equal. So each scenario must end in its binding, and a binding anywhere else
+# (above a scenario, after a blank line, after another binding) is attached to
+# nothing. One position, below the steps, the one most files already used
+# (2026-11-23).
+while IFS= read -r problem; do
+	[ -n "$problem" ] || continue
+	echo "FAIL: ${problem}" >&2
+	broken=$((broken + 1))
+done < <(awk '
+	function close_scenario() {
+		if (open && !bound) printf "%s:%d: scenario has no binding on the line after its last step\n", file, start
+		open = 0
+	}
+	FNR == 1 { if (NR > 1) close_scenario(); prev = "" }
+	/^  Scenario:/ { close_scenario(); open = 1; bound = 0; steps = 0; start = FNR; file = FILENAME; prev = "scenario"; next }
+	/^    (Given|When|Then|And|But) / {
+		if (open && !bound) { steps++; prev = "step"; next }
+		printf "%s:%d: a step outside any scenario\n", FILENAME, FNR
+		prev = "other"; next
+	}
+	/^  # @test:/ {
+		if (open && !bound && steps > 0 && prev == "step") { bound = 1; open = 0; prev = "binding"; next }
+		printf "%s:%d: binding is not attached to a scenario (it must be the line right after the last step)\n", FILENAME, FNR
+		prev = "other"; next
+	}
+	{ if (open && steps > 0) close_scenario(); prev = "other" }
+	END { close_scenario() }
+' features/*.feature)
+
 if [ "$scenarios" != "$bindings" ]; then
 	echo "FAIL: ${scenarios} scenario(s) and ${bindings} binding(s)" >&2
 	broken=$((broken + 1))

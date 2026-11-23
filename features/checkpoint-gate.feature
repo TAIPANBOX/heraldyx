@@ -106,3 +106,21 @@ Feature: a stream with no signed checkpoint is not mailed, when the operator swi
     When the mail is checked
     Then one refusal mail goes for that file and the refused lines are counted each poll
   # @test:TestARefusalIsRaisedOncePerFile
+
+  Scenario: a stream and its checkpoints written by a real producer are accepted as they are
+    Given a producer that writes its stream with agent-stack-go's own checkpointing writer and signs with an ES256 key pinned here
+    When heraldyx polls the stream with the gate on
+    Then every line is mailed and nothing is refused
+  # @test:TestARealProducersCheckpointsAreAcceptedAsTheyAre
+
+  Scenario: one byte changed in a line a real producer's checkpoint covers
+    Given that stream with one byte of its second line changed after it was checkpointed
+    When heraldyx polls it with the gate on
+    Then no line of it is mailed, and one mail names the stream and says its bytes no longer match
+  # @test:TestAOneByteRewriteOfARealProducersStreamIsRefused
+
+  Scenario: a real producer's stream cut short of its checkpoint
+    Given that stream cut to four of its seven lines
+    When heraldyx polls it with the gate on
+    Then no line of it is mailed, and one mail names the stream and says it is shorter than its newest checkpoint
+  # @test:TestATruncatedRealProducersStreamIsRefused

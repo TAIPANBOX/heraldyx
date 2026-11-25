@@ -8,7 +8,7 @@
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
 ![tests](https://img.shields.io/badge/tests-505-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
-![Version](https://img.shields.io/badge/version-v0.9.1-success.svg)
+![Version](https://img.shields.io/badge/version-v0.10.0-success.svg)
 
 <img src="assets/diagram.svg" alt="heraldyx architecture: seven of the twelve planes that append to one shared NDJSON event log are drawn, idryx and qryx also read it, heraldyx reads it read-only and passes every event through a severity floor, a dedup window and an hourly ceiling, sends one mail over SMTP through the only egress hole in a default-deny box, and writes a hash-chained dispatch record on its own volume" width="960">
 
@@ -514,7 +514,7 @@ it happens.
 ## Running it without building it
 
 ```bash
-docker pull ghcr.io/taipanbox/heraldyx:v0.9.1
+docker pull ghcr.io/taipanbox/heraldyx:v0.10.0
 ```
 
 Published on a tag, for `linux/amd64` and `linux/arm64`. **Immutable versions
@@ -597,7 +597,7 @@ other.
 | `HERALDYX_SENT` | beside the state file | the dispatch journal; empty disables recording |
 | `HERALDYX_PASSPORTS` | (empty) | a directory of agent-passport JSON, read to name who is answerable; empty means alerts carry no owner |
 | `HERALDYX_STREAMS` | (empty) | what a stream file may carry beyond the built-in table, as `stem=source\|source`, comma-separated; see "What a file may carry" |
-| `HERALDYX_CHECKPOINT_GATE` | `off` | `on` reads a stream file only while a signed checkpoint covers it, and refuses to start without `HERALDYX_CHECKPOINTS` and `HERALDYX_CHECKPOINT_KEYS`; see "The checkpoint gate" |
+| `HERALDYX_CHECKPOINT_GATE` | `off` | `on` reads a stream file only while a signed checkpoint covers it, and refuses to start without `HERALDYX_CHECKPOINTS` and one of `HERALDYX_CHECKPOINT_KEYS` or `HERALDYX_CHECKPOINT_STATEMENTS`; see "The checkpoint gate" |
 | `HERALDYX_CHECKPOINTS` | (empty) | the directory of `<stream>.ckpt.ndjson` checkpoint files, read when the gate is on |
 | `HERALDYX_CHECKPOINT_STATEMENTS` | (empty) | the directory keyryx custody publishes its key statements into (`KEYRYX_STATEMENTS_DIR`), mounted read only: each record's key comes from the statement there. Set this or `HERALDYX_CHECKPOINT_KEYS`, never both; see "Keys from keyryx custody" |
 | `HERALDYX_CHECKPOINT_ROOT_PIN` | (empty) | required with the statements directory: the kids of keyryx's delegation root, at least one ES384 and one ML-DSA-65, comma-separated |

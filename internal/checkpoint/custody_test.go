@@ -16,6 +16,7 @@ import (
 	"github.com/TAIPANBOX/heraldyx/internal/checkpoint"
 	"github.com/TAIPANBOX/heraldyx/internal/keystatement"
 	"github.com/TAIPANBOX/heraldyx/internal/keystatement/statementtest"
+	"github.com/TAIPANBOX/heraldyx/internal/watch"
 )
 
 // The gate in the custody mode, against a real producer: agent-stack-go's
@@ -145,8 +146,8 @@ func (b *custodyBench) settle() {
 func TestAProducersRenewedKeysKeepItsStreamCoveredThroughCustody(t *testing.T) {
 	b := newCustodyBench(t)
 	b.write(t, 4)
-	if ok, why := b.gate.Covered(b.stream); ok || why != checkpoint.ReasonNoSigned {
-		t.Fatalf("before custody was asked: %v %q", ok, why)
+	if ok, why := b.gate.Covered(b.stream); ok || why != watch.Undecided {
+		t.Fatalf("before the key's file was read: %v %q, want undecided", ok, why)
 	}
 	b.step()
 	if ok, why := b.gate.Covered(b.stream); !ok {
@@ -209,5 +210,27 @@ func TestAKeyCertifiedForAnotherProducerDoesNotCover(t *testing.T) {
 	b.settle()
 	if ok, why := b.gate.Covered(b.stream); ok || why != checkpoint.ReasonNoSigned {
 		t.Fatalf("checkpoints signed by another producer's key: %v %q", ok, why)
+	}
+}
+
+func TestAStreamUndecidedTooLongIsDecidedUncovered(t *testing.T) {
+	b := newCustodyBench(t)
+	b.gate.SetClock(b.clock.now)
+	// The statements directory is gone: no key can be looked up.
+	if err := os.RemoveAll(b.custody.Dir); err != nil {
+		t.Fatal(err)
+	}
+	b.write(t, 4)
+	if ok, why := b.gate.Covered(b.stream); ok || why != watch.Undecided {
+		t.Fatalf("at first: %v %q", ok, why)
+	}
+	b.clock.add(checkpoint.MaxUndecided - time.Second)
+	b.r.Step()
+	if ok, why := b.gate.Covered(b.stream); ok || why != watch.Undecided {
+		t.Fatalf("just inside the bound: %v %q", ok, why)
+	}
+	b.clock.add(2 * time.Second)
+	if ok, why := b.gate.Covered(b.stream); ok || why != checkpoint.ReasonNoSigned {
+		t.Fatalf("past it: %v %q, want decided uncovered", ok, why)
 	}
 }

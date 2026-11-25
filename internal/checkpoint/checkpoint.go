@@ -49,6 +49,7 @@ import (
 
 	"github.com/TAIPANBOX/heraldyx/internal/keystatement"
 	"github.com/TAIPANBOX/heraldyx/internal/regular"
+	"github.com/TAIPANBOX/heraldyx/internal/watch"
 )
 
 // Reasons a stream is or is not covered. They are fixed strings of this
@@ -65,7 +66,7 @@ const (
 	ReasonHead           = "the chain hash of the checkpoint's last line does not match"
 	ReasonUnreadable     = "the stream could not be read"
 	ReasonKeyWithdrawn   = "the key that signed the newest checkpoint is no longer certified"
-	ReasonKeyUnconfirmed = "custody has not confirmed the key that signed the newest checkpoint within the grace"
+	ReasonKeyUnconfirmed = "custody's statements have not confirmed the key that signed the newest checkpoint for too long"
 )
 
 // KeySource answers for a signed record of stream: the public key its kid
@@ -123,7 +124,30 @@ type Gate struct {
 	dir   string
 	keys  KeySource
 	files map[string]*file
+	now   func() time.Time
 }
+
+// undecided answers for a stream whose keys are still being looked up: held
+// as Undecided until MaxUndecided has passed since it began, then the reason
+// given.
+func (g *Gate) undecided(f *file, why string) (bool, string) {
+	now := g.now()
+	if f.undecidedSince.IsZero() {
+		f.undecidedSince = now
+	}
+	if now.Sub(f.undecidedSince) < MaxUndecided {
+		return false, watch.Undecided
+	}
+	return false, why
+}
+
+// MaxUndecided is how long a stream may wait for its keys to be looked up
+// before the gate decides it uncovered: long enough for custody to publish a
+// certification, short enough that a broken statements directory is said.
+const MaxUndecided = 5 * time.Minute
+
+// SetClock replaces the gate's clock, for a test.
+func (g *Gate) SetClock(now func() time.Time) { g.now = now }
 
 // file is what the gate has verified of one checkpoint file. The file is
 // append-only in use: a record once verified is not read again unless the
@@ -140,6 +164,11 @@ type file struct {
 	verdictGen uint64
 	covered    bool
 	why        string
+	// waiting is set when the last read stopped at a record whose key is
+	// still being looked up; undecidedSince is when the stream began to
+	// wait, zero while it does not.
+	waiting        bool
+	undecidedSince time.Time
 }
 
 // record is the part of a signed record the stream check needs.
@@ -159,7 +188,7 @@ func NewGate(dir string, keys map[string]*ecdsa.PublicKey) *Gate {
 
 // NewGateFrom builds a gate that takes each record's key from src.
 func NewGateFrom(dir string, src KeySource) *Gate {
-	return &Gate{dir: dir, keys: src, files: map[string]*file{}}
+	return &Gate{dir: dir, keys: src, files: map[string]*file{}, now: time.Now}
 }
 
 // Covered reports whether the stream at streamPath is covered by a signed
@@ -192,6 +221,9 @@ func (g *Gate) Covered(streamPath string) (bool, string) {
 		return false, f.refused
 	}
 	if f.best == nil {
+		if f.waiting {
+			return g.undecided(f, ReasonNoSigned)
+		}
 		return false, ReasonNoSigned
 	}
 	// The key that signed the newest record is asked again every time: a key
@@ -200,10 +232,12 @@ func (g *Gate) Covered(streamPath string) (bool, string) {
 	// pinned key, so the pinned mode is as it was.
 	switch _, v := g.keys.Still(stream, f.best.kid, f.best.at); v {
 	case keystatement.NotCertified:
+		f.undecidedSince = time.Time{}
 		return false, ReasonKeyWithdrawn
 	case keystatement.Wait:
-		return false, ReasonKeyUnconfirmed
+		return g.undecided(f, ReasonKeyUnconfirmed)
 	}
+	f.undecidedSince = time.Time{}
 	if !f.verdictSet || f.verdictGen != f.gen {
 		covered, why := verifyStream(streamPath, f.best)
 		if why == ReasonShorter {
@@ -241,8 +275,10 @@ func (f *file) advance(path, stream string, size int64, keys KeySource) {
 			// Nothing is known yet about this record's key: the record is
 			// read again on the next poll, and nothing after it is read
 			// before it, so the newest covering record is never skipped.
+			f.waiting = true
 			return
 		}
+		f.waiting = false
 		if why != "" {
 			f.refused = why
 			return
@@ -331,10 +367,10 @@ func checkRecord(body []byte, prev, stream string, keys KeySource) (*record, boo
 		json.Unmarshal(obj["kid"], &kid) != nil || json.Unmarshal(obj["sig"], &sig) != nil {
 		return nil, false, ReasonRefused
 	}
-	when, err := time.Parse("2006-01-02T15:04:05.000Z", at)
-	if err != nil {
-		return nil, false, ReasonRefused
-	}
+	// A time that has the shape and is no date (a 60th second, a 13th
+	// month) is passed on as the zero time: the pinned mode never read it,
+	// and the custody mode certifies no key at the zero time.
+	when, _ := time.Parse("2006-01-02T15:04:05.000Z", at)
 	pub, verdict := keys.Key(stream, kid, when)
 	switch verdict {
 	case keystatement.Wait:

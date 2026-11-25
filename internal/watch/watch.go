@@ -101,6 +101,9 @@ type Watcher struct {
 	// in has no signed checkpoint covering it (the checkpoint gate, F-018).
 	// Never returned by Poll, and said once per file in the mail.
 	NotCovered int
+	// Undecided counts the reads that stopped at a file the gate could not
+	// decide yet; its lines were held, not refused.
+	Undecided int
 
 	policy   stream.Policy
 	coverage Coverage
@@ -703,6 +706,12 @@ func (w *Watcher) read(path string, f *os.File, from, grown int64) ([]event.Even
 			if !asked {
 				covered, why = w.coverage(path)
 				asked = true
+			}
+			if !covered && why == Undecided {
+				// Not refused: held here, read again once the gate knows.
+				w.offsets[path] = start
+				w.Undecided++
+				return out, nil
 			}
 			if !covered {
 				w.noteUncovered(path, why)

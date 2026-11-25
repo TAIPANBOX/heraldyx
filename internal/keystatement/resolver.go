@@ -51,6 +51,12 @@ const (
 	// MaxKids bounds what the resolver remembers: a writer of a checkpoint file
 	// can name any kid it likes.
 	MaxKids = 256
+	// StaleAfter is how long an answer read from the directory is trusted
+	// without a fresh read of it and of the root: a directory that stops
+	// reading turns every key into a wait, never into a key kept forever.
+	StaleAfter = 3 * RefreshEvery
+	// ForgetAfter is how long a key nobody asked about is remembered.
+	ForgetAfter = time.Hour
 	// tickEvery is how often the loop looks for a kid it has not read.
 	tickEvery = 5 * time.Second
 	maxFile   = 1 << 20
@@ -123,8 +129,11 @@ type entry struct {
 	st        *Statement
 	revokedAt int64
 	first     time.Time // first asked about
-	read      time.Time // last read; zero until read once
-	missing   bool      // the last read found no file
+	asked     time.Time // last asked about
+	read      time.Time // last read attempted; zero until read once
+	okRead    time.Time // last read that returned custody's file
+	missing   bool      // the last read found no file, or none it could read
+	reverify  bool      // the root changed since this was verified
 }
 
 // Resolver answers, from memory only, whether a checkpoint record's kid is a
@@ -140,8 +149,10 @@ type Resolver struct {
 
 	mu      sync.Mutex
 	roots   Roots
-	rootsAt time.Time
+	rootsAt time.Time // last root read attempted
+	rootsOK time.Time // last root read that gave a root
 	missing string
+	full    bool // the bound was reached, said once
 	entries map[string]*entry
 	kick    chan struct{}
 }
@@ -203,15 +214,23 @@ func (r *Resolver) stillLocked(stream, kid string, at, now time.Time) (*Statemen
 		if len(r.entries) >= MaxKids {
 			// Asked again later, once a forgotten kid has made room: a
 			// crowd of kids in one file must not cost another stream its key.
+			if !r.full {
+				r.full = true
+				r.logf("checkpoint: %d keys are remembered, the most this box keeps; a new key waits until one is forgotten", MaxKids)
+			}
 			return nil, Wait
 		}
-		r.entries[kid] = &entry{first: now}
+		r.full = false
+		e = &entry{first: now}
+		r.entries[kid] = e
+		e.asked = now
 		select {
 		case r.kick <- struct{}{}:
 		default:
 		}
 		return nil, Wait
 	}
+	e.asked = now
 	if e.st == nil {
 		switch {
 		case e.read.IsZero():
@@ -229,16 +248,26 @@ func (r *Resolver) stillLocked(stream, kid string, at, now time.Time) (*Statemen
 	case e.revokedAt != 0 && now.Unix() >= e.revokedAt:
 		// Judged on this box's clock, never the record's.
 		return nil, NotCertified
+	case now.Sub(e.okRead) > StaleAfter, now.Sub(r.rootsOK) > StaleAfter:
+		// Not confirmed lately: neither its file nor the root has been
+		// read for a while. A wait, never a key kept on an old answer.
+		return nil, Wait
 	}
 	return st, Found
 }
 
 // pruneLocked forgets kids that have stayed not certified past the time a
-// missing file is waited for, so a file naming kid after kid cannot fill the
-// resolver. A kid with a verified statement is kept.
+// missing file is waited for, and kids nobody has asked about for
+// ForgetAfter, so neither a file naming kid after kid nor a long life of
+// renewed keys fills the resolver. The keys the gate still asks about (each
+// stream's newest record's, every poll) are never forgotten. A key forgotten
+// and asked about again is read again from custody's file.
 func (r *Resolver) pruneLocked(now time.Time) {
 	for kid, e := range r.entries {
-		if e.st == nil && !e.read.IsZero() && now.Sub(e.first) >= MissingAfter+RefreshEvery {
+		switch {
+		case e.st == nil && !e.read.IsZero() && now.Sub(e.first) >= MissingAfter+RefreshEvery:
+			delete(r.entries, kid)
+		case now.Sub(e.asked) >= ForgetAfter:
 			delete(r.entries, kid)
 		}
 	}
@@ -281,10 +310,11 @@ func (r *Resolver) Step() {
 		r.mu.Unlock()
 		return
 	}
+	roots := r.roots
 	var due []string
 	for kid, e := range r.entries {
 		switch {
-		case e.read.IsZero(),
+		case e.read.IsZero(), e.reverify,
 			e.missing && now.Sub(e.read) >= tickEvery,
 			now.Sub(e.read) >= RefreshEvery:
 			due = append(due, kid)
@@ -292,7 +322,7 @@ func (r *Resolver) Step() {
 	}
 	r.mu.Unlock()
 	for _, kid := range due {
-		r.readKid(root, kid, now)
+		r.readKid(root, roots, kid, now)
 	}
 }
 
@@ -332,9 +362,13 @@ func (r *Resolver) readRoots(root *os.Root, now time.Time) {
 	defer r.mu.Unlock()
 	r.rootsAt = now
 	if err != nil {
+		// No root to verify under: nothing new is verified, and what was
+		// verified turns into a wait once it is StaleAfter old.
+		r.roots = nil
 		r.logf("checkpoint: the delegation root's key set: %v; checkpoints wait", err)
 		return
 	}
+	r.rootsOK = now
 	if said := strings.Join(missing, ","); said != r.missing {
 		r.missing = said
 		if said != "" {
@@ -346,48 +380,66 @@ func (r *Resolver) readRoots(root *os.Root, now time.Time) {
 	// stops verifying at the next read of that statement.
 	r.roots = roots
 	for _, e := range r.entries {
-		e.read = time.Time{} // read again under this root
+		e.reverify = true // read again under this root, in this step
 	}
 }
 
-func (r *Resolver) readKid(root *os.Root, kid string, now time.Time) {
+// readKid reads and verifies a kid's file outside the lock, under the roots
+// of this step, and then records what it found.
+func (r *Resolver) readKid(root *os.Root, roots Roots, kid string, now time.Time) {
 	b, err := readFile(root, kid+".json")
+	var st Statement
+	var revoked int64
+	var bad error
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		// Not custody's word either way (the file could not be opened or
+		// read now): waited for as a missing file is, never a refusal.
+	default:
+		var resp struct {
+			Statement json.RawMessage `json:"statement"`
+			RevokedAt json.Number     `json:"revoked_at"`
+		}
+		dec := json.NewDecoder(bytes.NewReader(b))
+		dec.UseNumber()
+		dec.DisallowUnknownFields()
+		if bad = dec.Decode(&resp); bad == nil {
+			revoked, bad = strconv.ParseInt(resp.RevokedAt.String(), 10, 64)
+		}
+		if bad == nil && revoked < 0 {
+			bad = errors.New("a negative revocation time")
+		}
+		if bad == nil {
+			st, bad = Verify(resp.Statement, roots)
+			if bad == nil && st.Kid != kid {
+				bad = errors.New("the statement certifies another kid")
+			}
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	e := r.entries[kid]
 	if e == nil {
 		return // forgotten while it was read
 	}
-	e.read = now
-	if errors.Is(err, fs.ErrNotExist) {
-		e.missing, e.st = true, nil
+	e.read, e.reverify = now, false
+	if err != nil {
+		e.missing = true
+		if errors.Is(err, fs.ErrNotExist) {
+			e.st = nil // a file custody wrote is gone: nothing is believed
+		} else {
+			r.logf("checkpoint: custody's file for %s does not open now: %v; it is read again", kid, err)
+		}
 		return
 	}
 	e.missing = false
-	var resp struct {
-		Statement json.RawMessage `json:"statement"`
-		RevokedAt json.Number     `json:"revoked_at"`
-	}
-	revoked := int64(0)
-	if err == nil {
-		dec := json.NewDecoder(bytes.NewReader(b))
-		dec.UseNumber()
-		dec.DisallowUnknownFields()
-		if err = dec.Decode(&resp); err == nil {
-			revoked, err = strconv.ParseInt(resp.RevokedAt.String(), 10, 64)
-		}
-	}
-	if err != nil || revoked < 0 {
-		r.logf("checkpoint: custody's file for %s does not read; it is not trusted", kid)
+	if bad != nil {
+		r.logf("checkpoint: custody's file for %s is not trusted: %v", kid, bad)
 		e.st = nil
 		return
 	}
-	st, verr := Verify(resp.Statement, r.roots)
-	if verr != nil || st.Kid != kid {
-		r.logf("checkpoint: the statement custody published for %s does not verify under the pinned root", kid)
-		e.st = nil
-		return
-	}
+	e.okRead = now
 	// A revocation, once seen, stays: custody never takes one back.
 	if e.revokedAt != 0 && (revoked == 0 || revoked > e.revokedAt) {
 		revoked = e.revokedAt

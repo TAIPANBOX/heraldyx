@@ -158,10 +158,12 @@ func TestARecordIsTakenOnlyWhileItsKeyIsAliveAndNotDatedAhead(t *testing.T) {
 		t.Fatalf("a record dated ahead of this box's clock: %v", v)
 	}
 	g.clock.add(6*time.Hour + keystatement.Skew - 20*time.Second)
+	g.r.Step()
 	if _, v := g.r.Key("tokenfuse.ndjson", kid, t0.Add(time.Hour)); v != keystatement.Found {
 		t.Fatalf("read just inside the skew after not_after: %v", v)
 	}
 	g.clock.add(time.Minute)
+	g.r.Step()
 	if _, v := g.r.Key("tokenfuse.ndjson", kid, t0.Add(time.Hour)); v != keystatement.NotCertified {
 		t.Fatalf("a record its ended key dated into its life, read first now: %v", v)
 	}
@@ -255,7 +257,7 @@ func TestAStatementUnderAnotherRootIsNotCertified(t *testing.T) {
 	if v := g.ask("tokenfuse.ndjson", kid, t0); v != keystatement.NotCertified {
 		t.Fatalf("a statement under another root: %v", v)
 	}
-	if !strings.Contains(g.logs.String(), "does not verify") {
+	if !strings.Contains(g.logs.String(), "is not trusted") {
 		t.Fatalf("the refusal is not in the log: %q", g.logs.String())
 	}
 }
@@ -363,5 +365,131 @@ func TestAStatementWhosePostQuantumHalfIsClassicalIsNotCertified(t *testing.T) {
 	g.r.Step()
 	if _, v := g.r.Key("tokenfuse.ndjson", kid, t0); v != keystatement.Found {
 		t.Fatalf("control: the same claims, both halves real: %v", v)
+	}
+}
+
+func TestAnAnswerNotConfirmedLatelyTurnsIntoAWait(t *testing.T) {
+	g := newRig(t)
+	kid, _ := g.certify(t, "tokenfuse-checkpoint", 72*time.Hour)
+	if v := g.ask("tokenfuse.ndjson", kid, t0); v != keystatement.Found {
+		t.Fatalf("control: %v", v)
+	}
+	// The directory stops reading: nothing is confirmed any more.
+	if err := os.Rename(g.custody.Dir, g.custody.Dir+".gone"); err != nil {
+		t.Fatal(err)
+	}
+	g.clock.add(keystatement.StaleAfter - time.Second)
+	g.r.Step()
+	if _, v := g.r.Still("tokenfuse.ndjson", kid, t0); v != keystatement.Found {
+		t.Fatalf("inside the time an answer is trusted: %v", v)
+	}
+	g.clock.add(2 * time.Second)
+	g.r.Step()
+	if _, v := g.r.Still("tokenfuse.ndjson", kid, t0); v != keystatement.Wait {
+		t.Fatalf("past it: %v, want Wait", v)
+	}
+	_ = os.Rename(g.custody.Dir+".gone", g.custody.Dir)
+	g.clock.add(keystatement.RefreshEvery)
+	g.r.Step()
+	if _, v := g.r.Still("tokenfuse.ndjson", kid, t0); v != keystatement.Found {
+		t.Fatalf("the directory back: %v", v)
+	}
+	// A root key set that stops reading does the same.
+	g.custody.Raw(t, keystatement.RootFile, []byte("not json"))
+	g.clock.add(keystatement.RefreshEvery)
+	g.r.Step()
+	g.clock.add(keystatement.StaleAfter)
+	g.r.Step()
+	if _, v := g.r.Still("tokenfuse.ndjson", kid, t0); v != keystatement.Wait {
+		t.Fatalf("a root key set that does not read for a while: %v, want Wait", v)
+	}
+}
+
+func TestAFileThatDoesNotOpenNowIsReadAgainNotRefused(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root opens a file whatever its mode")
+	}
+	g := newRig(t)
+	kid, _ := g.certify(t, "tokenfuse-checkpoint", 6*time.Hour)
+	if v := g.ask("tokenfuse.ndjson", kid, t0); v != keystatement.Found {
+		t.Fatalf("control: %v", v)
+	}
+	p := filepath.Join(g.custody.Dir, kid+".json")
+	_ = os.Chmod(p, 0)
+	g.clock.add(keystatement.RefreshEvery)
+	g.r.Step()
+	if _, v := g.r.Still("tokenfuse.ndjson", kid, t0); v != keystatement.Found {
+		t.Fatalf("a verified key whose file did not open once: %v", v)
+	}
+	_ = os.Chmod(p, 0o644)
+	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	okid := statementtest.Kid(t, &other.PublicKey)
+	g.custody.Put(t, okid, g.root.Sign(t, statementtest.Claims{Name: "tokenfuse-checkpoint", Key: &other.PublicKey, NotBefore: t0, NotAfter: t0.Add(6 * time.Hour)}))
+	_ = os.Chmod(filepath.Join(g.custody.Dir, okid+".json"), 0)
+	if v := g.ask("tokenfuse.ndjson", okid, g.clock.now()); v != keystatement.Wait {
+		t.Fatalf("a new key whose file does not open now: %v, want Wait", v)
+	}
+	_ = os.Chmod(filepath.Join(g.custody.Dir, okid+".json"), 0o644)
+	g.step()
+	if _, v := g.r.Key("tokenfuse.ndjson", okid, g.clock.now()); v != keystatement.Found {
+		t.Fatalf("once it opens: %v", v)
+	}
+}
+
+func TestAKeyNobodyAsksAboutIsForgottenAndMakesRoom(t *testing.T) {
+	g := newRig(t)
+	var kids []string
+	for i := 0; i < keystatement.MaxKids; i++ {
+		kid, _ := g.certify(t, "tokenfuse-checkpoint", 72*time.Hour)
+		kids = append(kids, kid)
+		g.r.Key("tokenfuse.ndjson", kid, t0)
+	}
+	g.step()
+	if _, v := g.r.Key("tokenfuse.ndjson", kids[0], t0); v != keystatement.Found {
+		t.Fatalf("control: %v", v)
+	}
+	kid, _ := g.certify(t, "tokenfuse-checkpoint", 72*time.Hour)
+	if _, v := g.r.Key("tokenfuse.ndjson", kid, g.clock.now()); v != keystatement.Wait {
+		t.Fatalf("a new key with every slot taken by verified keys: %v, want Wait", v)
+	}
+	if !strings.Contains(g.logs.String(), "the most this box keeps") {
+		t.Fatalf("a full resolver is not said: %q", g.logs.String())
+	}
+	// An hour later nobody has asked about the old keys but the first.
+	for i := 0; i < 59; i++ {
+		g.clock.add(time.Minute)
+		g.r.Step()
+		g.r.Still("tokenfuse.ndjson", kids[0], t0)
+	}
+	g.clock.add(2 * time.Minute)
+	if _, v := g.r.Key("tokenfuse.ndjson", kid, g.clock.now()); v != keystatement.Wait {
+		t.Fatalf("after the old keys were forgotten: %v, want Wait until read", v)
+	}
+	g.step()
+	if _, v := g.r.Key("tokenfuse.ndjson", kid, g.clock.now()); v != keystatement.Found {
+		t.Fatalf("the new key once read: %v", v)
+	}
+	if _, v := g.r.Still("tokenfuse.ndjson", kids[0], t0); v != keystatement.Found {
+		t.Fatalf("the key still asked about was forgotten: %v", v)
+	}
+}
+
+func TestARootKeySetNotReadLatelyTurnsAnAnswerIntoAWait(t *testing.T) {
+	g := newRig(t)
+	g.r.Step() // the root key set, read at t0
+	kid, _ := g.certify(t, "tokenfuse-checkpoint", 72*time.Hour)
+	g.clock.add(30 * time.Second)
+	if v := g.ask("tokenfuse.ndjson", kid, t0); v != keystatement.Found {
+		t.Fatalf("control: %v", v) // the kid read at t0+40s
+	}
+	g.custody.Raw(t, keystatement.RootFile, []byte("not json"))
+	g.clock.add(t0.Add(time.Minute).Sub(g.clock.now()))
+	g.r.Step() // the root key set does not read
+	g.clock.add(t0.Add(keystatement.StaleAfter + 5*time.Second).Sub(g.clock.now()))
+	g.r.Step()
+	// The kid's own answer is younger than StaleAfter; the root under which it
+	// was verified is not.
+	if _, v := g.r.Still("tokenfuse.ndjson", kid, t0); v != keystatement.Wait {
+		t.Fatalf("a root key set last read over %v ago: %v, want Wait", keystatement.StaleAfter, v)
 	}
 }

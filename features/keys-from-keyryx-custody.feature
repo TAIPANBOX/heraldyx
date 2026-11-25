@@ -81,7 +81,7 @@ Feature: a checkpoint key is trusted only on keyryx custody's published word, un
   Scenario: a statement under another root is not certified
     Given custody's directory holding a statement signed by a root this box did not pin
     When the gate asks about its kid
-    Then the key is not certified and the log says the statement does not verify
+    Then the key is not certified and the log says the file is not trusted
   # @test:TestAStatementUnderAnotherRootIsNotCertified
 
   Scenario: only regular files of custody's shape are read
@@ -107,3 +107,39 @@ Feature: a checkpoint key is trusted only on keyryx custody's published word, un
     When the gate asks about its kid
     Then the key is not certified, and the same claims with both real halves are
   # @test:TestAStatementWhosePostQuantumHalfIsClassicalIsNotCertified
+
+  Scenario: an answer not confirmed lately turns into a wait
+    Given a key found in custody's directory
+    When the directory, or later the root key set, stops reading for longer than an answer is trusted
+    Then the key is no longer found but waited on, and is found again once the directory reads
+  # @test:TestAnAnswerNotConfirmedLatelyTurnsIntoAWait
+
+  Scenario: a file that does not open now is read again, not refused
+    Given a verified key whose file fails to open once, and a new key whose file does not open yet
+    When the resolver reads them
+    Then the verified key keeps its answer, the new one waits, and is found once its file opens
+  # @test:TestAFileThatDoesNotOpenNowIsReadAgainNotRefused
+
+  Scenario: a key nobody asks about is forgotten and makes room
+    Given the resolver full of verified keys, one of which is still asked about
+    When an hour passes and a new key is asked about
+    Then the new key waits while the resolver is full, is found once the unasked keys are forgotten, and the asked one stays
+  # @test:TestAKeyNobodyAsksAboutIsForgottenAndMakesRoom
+
+  Scenario: a stream whose key is not known yet is held, not refused
+    Given a stream whose newest checkpoint's key the gate has not looked up yet
+    When the bus is read
+    Then its lines are neither delivered nor refused, and are delivered once the gate covers it
+  # @test:TestAFileTheGateHasNotDecidedIsHeldNotRefused
+
+  Scenario: a stream undecided too long is decided uncovered
+    Given a stream whose key's statement cannot be read at all
+    When five minutes pass
+    Then the gate stops holding it and decides it uncovered
+  # @test:TestAStreamUndecidedTooLongIsDecidedUncovered
+
+  Scenario: a root key set not read lately turns an answer into a wait
+    Given a key verified after the root key set was last read
+    When the root key set stops reading for longer than an answer is trusted, while the key's own answer is still younger than that
+    Then the key is waited on, not found
+  # @test:TestARootKeySetNotReadLatelyTurnsAnAnswerIntoAWait

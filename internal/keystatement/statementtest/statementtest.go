@@ -169,7 +169,7 @@ func NewCustody(t testing.TB, root *Root) *Custody {
 func (c *Custody) write(t testing.TB, name string, b []byte) {
 	t.Helper()
 	tmp := filepath.Join(c.Dir, ".tmp-"+name)
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(tmp, filepath.Join(c.Dir, name)); err != nil {

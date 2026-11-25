@@ -234,3 +234,123 @@ func TestAStreamUndecidedTooLongIsDecidedUncovered(t *testing.T) {
 		t.Fatalf("past it: %v %q, want decided uncovered", ok, why)
 	}
 }
+
+// hide makes custody's directory unreadable to the resolver; the function it
+// returns puts it back.
+func (b *custodyBench) hide(t *testing.T) func() {
+	t.Helper()
+	if err := os.Rename(b.custody.Dir, b.custody.Dir+".away"); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := os.Rename(b.custody.Dir+".away", b.custody.Dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestTheUndecidedBoundIsTheStreamsNotItsCheckpointFiles(t *testing.T) {
+	b := newCustodyBench(t)
+	b.gate.SetClock(b.clock.now)
+	b.write(t, 4)
+	b.settle()
+	if ok, why := b.gate.Covered(b.stream); !ok {
+		t.Fatalf("control: %q", why)
+	}
+	b.hide(t)
+	b.clock.add(keystatement.StaleAfter + 10*time.Second)
+	if ok, why := b.gate.Covered(b.stream); ok || why != watch.Undecided {
+		t.Fatalf("custody not confirming the key: %v %q, want undecided", ok, why)
+	}
+	b.clock.add(4 * time.Minute)
+	if ok, why := b.gate.Covered(b.stream); ok || why != watch.Undecided {
+		t.Fatalf("four minutes in: %v %q", ok, why)
+	}
+	// The checkpoint file is replaced by a shorter one: read again from its
+	// start, it must not start the bound again.
+	ckpt := filepath.Join(filepath.Dir(filepath.Dir(b.stream)), "checkpoints", "wardryx.ndjson.ckpt.ndjson")
+	raw, err := os.ReadFile(ckpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := raw[:len(raw)/2]
+	if i := lastLF(first); i > 0 {
+		first = first[:i+1]
+	}
+	if err := os.WriteFile(ckpt, first, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b.clock.add(2 * time.Minute)
+	if ok, why := b.gate.Covered(b.stream); ok || why == watch.Undecided {
+		t.Fatalf("six minutes undecided, the file replaced on the way: %v %q, want decided", ok, why)
+	}
+}
+
+func lastLF(b []byte) int {
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] == '\n' {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestAKeyCustodyStopsConfirmingIsDecidedUnconfirmedAndADecisionStartsTheBoundAgain(t *testing.T) {
+	b := newCustodyBench(t)
+	b.gate.SetClock(b.clock.now)
+	b.write(t, 4)
+	b.settle()
+	back := b.hide(t)
+	b.clock.add(keystatement.StaleAfter + 10*time.Second)
+	if ok, why := b.gate.Covered(b.stream); ok || why != watch.Undecided {
+		t.Fatalf("at first: %v %q", ok, why)
+	}
+	b.clock.add(4 * time.Minute)
+	back()
+	b.step()
+	if ok, why := b.gate.Covered(b.stream); !ok {
+		t.Fatalf("custody confirming again: %q", why)
+	}
+	b.hide(t)
+	b.clock.add(keystatement.StaleAfter + 10*time.Second)
+	b.gate.Covered(b.stream)
+	b.clock.add(4 * time.Minute)
+	if ok, why := b.gate.Covered(b.stream); ok || why != watch.Undecided {
+		t.Fatalf("four minutes into a second wait, after a decision: %v %q, want undecided", ok, why)
+	}
+	b.clock.add(2 * time.Minute)
+	if ok, why := b.gate.Covered(b.stream); ok || why != checkpoint.ReasonKeyUnconfirmed {
+		t.Fatalf("past the bound: %v %q, want %q", ok, why, checkpoint.ReasonKeyUnconfirmed)
+	}
+}
+
+func TestAStreamDecidedUnsignedWaitsAgainForANewKey(t *testing.T) {
+	b := newCustodyBench(t)
+	b.gate.SetClock(b.clock.now)
+	// A key custody never certified: the record waits, then is unsigned.
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.signer.use(t, k)
+	b.write(t, 2)
+	if ok, why := b.gate.Covered(b.stream); ok || why != watch.Undecided {
+		t.Fatalf("at first: %v %q", ok, why)
+	}
+	for i := 0; i < 15; i++ {
+		b.step()
+	}
+	if ok, why := b.gate.Covered(b.stream); ok || why != checkpoint.ReasonNoSigned {
+		t.Fatalf("its key never certified: %v %q, want %q", ok, why, checkpoint.ReasonNoSigned)
+	}
+	b.clock.add(10 * time.Minute)
+	b.renew(t)
+	b.write(t, 2)
+	if ok, why := b.gate.Covered(b.stream); ok || why != watch.Undecided {
+		t.Fatalf("a new certified key, not read yet: %v %q, want undecided", ok, why)
+	}
+	b.step()
+	if ok, why := b.gate.Covered(b.stream); !ok {
+		t.Fatalf("once read: %q", why)
+	}
+}

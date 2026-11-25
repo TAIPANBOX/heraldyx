@@ -143,3 +143,27 @@ Feature: a checkpoint key is trusted only on keyryx custody's published word, un
     When the root key set stops reading for longer than an answer is trusted, while the key's own answer is still younger than that
     Then the key is waited on, not found
   # @test:TestARootKeySetNotReadLatelyTurnsAnAnswerIntoAWait
+
+  Scenario: a revocation outlives the key being forgotten
+    Given a revoked key nobody asks about for longer than a key is remembered
+    When its file then says it was never revoked and the gate asks about it again
+    Then the key is still not certified
+  # @test:TestARevocationOutlivesTheKeyBeingForgotten
+
+  Scenario: the undecided bound is the stream's, not its checkpoint file's
+    Given a stream undecided for four minutes because custody's files stopped confirming its key
+    When its checkpoint file is replaced by a shorter one and two more minutes pass
+    Then the gate decides the stream rather than holding it again
+  # @test:TestTheUndecidedBoundIsTheStreamsNotItsCheckpointFiles
+
+  Scenario: a key custody stops confirming is decided unconfirmed, and a decision starts the bound again
+    Given a stream held while custody's files did not confirm its key, then covered again
+    When custody's files stop confirming it a second time
+    Then the stream is held for the whole bound again, and past it is uncovered as a key custody no longer confirms
+  # @test:TestAKeyCustodyStopsConfirmingIsDecidedUnconfirmedAndADecisionStartsTheBoundAgain
+
+  Scenario: a stream decided unsigned waits again for a new key
+    Given a stream decided unsigned because its key was never certified
+    When ten minutes later a record signed by a newly certified key arrives
+    Then the stream is held until that key's file is read, then covered
+  # @test:TestAStreamDecidedUnsignedWaitsAgainForANewKey

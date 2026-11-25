@@ -155,3 +155,15 @@ Feature: a stream with no signed checkpoint is not mailed, when the operator swi
     Then the whole configuration is read and each broken one refuses the start
   # @test:TestTheCustodyModeIsReadWholeOrRefused
 
+
+  Scenario: a held file holds only itself, and only from its event
+    Given one file the gate has not decided, with a malformed line before its event, and another file it covers
+    When the bus is read, and again once the first file is decided
+    Then the other file is read at once, and the held event is read later without its malformed line counted twice
+  # @test:TestAHeldFileHoldsOnlyItselfAndOnlyFromItsEvent
+
+  Scenario: held reads are said at most once a minute
+    Given reads held on every poll for a while
+    When the counts are reported
+    Then a line goes out when the count has grown and a minute has passed since the last, saying what was added and the total
+  # @test:TestHeldReadsAreSaidAtMostOnceAMinute

@@ -421,6 +421,15 @@ func TestAFileThatDoesNotOpenNowIsReadAgainNotRefused(t *testing.T) {
 	if _, v := g.r.Still("tokenfuse.ndjson", kid, t0); v != keystatement.Found {
 		t.Fatalf("a verified key whose file did not open once: %v", v)
 	}
+	// Its file goes on not opening while the root key set reads: its answer
+	// is not confirmed, so past StaleAfter it is a wait, never found.
+	for i := 0; i < 3; i++ {
+		g.clock.add(keystatement.RefreshEvery)
+		g.r.Step()
+	}
+	if _, v := g.r.Still("tokenfuse.ndjson", kid, t0); v != keystatement.Wait {
+		t.Fatalf("a verified key whose file has not opened for over %v: %v, want Wait", keystatement.StaleAfter, v)
+	}
 	_ = os.Chmod(p, 0o644)
 	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	okid := statementtest.Kid(t, &other.PublicKey)
@@ -428,6 +437,13 @@ func TestAFileThatDoesNotOpenNowIsReadAgainNotRefused(t *testing.T) {
 	_ = os.Chmod(filepath.Join(g.custody.Dir, okid+".json"), 0)
 	if v := g.ask("tokenfuse.ndjson", okid, g.clock.now()); v != keystatement.Wait {
 		t.Fatalf("a new key whose file does not open now: %v, want Wait", v)
+	}
+	for i := 0; i < 3; i++ {
+		g.clock.add(keystatement.MissingAfter)
+		g.r.Step()
+	}
+	if _, v := g.r.Key("tokenfuse.ndjson", okid, g.clock.now()); v != keystatement.Wait {
+		t.Fatalf("a new key whose file has not opened for longer than a missing one is waited for: %v, want Wait", v)
 	}
 	_ = os.Chmod(filepath.Join(g.custody.Dir, okid+".json"), 0o644)
 	g.step()
@@ -491,5 +507,29 @@ func TestARootKeySetNotReadLatelyTurnsAnAnswerIntoAWait(t *testing.T) {
 	// was verified is not.
 	if _, v := g.r.Still("tokenfuse.ndjson", kid, t0); v != keystatement.Wait {
 		t.Fatalf("a root key set last read over %v ago: %v, want Wait", keystatement.StaleAfter, v)
+	}
+}
+
+func TestARevocationOutlivesTheKeyBeingForgotten(t *testing.T) {
+	g := newRig(t)
+	kid, _ := g.certify(t, "tokenfuse-checkpoint", 72*time.Hour)
+	if v := g.ask("tokenfuse.ndjson", kid, t0.Add(time.Minute)); v != keystatement.Found {
+		t.Fatalf("control: %v", v)
+	}
+	g.custody.Revoke(t, kid, g.clock.now())
+	g.clock.add(keystatement.RefreshEvery)
+	g.r.Step()
+	if _, v := g.r.Key("tokenfuse.ndjson", kid, t0.Add(time.Minute)); v != keystatement.NotCertified {
+		t.Fatalf("after its revocation: %v", v)
+	}
+	// Nobody asks about it for longer than a key is remembered, and its file
+	// then says it was never revoked.
+	g.clock.add(keystatement.ForgetAfter + time.Minute)
+	g.r.Step()
+	other, _ := g.certify(t, "tokenfuse-checkpoint", 72*time.Hour)
+	g.r.Key("tokenfuse.ndjson", other, t0.Add(time.Minute)) // a new kid: the old ones are pruned
+	g.custody.Revoke(t, kid, time.Time{})
+	if v := g.ask("tokenfuse.ndjson", kid, t0.Add(time.Minute)); v != keystatement.NotCertified {
+		t.Fatalf("a revoked key forgotten and asked about again: %v, want NotCertified", v)
 	}
 }

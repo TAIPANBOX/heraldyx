@@ -553,3 +553,22 @@ func TestForeignAndUnknownCountsAreSaidOncePerGrowthNotEveryPoll(t *testing.T) {
 		t.Fatalf("want one line for the unknown count, got %d:\n%s", n, got)
 	}
 }
+
+// Held reads are said, at most once a minute: a hold is asked about every poll.
+func TestHeldReadsAreSaidAtMostOnceAMinute(t *testing.T) {
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	start := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	said, at := 0, time.Time{}
+	for i, n := range []int{0, 1, 2, 3, 4, 5} {
+		said, at = sayUndecided(n, said, at, start.Add(time.Duration(i)*20*time.Second))
+	}
+	// Polls at 0s..100s: said at 20s (1) and at 80s (4).
+	if got := strings.Count(out.String(), "held because the checkpoint gate has not decided"); got != 2 {
+		t.Fatalf("lines: %d, want 2:\n%s", got, out.String())
+	}
+	if said != 4 || !strings.Contains(out.String(), "3 read(s) held") {
+		t.Fatalf("high-water mark %d, want 4; the second line says what it added:\n%s", said, out.String())
+	}
+}

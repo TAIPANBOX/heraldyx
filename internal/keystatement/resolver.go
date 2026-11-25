@@ -133,7 +133,11 @@ type entry struct {
 	read      time.Time // last read attempted; zero until read once
 	okRead    time.Time // last read that returned custody's file
 	missing   bool      // the last read found no file, or none it could read
-	reverify  bool      // the root changed since this was verified
+	// unreadable is set when the last read found a file that did not open:
+	// not custody's word either way, so a key never verified waits on it
+	// for as long as it lasts (the gate's MaxUndecided bounds the stream).
+	unreadable bool
+	reverify   bool // the root changed since this was verified
 }
 
 // Resolver answers, from memory only, whether a checkpoint record's kid is a
@@ -154,6 +158,11 @@ type Resolver struct {
 	missing string
 	full    bool // the bound was reached, said once
 	entries map[string]*entry
+	// revoked is every revocation this process has seen, kid to time. The
+	// entries are pruned and capped; this is not, so a revoked kid forgotten
+	// for want of being asked about comes back revoked, whatever its file
+	// says then. Only custody revokes, rarely, so it stays small.
+	revoked map[string]int64
 	kick    chan struct{}
 }
 
@@ -165,7 +174,7 @@ func NewResolver(dir string, pin, bindings map[string]string, now func() time.Ti
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &Resolver{dir: dir, pin: pin, bindings: bindings, now: now, logf: logf, entries: map[string]*entry{}, kick: make(chan struct{}, 1)}
+	return &Resolver{dir: dir, pin: pin, bindings: bindings, now: now, logf: logf, entries: map[string]*entry{}, revoked: map[string]int64{}, kick: make(chan struct{}, 1)}
 }
 
 // Key answers for a record of stream signed by kid at at, read for the first
@@ -221,7 +230,7 @@ func (r *Resolver) stillLocked(stream, kid string, at, now time.Time) (*Statemen
 			return nil, Wait
 		}
 		r.full = false
-		e = &entry{first: now}
+		e = &entry{first: now, revokedAt: r.revoked[kid]}
 		r.entries[kid] = e
 		e.asked = now
 		select {
@@ -235,7 +244,7 @@ func (r *Resolver) stillLocked(stream, kid string, at, now time.Time) (*Statemen
 		switch {
 		case e.read.IsZero():
 			return nil, Wait
-		case e.missing && now.Sub(e.first) < MissingAfter:
+		case e.unreadable, e.missing && now.Sub(e.first) < MissingAfter:
 			return nil, Wait
 		default:
 			return nil, NotCertified
@@ -326,10 +335,18 @@ func (r *Resolver) Step() {
 	}
 }
 
+// errShape is a file that is there and is not of the shape custody writes: a
+// link, not a regular file, or over its size cap. It is custody's directory
+// saying something wrong, not a read that failed now.
+var errShape = errors.New("not of the shape custody writes")
+
 // readFile reads name from the directory: a regular file, never through a
 // link, at most maxFile bytes.
 func readFile(root *os.Root, name string) ([]byte, error) {
 	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, fmt.Errorf("%s is a link: %w", name, errShape)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -339,14 +356,14 @@ func readFile(root *os.Root, name string) ([]byte, error) {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", name)
+		return nil, fmt.Errorf("%s is not a regular file: %w", name, errShape)
 	}
 	b, err := io.ReadAll(io.LimitReader(f, maxFile+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(b) > maxFile {
-		return nil, fmt.Errorf("%s is over its size cap", name)
+		return nil, fmt.Errorf("%s is over its size cap: %w", name, errShape)
 	}
 	return b, nil
 }
@@ -424,6 +441,10 @@ func (r *Resolver) readKid(root *os.Root, roots Roots, kid string, now time.Time
 		return // forgotten while it was read
 	}
 	e.read, e.reverify = now, false
+	if errors.Is(err, errShape) {
+		bad, err = err, nil // custody's word, and a wrong one: not trusted
+	}
+	e.unreadable = err != nil && !errors.Is(err, fs.ErrNotExist)
 	if err != nil {
 		e.missing = true
 		if errors.Is(err, fs.ErrNotExist) {
@@ -445,4 +466,7 @@ func (r *Resolver) readKid(root *os.Root, roots Roots, kid string, now time.Time
 		revoked = e.revokedAt
 	}
 	e.st, e.revokedAt = &st, revoked
+	if revoked != 0 {
+		r.revoked[kid] = revoked
+	}
 }

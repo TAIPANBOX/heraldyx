@@ -125,20 +125,33 @@ type Gate struct {
 	keys  KeySource
 	files map[string]*file
 	now   func() time.Time
+	// since is when each stream began to be undecided. It is the stream's,
+	// not its checkpoint file's: a file replaced by a shorter one is read
+	// again from its start, and must not start the bound again.
+	since map[string]time.Time
 }
 
 // undecided answers for a stream whose keys are still being looked up: held
 // as Undecided until MaxUndecided has passed since it began, then the reason
 // given.
-func (g *Gate) undecided(f *file, why string) (bool, string) {
+func (g *Gate) undecided(stream, why string) (bool, string) {
 	now := g.now()
-	if f.undecidedSince.IsZero() {
-		f.undecidedSince = now
+	since, ok := g.since[stream]
+	if !ok {
+		since = now
+		g.since[stream] = now
 	}
-	if now.Sub(f.undecidedSince) < MaxUndecided {
+	if now.Sub(since) < MaxUndecided {
 		return false, watch.Undecided
 	}
 	return false, why
+}
+
+// decided ends a stream's undecided time: the next wait starts the bound
+// again.
+func (g *Gate) decided(stream string, covered bool, why string) (bool, string) {
+	delete(g.since, stream)
+	return covered, why
 }
 
 // MaxUndecided is how long a stream may wait for its keys to be looked up
@@ -165,10 +178,8 @@ type file struct {
 	covered    bool
 	why        string
 	// waiting is set when the last read stopped at a record whose key is
-	// still being looked up; undecidedSince is when the stream began to
-	// wait, zero while it does not.
-	waiting        bool
-	undecidedSince time.Time
+	// still being looked up.
+	waiting bool
 }
 
 // record is the part of a signed record the stream check needs.
@@ -188,7 +199,7 @@ func NewGate(dir string, keys map[string]*ecdsa.PublicKey) *Gate {
 
 // NewGateFrom builds a gate that takes each record's key from src.
 func NewGateFrom(dir string, src KeySource) *Gate {
-	return &Gate{dir: dir, keys: src, files: map[string]*file{}, now: time.Now}
+	return &Gate{dir: dir, keys: src, files: map[string]*file{}, now: time.Now, since: map[string]time.Time{}}
 }
 
 // Covered reports whether the stream at streamPath is covered by a signed
@@ -207,7 +218,7 @@ func (g *Gate) Covered(streamPath string) (bool, string) {
 	info, err := os.Stat(ckpt)
 	if err != nil {
 		delete(g.files, ckpt)
-		return false, ReasonNoFile
+		return g.decided(stream, false, ReasonNoFile)
 	}
 	f := g.files[ckpt]
 	if f == nil || info.Size() < f.offset {
@@ -218,13 +229,13 @@ func (g *Gate) Covered(streamPath string) (bool, string) {
 		f.advance(ckpt, stream, info.Size(), g.keys)
 	}
 	if f.refused != "" {
-		return false, f.refused
+		return g.decided(stream, false, f.refused)
 	}
 	if f.best == nil {
 		if f.waiting {
-			return g.undecided(f, ReasonNoSigned)
+			return g.undecided(stream, ReasonNoSigned)
 		}
-		return false, ReasonNoSigned
+		return g.decided(stream, false, ReasonNoSigned)
 	}
 	// The key that signed the newest record is asked again every time: a key
 	// revoked since, or one custody stopped confirming, uncovers the stream
@@ -232,12 +243,10 @@ func (g *Gate) Covered(streamPath string) (bool, string) {
 	// pinned key, so the pinned mode is as it was.
 	switch _, v := g.keys.Still(stream, f.best.kid, f.best.at); v {
 	case keystatement.NotCertified:
-		f.undecidedSince = time.Time{}
-		return false, ReasonKeyWithdrawn
+		return g.decided(stream, false, ReasonKeyWithdrawn)
 	case keystatement.Wait:
-		return g.undecided(f, ReasonKeyUnconfirmed)
+		return g.undecided(stream, ReasonKeyUnconfirmed)
 	}
-	f.undecidedSince = time.Time{}
 	if !f.verdictSet || f.verdictGen != f.gen {
 		covered, why := verifyStream(streamPath, f.best)
 		if why == ReasonShorter {
@@ -246,7 +255,7 @@ func (g *Gate) Covered(streamPath string) (bool, string) {
 		f.verdictSet, f.verdictGen = true, f.gen
 		f.covered, f.why = covered, why
 	}
-	return f.covered, f.why
+	return g.decided(stream, f.covered, f.why)
 }
 
 // advance verifies the complete records between the file's offset and size,

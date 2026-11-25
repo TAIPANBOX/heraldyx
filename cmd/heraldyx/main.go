@@ -10,6 +10,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	// such as Europe/London for HERALDYX_QUIET, with no /usr/share/zoneinfo.
 	_ "time/tzdata"
 
+	"github.com/TAIPANBOX/heraldyx/internal/checkpoint"
 	"github.com/TAIPANBOX/heraldyx/internal/config"
 	"github.com/TAIPANBOX/heraldyx/internal/control"
 	"github.com/TAIPANBOX/heraldyx/internal/deliver"
@@ -164,12 +166,18 @@ func run(args []string) error {
 	w.SetPolicy(cfg.StreamPolicy())
 	// The checkpoint gate (F-018) is off unless the operator switched it on, and
 	// then a stream is read only while a signed checkpoint covers it.
-	gate, err := checkpointGate(cfg)
+	gate, resolve, err := checkpointGate(cfg)
 	if err != nil {
 		return err
 	}
 	if gate != nil {
 		w.SetCoverage(gate.Covered)
+	}
+	if resolve != nil {
+		// The custody mode's resolver asks custody on a loop of its own, so
+		// the poll loop below never waits on custody; it lives as long as
+		// this process does.
+		go resolve(context.Background())
 	}
 	if *fromNow && len(snap.Offsets) == 0 {
 		if err := w.SkipToEnd(); err != nil {
@@ -229,6 +237,7 @@ func run(args []string) error {
 	saidForeign := 0
 	saidUnknown := 0
 	saidUncovered := 0
+	saidUndecided, saidUndecidedAt := 0, time.Time{}
 	saidHolds := watch.Holds{}
 
 	for {
@@ -238,6 +247,7 @@ func run(args []string) error {
 		saidForeign = sayForeign(w.ForeignSource, saidForeign)
 		saidUnknown = sayUnknown(w.UnknownStream, saidUnknown)
 		saidUncovered = sayUncovered(w.NotCovered, saidUncovered)
+		saidUndecided, saidUndecidedAt = sayUndecided(w.Undecided, saidUndecided, saidUndecidedAt, time.Now())
 		saidHolds = sayHolds(w.Holds(), saidHolds)
 		snap.Offsets = w.Offsets()
 		snap.Heads = w.Heads()
@@ -366,6 +376,19 @@ func sayUncovered(n, said int) int {
 	log.Printf("watch: %d event(s) refused because no signed checkpoint covers their file, %d since this process started. They were not processed or mailed. One notice goes per file; HERALDYX_CHECKPOINT_GATE=off reads them as before.",
 		n-said, n)
 	return n
+}
+
+// sayUndecided reports reads held because the checkpoint gate has not decided
+// a file yet (its key is still being looked up), at most once a minute: a held
+// file is asked about every poll, and this line is how a hold that lasts
+// stays visible without one line per poll.
+func sayUndecided(n, said int, last, now time.Time) (int, time.Time) {
+	if n <= said || (!last.IsZero() && now.Sub(last) < time.Minute) {
+		return said, last
+	}
+	log.Printf("watch: %d read(s) held because the checkpoint gate has not decided their file yet, %d since this process started. Nothing was refused or lost; a file still undecided after %v is decided uncovered.",
+		n-said, n, checkpoint.MaxUndecided)
+	return n, now
 }
 
 // sayForeign reports events refused because the file they sat in may not carry

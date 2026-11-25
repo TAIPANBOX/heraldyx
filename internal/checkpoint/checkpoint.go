@@ -42,11 +42,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/TAIPANBOX/agent-stack-go/v2/event"
 	"github.com/gowebpki/jcs"
 
+	"github.com/TAIPANBOX/heraldyx/internal/keystatement"
 	"github.com/TAIPANBOX/heraldyx/internal/regular"
+	"github.com/TAIPANBOX/heraldyx/internal/watch"
 )
 
 // Reasons a stream is or is not covered. They are fixed strings of this
@@ -62,7 +65,42 @@ const (
 	ReasonRewritten      = "the stream's bytes no longer match the newest checkpoint"
 	ReasonHead           = "the chain hash of the checkpoint's last line does not match"
 	ReasonUnreadable     = "the stream could not be read"
+	ReasonKeyWithdrawn   = "the key that signed the newest checkpoint is no longer certified"
+	ReasonKeyUnconfirmed = "custody's statements have not confirmed the key that signed the newest checkpoint for too long"
 )
+
+// KeySource answers for a signed record of stream: the public key its kid
+// names, or why not. A pinned-key file is one source (Pinned); keyryx
+// custody's key statements, through internal/keystatement's resolver, are
+// the other. A source answers from memory: the poll loop never waits on it.
+type KeySource interface {
+	// Key answers for a record read for the first time.
+	Key(stream, kid string, at time.Time) (*ecdsa.PublicKey, keystatement.Verdict)
+	// Still answers for a record already taken, asked again on every
+	// Covered: a key revoked since uncovers its stream.
+	Still(stream, kid string, at time.Time) (*ecdsa.PublicKey, keystatement.Verdict)
+}
+
+// Pinned is the pinned-key file as a key source: a pinned kid is found, any
+// other is not certified, and nothing ever waits.
+type Pinned map[string]*ecdsa.PublicKey
+
+// Key implements KeySource.
+func (p Pinned) Key(_ string, kid string, _ time.Time) (*ecdsa.PublicKey, keystatement.Verdict) {
+	if pub, ok := p[kid]; ok {
+		return pub, keystatement.Found
+	}
+	return nil, keystatement.NotCertified
+}
+
+// Still implements KeySource: a pinned key stays pinned.
+func (p Pinned) Still(stream, kid string, at time.Time) (*ecdsa.PublicKey, keystatement.Verdict) {
+	return p.Key(stream, kid, at)
+}
+
+// waitForKey is checkRecord's word for a record whose key is not known yet. It
+// is never a reason given to anyone: advance stops on it.
+const waitForKey = "\x00wait"
 
 const genesis = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -84,9 +122,45 @@ var (
 // Gate answers, per stream file, whether a signed checkpoint covers it.
 type Gate struct {
 	dir   string
-	keys  map[string]*ecdsa.PublicKey
+	keys  KeySource
 	files map[string]*file
+	now   func() time.Time
+	// since is when each stream began to be undecided. It is the stream's,
+	// not its checkpoint file's: a file replaced by a shorter one is read
+	// again from its start, and must not start the bound again.
+	since map[string]time.Time
 }
+
+// undecided answers for a stream whose keys are still being looked up: held
+// as Undecided until MaxUndecided has passed since it began, then the reason
+// given.
+func (g *Gate) undecided(stream, why string) (bool, string) {
+	now := g.now()
+	since, ok := g.since[stream]
+	if !ok {
+		since = now
+		g.since[stream] = now
+	}
+	if now.Sub(since) < MaxUndecided {
+		return false, watch.Undecided
+	}
+	return false, why
+}
+
+// decided ends a stream's undecided time: the next wait starts the bound
+// again.
+func (g *Gate) decided(stream string, covered bool, why string) (bool, string) {
+	delete(g.since, stream)
+	return covered, why
+}
+
+// MaxUndecided is how long a stream may wait for its keys to be looked up
+// before the gate decides it uncovered: long enough for custody to publish a
+// certification, short enough that a broken statements directory is said.
+const MaxUndecided = 5 * time.Minute
+
+// SetClock replaces the gate's clock, for a test.
+func (g *Gate) SetClock(now func() time.Time) { g.now = now }
 
 // file is what the gate has verified of one checkpoint file. The file is
 // append-only in use: a record once verified is not read again unless the
@@ -103,6 +177,9 @@ type file struct {
 	verdictGen uint64
 	covered    bool
 	why        string
+	// waiting is set when the last read stopped at a record whose key is
+	// still being looked up.
+	waiting bool
 }
 
 // record is the part of a signed record the stream check needs.
@@ -110,12 +187,19 @@ type record struct {
 	count  int64
 	head   string
 	prefix string
+	kid    string
+	at     time.Time
 }
 
 // NewGate builds a gate that reads checkpoint files from dir and verifies
 // signatures against keys, as LoadKeys returns them.
 func NewGate(dir string, keys map[string]*ecdsa.PublicKey) *Gate {
-	return &Gate{dir: dir, keys: keys, files: map[string]*file{}}
+	return NewGateFrom(dir, Pinned(keys))
+}
+
+// NewGateFrom builds a gate that takes each record's key from src.
+func NewGateFrom(dir string, src KeySource) *Gate {
+	return &Gate{dir: dir, keys: src, files: map[string]*file{}, now: time.Now, since: map[string]time.Time{}}
 }
 
 // Covered reports whether the stream at streamPath is covered by a signed
@@ -134,7 +218,7 @@ func (g *Gate) Covered(streamPath string) (bool, string) {
 	info, err := os.Stat(ckpt)
 	if err != nil {
 		delete(g.files, ckpt)
-		return false, ReasonNoFile
+		return g.decided(stream, false, ReasonNoFile)
 	}
 	f := g.files[ckpt]
 	if f == nil || info.Size() < f.offset {
@@ -145,10 +229,23 @@ func (g *Gate) Covered(streamPath string) (bool, string) {
 		f.advance(ckpt, stream, info.Size(), g.keys)
 	}
 	if f.refused != "" {
-		return false, f.refused
+		return g.decided(stream, false, f.refused)
 	}
 	if f.best == nil {
-		return false, ReasonNoSigned
+		if f.waiting {
+			return g.undecided(stream, ReasonNoSigned)
+		}
+		return g.decided(stream, false, ReasonNoSigned)
+	}
+	// The key that signed the newest record is asked again every time: a key
+	// revoked since, or one custody stopped confirming, uncovers the stream
+	// whatever was decided before. The pinned-key source always finds a
+	// pinned key, so the pinned mode is as it was.
+	switch _, v := g.keys.Still(stream, f.best.kid, f.best.at); v {
+	case keystatement.NotCertified:
+		return g.decided(stream, false, ReasonKeyWithdrawn)
+	case keystatement.Wait:
+		return g.undecided(stream, ReasonKeyUnconfirmed)
 	}
 	if !f.verdictSet || f.verdictGen != f.gen {
 		covered, why := verifyStream(streamPath, f.best)
@@ -158,13 +255,13 @@ func (g *Gate) Covered(streamPath string) (bool, string) {
 		f.verdictSet, f.verdictGen = true, f.gen
 		f.covered, f.why = covered, why
 	}
-	return f.covered, f.why
+	return g.decided(stream, f.covered, f.why)
 }
 
 // advance verifies the complete records between the file's offset and size,
 // in order, against SPEC 6.5.1 steps 1 to 3 and the signature of step 2. A
 // final line with no LF is a torn append and is left for the next call.
-func (f *file) advance(path, stream string, size int64, keys map[string]*ecdsa.PublicKey) {
+func (f *file) advance(path, stream string, size int64, keys KeySource) {
 	fh, err := os.Open(path) // #nosec G304 -- the checkpoint path is operator-supplied configuration, the same as the event paths
 	if err != nil {
 		f.refused = ReasonCkptUnreadable
@@ -183,6 +280,14 @@ func (f *file) advance(path, stream string, size int64, keys map[string]*ecdsa.P
 		}
 		body := raw[:len(raw)-1]
 		rec, signed, why := checkRecord(body, f.prev, stream, keys)
+		if why == waitForKey {
+			// Nothing is known yet about this record's key: the record is
+			// read again on the next poll, and nothing after it is read
+			// before it, so the newest covering record is never skipped.
+			f.waiting = true
+			return
+		}
+		f.waiting = false
 		if why != "" {
 			f.refused = why
 			return
@@ -203,7 +308,7 @@ func (f *file) advance(path, stream string, size int64, keys map[string]*ecdsa.P
 // not pin, is chained and returned as not signed, which is what SPEC 6.5.1
 // asks: it is reported as such, never as valid. A line that breaks the format
 // or the chain returns a reason, and the file is refused.
-func checkRecord(body []byte, prev, stream string, keys map[string]*ecdsa.PublicKey) (*record, bool, string) {
+func checkRecord(body []byte, prev, stream string, keys KeySource) (*record, bool, string) {
 	canon, err := jcs.Transform(body)
 	if err != nil || !bytes.Equal(canon, body) {
 		return nil, false, ReasonRefused
@@ -271,11 +376,21 @@ func checkRecord(body []byte, prev, stream string, keys map[string]*ecdsa.Public
 		json.Unmarshal(obj["kid"], &kid) != nil || json.Unmarshal(obj["sig"], &sig) != nil {
 		return nil, false, ReasonRefused
 	}
-	pub, pinned := keys[kid]
-	if !pinned || !verifySignature(pub, obj, sig) {
+	// A time that has the shape and is no date (a 60th second, a 13th
+	// month) is passed on as the zero time: the pinned mode never read it,
+	// and the custody mode certifies no key at the zero time.
+	when, _ := time.Parse("2006-01-02T15:04:05.000Z", at)
+	pub, verdict := keys.Key(stream, kid, when)
+	switch verdict {
+	case keystatement.Wait:
+		return nil, false, waitForKey
+	case keystatement.NotCertified:
 		return nil, false, ""
 	}
-	return &record{count: count, head: head, prefix: prefix}, true, ""
+	if !verifySignature(pub, obj, sig) {
+		return nil, false, ""
+	}
+	return &record{count: count, head: head, prefix: prefix, kid: kid, at: when}, true, ""
 }
 
 // verifySignature checks sig over the JCS serialization of the record with sig

@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TAIPANBOX/heraldyx/internal/keystatement"
 	"github.com/TAIPANBOX/heraldyx/internal/rule"
 	"github.com/TAIPANBOX/heraldyx/internal/stream"
 )
@@ -89,6 +90,17 @@ type Config struct {
 	CheckpointDir string
 	// CheckpointKeys is HERALDYX_CHECKPOINT_KEYS, the pinned public keys.
 	CheckpointKeys string
+	// CheckpointStatements is HERALDYX_CHECKPOINT_STATEMENTS: the directory
+	// keyryx custody publishes its key statements into (KEYRYX_STATEMENTS_DIR),
+	// mounted read only. Exactly one of it and CheckpointKeys is set while the
+	// gate is on.
+	CheckpointStatements string
+	// CheckpointRootPin is HERALDYX_CHECKPOINT_ROOT_PIN, the delegation root's
+	// kids by algorithm; required with CheckpointCustody, never on first use.
+	CheckpointRootPin map[string]string
+	// CheckpointStreamKeys is HERALDYX_CHECKPOINT_STREAM_KEYS, stream to the
+	// key name its checkpoint key is certified under.
+	CheckpointStreamKeys map[string]string
 }
 
 // FromEnv reads the configuration.
@@ -155,8 +167,29 @@ func FromEnv() (Config, error) {
 	if c.CheckpointGate && c.CheckpointDir == "" {
 		return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_GATE is on but HERALDYX_CHECKPOINTS is not set, so there is no checkpoint to read")
 	}
-	if c.CheckpointGate && c.CheckpointKeys == "" {
-		return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_GATE is on but HERALDYX_CHECKPOINT_KEYS is not set, so no checkpoint could be verified")
+	statements := os.Getenv("HERALDYX_CHECKPOINT_STATEMENTS")
+	switch {
+	case c.CheckpointGate && c.CheckpointKeys == "" && statements == "":
+		return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_GATE is on but neither HERALDYX_CHECKPOINT_KEYS nor HERALDYX_CHECKPOINT_STATEMENTS is set, so no checkpoint could be verified")
+	case c.CheckpointGate && c.CheckpointKeys != "" && statements != "":
+		return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_KEYS and HERALDYX_CHECKPOINT_STATEMENTS are both set; a key is either pinned or certified by custody, set one")
+	}
+	if c.CheckpointGate && statements != "" {
+		var err error
+		if err = keystatement.CheckDir(statements); err != nil {
+			return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_STATEMENTS: %w", err)
+		}
+		c.CheckpointStatements = statements
+		pin := os.Getenv("HERALDYX_CHECKPOINT_ROOT_PIN")
+		if pin == "" {
+			return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_STATEMENTS is set but HERALDYX_CHECKPOINT_ROOT_PIN is not: a statement is trusted only under a delegation root this box pinned, never one it took on first use")
+		}
+		if c.CheckpointRootPin, err = keystatement.ParsePin(pin); err != nil {
+			return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_ROOT_PIN: %w", err)
+		}
+		if c.CheckpointStreamKeys, err = keystatement.ParseStreamKeys(os.Getenv("HERALDYX_CHECKPOINT_STREAM_KEYS")); err != nil {
+			return c, fmt.Errorf("config: HERALDYX_CHECKPOINT_STREAM_KEYS: %w", err)
+		}
 	}
 	return c, nil
 }

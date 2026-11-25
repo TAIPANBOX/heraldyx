@@ -7,6 +7,12 @@ import "sort"
 // it must be a fixed string of the gate, never text a producer wrote.
 type Coverage func(path string) (bool, string)
 
+// Undecided is the reason a Coverage gives when it cannot answer yet (a key
+// it is still looking up). The file is neither read nor refused: its lines
+// stay where they are, nothing is counted or said, and the file is asked
+// about again on the next poll.
+const Undecided = "the checkpoint gate has not decided yet"
+
 // Uncovered is one stream file whose events were refused because no signed
 // checkpoint covers it, as the mail needs it.
 type Uncovered struct {

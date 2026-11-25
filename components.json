@@ -45,6 +45,15 @@
           "HERALDYX_CHECKPOINT_KEYS": {
             "required": false
           },
+          "HERALDYX_CHECKPOINT_STATEMENTS": {
+            "required": false
+          },
+          "HERALDYX_CHECKPOINT_ROOT_PIN": {
+            "required": false
+          },
+          "HERALDYX_CHECKPOINT_STREAM_KEYS": {
+            "required": false
+          },
           "HERALDYX_CHECKPOINTS": {
             "required": false
           },

@@ -145,11 +145,11 @@ func TestKeyryxCustodyStreamMayCarryKeyryxOnly(t *testing.T) {
 // names the keys file when it is on and the keys cannot load, so the process
 // does not start with a gate that could verify nothing.
 func TestAGateWhoseKeysCannotLoadDoesNotStart(t *testing.T) {
-	gate, err := checkpointGate(config.Config{CheckpointGate: false})
+	gate, _, err := checkpointGate(config.Config{CheckpointGate: false})
 	if gate != nil || err != nil {
 		t.Fatalf("a gate that is off must build nothing and fail nothing, got %v, %v", gate, err)
 	}
-	_, err = checkpointGate(config.Config{
+	_, _, err = checkpointGate(config.Config{
 		CheckpointGate: true,
 		CheckpointDir:  t.TempDir(),
 		CheckpointKeys: filepath.Join(t.TempDir(), "missing.json"),

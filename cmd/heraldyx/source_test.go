@@ -91,7 +91,7 @@ func newStreamBenchEnv(t *testing.T, minSeverity, streams string, extra map[stri
 	t.Cleanup(func() { journal.Close() })
 	w := watch.New(cfg.ResolveEventFiles(), snap.Offsets)
 	w.SetPolicy(cfg.StreamPolicy())
-	gate, err := checkpointGate(cfg)
+	gate, _, err := checkpointGate(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml/badge.svg)](https://github.com/TAIPANBOX/heraldyx/actions/workflows/ci.yml)
 ![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)
-![tests](https://img.shields.io/badge/tests-471-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-493-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.9.1-success.svg)
 
@@ -599,6 +599,9 @@ other.
 | `HERALDYX_STREAMS` | (empty) | what a stream file may carry beyond the built-in table, as `stem=source\|source`, comma-separated; see "What a file may carry" |
 | `HERALDYX_CHECKPOINT_GATE` | `off` | `on` reads a stream file only while a signed checkpoint covers it, and refuses to start without `HERALDYX_CHECKPOINTS` and `HERALDYX_CHECKPOINT_KEYS`; see "The checkpoint gate" |
 | `HERALDYX_CHECKPOINTS` | (empty) | the directory of `<stream>.ckpt.ndjson` checkpoint files, read when the gate is on |
+| `HERALDYX_CHECKPOINT_STATEMENTS` | (empty) | the directory keyryx custody publishes its key statements into (`KEYRYX_STATEMENTS_DIR`), mounted read only: each record's key comes from the statement there. Set this or `HERALDYX_CHECKPOINT_KEYS`, never both; see "Keys from keyryx custody" |
+| `HERALDYX_CHECKPOINT_ROOT_PIN` | (empty) | required with the statements directory: the kids of keyryx's delegation root, at least one ES384 and one ML-DSA-65, comma-separated |
+| `HERALDYX_CHECKPOINT_STREAM_KEYS` | (empty) | required with the statements directory: `stream|key-name`, the delegated key name each stream's checkpoint key is certified under; a stream bound to no name is not covered |
 | `HERALDYX_CHECKPOINT_KEYS` | (empty) | a JSON file of pinned public keys, from `kid` to the base64url uncompressed P-256 point, read when the gate is on; a file with no key in it refuses to start |
 
 ### What a file may carry
@@ -660,11 +663,40 @@ The process refuses to start when the gate is on and either path is missing,
 or when no key in the file loads, so a gate that could verify nothing does not
 run quietly and refuse everything.
 
+#### Keys from keyryx custody
+
+A producer's checkpoint key is short-lived: keyryx custody certifies it for a
+few hours and the producer renews it at half its life, so a pinned file goes
+out of date at the first renewal. This process opens no connection but its
+mail, so custody publishes its key statements into a directory of its own
+(`KEYRYX_STATEMENTS_DIR`) and this process mounts it read only, named by
+`HERALDYX_CHECKPOINT_STATEMENTS` in place of `HERALDYX_CHECKPOINT_KEYS`. Each
+record's key comes from the statement custody published for its kid, as
+keyryx's witness reads it:
+
+- the statement verifies under both halves of the delegation root you pinned
+  in `HERALDYX_CHECKPOINT_ROOT_PIN` (an ES384 and an ML-DSA-65 signature), and
+  only under the pinned kids custody's published root key set still carries,
+  so a half custody revoked verifies nothing; no root is taken on first use;
+- it certifies the record's kid as an ES256 key for the key name the stream is
+  bound to in `HERALDYX_CHECKPOINT_STREAM_KEYS`, so another producer's valid
+  key does not cover this stream;
+- the record's `at` is inside the key's life, it was first read while the key
+  was alive, and the key is not revoked by this box's own clock.
+
+The directory is read by a loop of its own; reading the bus never waits on it.
+A key read for the first time waits for its file a moment (custody copies a
+certification right after it), and a revocation is seen within a minute and
+uncovers its stream. The directory must be writable by nobody but its owner
+and not owned by this process's uid. Find the pin from custody's root key set
+(`delegation-root.jwks.json` in the directory, the two `kid` values), set
+before the gate first runs.
+
 What the gate does not check, stated plainly:
 
-- whether a pinned key was valid at the time its record says it signed, or has
-  been revoked since. That needs the key statement keyryx issues, which this
-  box does not read. A pinned key is trusted until you remove it.
+- in the pinned mode, whether a pinned key was valid at the time its record
+  says it signed, or has been revoked since. A pinned key is trusted until you
+  remove it. The custody mode checks both.
 - the earlier checkpoints of a stream. Only the newest signed record is held.
   Keeping earlier checkpoints beyond the producer's reach is the witness's job.
 - each line. Coverage is per stream file: a line appended after the newest

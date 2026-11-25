@@ -10,6 +10,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -164,12 +165,18 @@ func run(args []string) error {
 	w.SetPolicy(cfg.StreamPolicy())
 	// The checkpoint gate (F-018) is off unless the operator switched it on, and
 	// then a stream is read only while a signed checkpoint covers it.
-	gate, err := checkpointGate(cfg)
+	gate, resolve, err := checkpointGate(cfg)
 	if err != nil {
 		return err
 	}
 	if gate != nil {
 		w.SetCoverage(gate.Covered)
+	}
+	if resolve != nil {
+		// The custody mode's resolver asks custody on a loop of its own, so
+		// the poll loop below never waits on custody; it lives as long as
+		// this process does.
+		go resolve(context.Background())
 	}
 	if *fromNow && len(snap.Offsets) == 0 {
 		if err := w.SkipToEnd(); err != nil {

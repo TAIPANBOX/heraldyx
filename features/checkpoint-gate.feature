@@ -124,3 +124,34 @@ Feature: a stream with no signed checkpoint is not mailed, when the operator swi
     When heraldyx polls it with the gate on
     Then no line of it is mailed, and one mail names the stream and says it is shorter than its newest checkpoint
   # @test:TestATruncatedRealProducersStreamIsRefused
+
+  Scenario: a producer's renewed keys keep its stream covered through custody
+    Given the gate in the custody mode, and a producer whose checkpoint keys custody certifies and publishes, renewed partway through its stream
+    When heraldyx polls the stream before and after the resolver reads each key's file
+    Then the stream is covered once custody certified the first key, and stays covered through the renewal
+  # @test:TestAProducersRenewedKeysKeepItsStreamCoveredThroughCustody
+
+  Scenario: a key revoked at custody uncovers its stream
+    Given a stream covered by a key custody certified
+    When custody publishes the key's revocation and the resolver reads it
+    Then the stream is no longer covered, and the reason says its key is no longer certified
+  # @test:TestARevokedKeyUncoversItsStream
+
+  Scenario: a root half custody stops publishing uncovers its stream
+    Given a stream covered by a key custody certified
+    When custody's published root key set no longer carries the pinned kids
+    Then the stream is no longer covered, and the reason says its key is no longer certified
+  # @test:TestARootHalfCustodyStopsPublishingUncoversTheStream
+
+  Scenario: another producer's valid key does not cover this stream
+    Given checkpoints signed by a key custody certified for another producer's key name
+    When heraldyx polls this stream
+    Then no signed checkpoint covers it
+  # @test:TestAKeyCertifiedForAnotherProducerDoesNotCover
+
+  Scenario: the custody mode is read whole or refused
+    Given the gate on with custody's statements directory, and in turn the pinned file as well, neither, no pin, half a pin, no binding, or a directory that is relative, missing or this process's own
+    When heraldyx reads its configuration
+    Then the whole configuration is read and each broken one refuses the start
+  # @test:TestTheCustodyModeIsReadWholeOrRefused
+

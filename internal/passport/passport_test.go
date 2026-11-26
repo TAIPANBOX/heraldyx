@@ -108,3 +108,27 @@ func TestANewPassportIsPickedUpAfterTheRescanWindow(t *testing.T) {
 		t.Fatalf("never picked up: %q", got)
 	}
 }
+
+// The startup log's count is the number of agents with a known owner: a
+// passport with no owner, a malformed one and an unreadable one add nothing.
+// A file that cannot be read is counted as malformed beside one that does not
+// parse, so the operator sees both rather than neither.
+func TestCountIsOwnersKnownAndAnUnreadablePassportIsMalformed(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "a.json", `{"id":"agent://acme/a","owner":"team-a@acme.example"}`)
+	write(t, dir, "b.json", `{"id":"agent://acme/b","owner":"team-b@acme.example"}`)
+	write(t, dir, "orphan.json", `{"id":"agent://acme/orphan"}`)
+	write(t, dir, "broken.json", `{`)
+	// A directory matching *.json cannot be read as a file.
+	if err := os.Mkdir(filepath.Join(dir, "unreadable.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	d := Open(dir)
+	if got := d.Count(t0); got != 2 {
+		t.Fatalf("Count = %d, want 2 owners", got)
+	}
+	if d.Malformed != 2 {
+		t.Fatalf("Malformed = %d, want 2 (one that does not parse, one that does not read)", d.Malformed)
+	}
+}

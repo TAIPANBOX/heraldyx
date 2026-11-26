@@ -195,3 +195,68 @@ func TestTheStoppedSortFirstThenTheApproachingThenTheOdd(t *testing.T) {
 		}
 	}
 }
+
+// Every type this package can describe gets its own fixed phrase, and the
+// repeat count is added only when a producer sent a whole number above one, in
+// any of the numeric types a decoded or a hand-built event carries.
+func TestEveryDescribedTypeHasItsOwnPhraseAndCount(t *testing.T) {
+	cases := []struct {
+		typ  string
+		data map[string]any
+		kind Kind
+		want string
+	}{
+		{"fanout_explosion", map[string]any{"occurrences": int64(7)}, Odd, "driving far more runs at once than usual (7 times)"},
+		{"fanout_explosion", nil, Odd, "driving far more runs at once than usual"},
+		{"spend_spike", map[string]any{"occurrences": float64(9)}, Odd, "burning far faster than it usually does"},
+		{"mcp_drift", nil, Odd, "its MCP tool changed under the pinned lock"},
+		{"quality_drift", nil, Odd, "output drifting from its baseline"},
+		{"dlp_block", map[string]any{"occurrences": 3}, Odd, "blocked at the perimeter (3 times)"},
+		{"taint_block", map[string]any{"occurrences": float64(1)}, Odd, "blocked at the perimeter"},
+		{"sustained_loop", map[string]any{"occurrences": "14"}, Odd, "repeating the same step"},
+		{"budget_threshold", map[string]any{"spent_micros": 5, "budget_micros": int64(0)}, NearTheLine, "approaching its budget"},
+		{"budget_threshold", map[string]any{"spent_micros": int64(1), "budget_micros": int64(4)}, NearTheLine, "25% of budget"},
+	}
+	for _, c := range cases {
+		t.Run(fmt.Sprintf("%s %v", c.typ, c.data), func(t *testing.T) {
+			p := New()
+			p.Note(ev(c.typ, "agent", c.data), t0)
+			got := p.Around("", t0, 5)
+			if len(got) != 1 {
+				t.Fatalf("%+v", got)
+			}
+			if got[0].What != c.want || got[0].Kind != c.kind {
+				t.Fatalf("got %v %q, want %v %q", got[0].Kind, got[0].What, c.kind, c.want)
+			}
+		})
+	}
+}
+
+// Each kind reads as its own column, and anything that is neither stopped nor
+// approaching reads as odd.
+func TestEveryKindHasItsOwnLabel(t *testing.T) {
+	want := map[Kind]string{OverTheLine: "over the line", NearTheLine: "near the line", Odd: "behaving oddly", Kind(42): "behaving oddly"}
+	for k, w := range want {
+		if got := k.Label(); got != w {
+			t.Fatalf("Kind(%d).Label() = %q, want %q", k, got, w)
+		}
+	}
+}
+
+// An id that fits the column is shown whole; a longer one keeps its last 37
+// bytes behind an ellipsis, so the column stays 40 wide and the end of the id,
+// the part that tells two agents of one tenant apart, stays readable.
+func TestShortKeepsTheRecognisableEnd(t *testing.T) {
+	fits := "agent://acme/" + "abcdefghijklmnopqrstuvwxyz0" // 40 bytes
+	if len(fits) != 40 {
+		t.Fatalf("fixture is %d bytes", len(fits))
+	}
+	if got := Short(fits); got != fits {
+		t.Fatalf("Short(%q) = %q, want it unchanged", fits, got)
+	}
+	long := fits + "-tail"
+	got := Short(long)
+	if len(got) != 40 || got != "..."+long[len(long)-37:] {
+		t.Fatalf("Short(%q) = %q (%d bytes)", long, got, len(got))
+	}
+}

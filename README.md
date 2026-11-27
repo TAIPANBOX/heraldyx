@@ -1035,8 +1035,13 @@ make gates
 ```
 
 which is `gofmt`, `go vet`, `staticcheck`, `go test -race ./...`, `gosec`,
-`govulncheck` and `./scripts/one-way-out.sh`: the same set CI runs, in the same
-order, so a green local run means a green CI run.
+`govulncheck` and `./scripts/one-way-out.sh`: the checks CI runs, in the same
+order, so a green local run is a good sign for CI. CI adds a few more: a
+statement-coverage floor, the README's numbers, scenario binding, and the gates-have-teeth
+harness. The coverage floor lives in `.coverage-floor`, may only be raised, and
+was 93.80% against a floor of 92.80% on main on 2026-11-27 (target 90%). A weekly
+workflow (`mutation.yml`) runs gremlins over every tested package and puts the
+kill score on the run page; it measures and gates nothing.
 
 The last one holds the architectural claim this component makes: SMTP lives in
 `internal/deliver` and nowhere else, nothing here speaks HTTP, and the layer

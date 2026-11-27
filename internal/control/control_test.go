@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -196,5 +197,66 @@ func TestSettingAWindowRefusesAnInvalidOneAndEndingNothingSaysSo(t *testing.T) {
 	}
 	if f.EndMaintenance() {
 		t.Fatal("ending a window that was never set reported one")
+	}
+}
+
+// The file holds at most maxAcks acknowledgements. One more is refused with a
+// reason, and the file is left as it was; replacing one already there is still
+// allowed at the bound, because it does not grow the file.
+func TestTheFileRefusesAnAckPastTheBoundButStillReplacesOne(t *testing.T) {
+	var f File
+	for i := 0; i < maxAcks; i++ {
+		if err := f.Put(ack(fmt.Sprintf("policy_deny:run-%d", i), time.Hour)); err != nil {
+			t.Fatalf("ack %d: %v", i, err)
+		}
+	}
+	err := f.Put(ack("policy_deny:one-too-many", time.Hour))
+	if err == nil || !strings.Contains(err.Error(), "remove some first") {
+		t.Fatalf("ack %d: want a refusal, got %v", maxAcks+1, err)
+	}
+	if len(f.Acks) != maxAcks {
+		t.Fatalf("the refused ack changed the file: %d acks", len(f.Acks))
+	}
+	if err := f.Put(ack("policy_deny:run-0", 2*time.Hour)); err != nil {
+		t.Fatalf("replacing an ack at the bound: %v", err)
+	}
+	if f.Acks[0].Until != t0.Add(2*time.Hour).UnixMilli() {
+		t.Fatal("the replacement was not kept")
+	}
+}
+
+// A save that cannot put the file in place says so and leaves nothing behind:
+// the temporary file beside it is removed either way.
+func TestASaveThatCannotRenameIntoPlaceLeavesNoTemporaryFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "control.json")
+	// A non-empty directory at the path cannot be replaced by a file.
+	if err := os.MkdirAll(filepath.Join(path, "occupied"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err := Save(path, File{})
+	if err == nil || !strings.Contains(err.Error(), "control: rename into place") {
+		t.Fatalf("want a rename error, got %v", err)
+	}
+	left, _ := filepath.Glob(filepath.Join(dir, ".heraldyx-control-*"))
+	if len(left) != 0 {
+		t.Fatalf("temporary files left behind: %v", left)
+	}
+}
+
+// A directory this process may not write into is a save error naming the
+// temporary file, not a silent success.
+func TestASaveIntoAnUnwritableDirectoryIsAnError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into a read-only directory")
+	}
+	dir := filepath.Join(t.TempDir(), "ro")
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	err := Save(filepath.Join(dir, "control.json"), File{})
+	if err == nil || !strings.Contains(err.Error(), "control: temp file") {
+		t.Fatalf("want a temp file error, got %v", err)
 	}
 }

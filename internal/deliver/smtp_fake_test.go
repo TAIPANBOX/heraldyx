@@ -28,6 +28,7 @@ type fakeRelay struct {
 
 	mu       sync.Mutex
 	messages []string
+	auths    []string
 }
 
 type relayOpts struct {
@@ -35,6 +36,13 @@ type relayOpts struct {
 	starttls   bool // offers STARTTLS and performs it
 	silent     bool // accepts the connection and never speaks
 	dropOnQuit bool // takes the message, then closes the connection instead of answering QUIT
+	auth       bool // offers AUTH PLAIN and records the AUTH line it is sent
+	// reject lists command prefixes (upper case, e.g. "MAIL FROM") the relay
+	// answers with a permanent failure instead of accepting.
+	reject []string
+	// refuseMessage reads the whole message after DATA and then refuses it,
+	// the answer a content filter gives at the end of the data.
+	refuseMessage bool
 }
 
 func newFakeRelay(t *testing.T, o relayOpts) *fakeRelay {
@@ -57,6 +65,13 @@ func (r *fakeRelay) trust() *x509.CertPool {
 	pool := x509.NewCertPool()
 	pool.AddCert(r.cert.Leaf)
 	return pool
+}
+
+// authLines returns the AUTH commands the relay was sent, in arrival order.
+func (r *fakeRelay) authLines() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.auths...)
 }
 
 // received returns the message bodies the relay accepted, in arrival order.
@@ -107,14 +122,37 @@ func (r *fakeRelay) dialogue(conn net.Conn) {
 		}
 		line := strings.TrimRight(raw, "\r\n")
 		up := strings.ToUpper(line)
+		if strings.HasPrefix(up, "AUTH") {
+			r.mu.Lock()
+			r.auths = append(r.auths, line)
+			r.mu.Unlock()
+		}
+		if r.refuses(up) {
+			say("550 5.7.1 refused by relay.test")
+			continue
+		}
 		switch {
 		case strings.HasPrefix(up, "EHLO"), strings.HasPrefix(up, "HELO"):
+			ext := []string{"relay.test"}
 			if r.opts.starttls && !tlsUp {
-				say("250-relay.test")
-				say("250 STARTTLS")
-			} else {
-				say("250 relay.test")
+				ext = append(ext, "STARTTLS")
 			}
+			if r.opts.auth {
+				ext = append(ext, "AUTH PLAIN")
+			}
+			for i, e := range ext {
+				sep := "-"
+				if i == len(ext)-1 {
+					sep = " "
+				}
+				say("250" + sep + e)
+			}
+		case strings.HasPrefix(up, "AUTH"):
+			if !r.opts.auth {
+				say("502 5.5.1 command not implemented")
+				continue
+			}
+			say("235 2.7.0 authentication succeeded")
 		case up == "STARTTLS":
 			if !r.opts.starttls || tlsUp {
 				say("502 5.5.1 command not implemented")
@@ -143,6 +181,10 @@ func (r *fakeRelay) dialogue(conn net.Conn) {
 				}
 				body.WriteString(l)
 			}
+			if r.opts.refuseMessage {
+				say("554 5.6.0 message refused by relay.test")
+				continue
+			}
 			r.mu.Lock()
 			r.messages = append(r.messages, body.String())
 			r.mu.Unlock()
@@ -157,6 +199,16 @@ func (r *fakeRelay) dialogue(conn net.Conn) {
 			say("250 2.0.0 ok")
 		}
 	}
+}
+
+// refuses reports whether the relay is set to refuse this command line.
+func (r *fakeRelay) refuses(up string) bool {
+	for _, p := range r.opts.reject {
+		if strings.HasPrefix(up, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // testCert makes a self-signed certificate for 127.0.0.1 and localhost. It is
